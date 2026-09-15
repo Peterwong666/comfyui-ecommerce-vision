@@ -1,0 +1,76 @@
+name: 缺陷报告
+description: 报告一个功能缺陷或生成质量问题
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    value: |
+      提交前请先查 `docs/sop/troubleshooting.md` 与缺陷知识库 `docs/sop/defect_kb.md`。
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: 问题类型
+      options:
+        - 平台功能（前端/API/任务）
+        - 出图质量（瑕疵/不一致/形变）
+        - 性能与显存（OOM/慢/卡死）
+        - 批量任务（失败/中断/续跑）
+        - 环境与部署
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 越具体越好
+      placeholder: |
+        1. 选择工作流 xxx
+        2. 设置参数 ...
+        3. 提交后 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望结果
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      description: 附上截图、错误日志、task_id
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: 环境信息
+      placeholder: GPU 型号 / 显存 / CUDA / 驱动 / ComfyUI commit / 模型与版本
+    validations:
+      required: true
+
+  - type: textarea
+    id: meta
+    attributes:
+      label: 产物元数据
+      description: 若出图有问题，请粘贴产物 PNGInfo（含 workflow 版本、seed、模型 hash）
+      render: text
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: 严重程度
+      options:
+        - P0 阻塞（无法出图 / 服务不可用）
+        - P1 严重（主要功能受影响）
+        - P2 一般（有 workaround）
+        - P3 轻微（体验问题）
+    validations:
+      required: true

@@ -198,17 +198,17 @@ comfyui-platform/
 
 ### P0 · 项目启动与规范（Day 1-2，0.5 周）
 
-| ID | 任务 | 产出 | Pri |
-|---|---|---|---|
-| P0-01 | 建立仓库结构、分支策略（main/dev/feat/*）、README 骨架 | 仓库 + 分支 | P0 |
-| P0-02 | 建立 docs 目录树（见上） | 目录 | P0 |
-| P0-03 | 建立任务看板（GitHub Projects）+ 本文件 + `项目进度.md` | 看板 | P0 |
-| P0-04 | 约定提交规范（Conventional Commits）、PR/Issue 模板 | 模板文件 | P1 |
-| P0-05 | 确定许可证策略：代码 MIT/Apache；**编写模型商用许可矩阵初稿** | `docs/sop/license_matrix.md` | P0 |
-| P0-06 | 建立 ADR（架构决策记录）习惯，记录第一个决策：技术栈选型 | `docs/adr/0001-tech-stack.md` | P1 |
-| P0-07 | 建立「每日 15 分钟收工记录」习惯（写进 `项目进度.md`） | 日志模板 | P1 |
+- [x] **P0-01** 建立仓库结构、分支策略（main/dev/feat/*）、README 骨架 → 目录骨架 + `main`/`dev` 分支 + `README.md`
+- [x] **P0-02** 建立 docs 目录树 → `docs/{mrd,prd,persona,flow,prototype,sop,adr,review}`
+- [~] **P0-03** 建立任务看板 → 本地看板（`todolist.md` + `项目进度.md`）已完成；**GitHub Projects 待远端仓库创建后补**
+- [x] **P0-04** 约定提交规范（Conventional Commits）、PR/Issue 模板 → `CONTRIBUTING.md` + `.github/PULL_REQUEST_TEMPLATE.md` + Issue 模板 ×2
+- [x] **P0-05** 确定许可证策略 + 模型商用许可矩阵初稿 → `LICENSE`（MIT）+ `docs/sop/license_matrix.md`
+- [x] **P0-06** 建立 ADR 习惯 → `docs/adr/` 索引 + ADR-001~004（交付形态、开源许可、周期节奏、技术栈）
+- [x] **P0-07** 建立每日收工记录习惯 → `项目进度.md` 每日记录表 + 更新规范
+- [x] **P0-08**（补充）环境变量与密钥管理基线 → `.env.example`，`.gitignore` 拦截 `.env` 与权重文件
 
 **DoD**：仓库可克隆，任何人按 README 能看懂项目结构与下一步。
+**阶段结果**：✅ 达成（2026-09-15）。仅 P0-03 的远端看板待建仓库后补。
 
 ---
 
