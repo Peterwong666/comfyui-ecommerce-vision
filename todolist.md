@@ -265,7 +265,7 @@ comfyui-platform/
 - [x] **P2-01** autoDL 选型与开卡 → 已开 RTX 4090 24G / 128 核 / 1TB RAM（详见 `项目进展.md` §2.1）
 - [x] **P2-02** 数据与模型存储策略 → models/output/input 迁至数据盘 50G + 软链（`deploy/autodl/02_migrate_models.sh`）
 - [ ] **P2-03** 基础镜像 Dockerfile（**已决定暂缓**：autoDL 实例自带 CUDA 12.4 + torch 2.5.1，先用现有环境；镜像化推迟到 P11-02 部署文档时统一做）
-- [ ] **P2-04** ComfyUI 部署，models 目录外挂，目录规划确定
+- [x] **P2-04** ComfyUI 部署，models 目录外挂 → ✅ 已启动并验证：**SDXL 文生图 12.0s 出图成功**（`deploy/autodl/03_start_comfyui.sh` + `04_api_smoke_test.py`）
 - [ ] **P2-05** ComfyUI-Manager + 自定义节点白名单（现有 31 个节点太多太脆，需裁剪）
 - [x] **P2-06** 版本锁定 → `versions.lock`（398 行：GPU/驱动/python/torch/CUDA/ComfyUI commit/31 节点 commit/pip freeze）
 - [ ] **P2-07** 环境复现脚本 + 重建验证

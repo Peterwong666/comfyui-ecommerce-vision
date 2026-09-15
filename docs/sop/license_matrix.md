@@ -29,9 +29,18 @@
 | Stable Diffusion 1.5 | CreativeML OpenRAIL-M | ✅ | 附使用限制条款（禁非法内容、禁冒充、禁未经同意的肖像等） |
 | SDXL 1.0 / Turbo | CreativeML OpenRAIL++-M | ✅ | 同上 |
 | SD 3 / 3.5 | Stability AI Community License | ⚠️ 有条件 | 年收入 <100 万美元可免费商用，超出需商业许可 |
-| **FLUX.1 [schnell]** | Apache-2.0 | ✅ | 商用最省心，推荐优先评估 |
+| **FLUX.1 [schnell]** | Apache-2.0 | ✅ | 商用最省心，但 **BFL 官方仓库为 gated（403）**，本项目实际取不到，已改用 FLUX.2 klein |
 | FLUX.1 [dev] | FLUX.1-dev Non-Commercial License | ❌ 禁止 | 需单独授权；**V1 不得用于商业交付** |
+| **FLUX.2 [klein] 4B** | **Apache-2.0** | ✅ | ✅ **本项目采用**（ADR-005）。未 gated，仓库自带 VAE 与文本编码器 |
+| **FLUX.2 [klein] 4B Base** | **Apache-2.0** | ✅ | V2 微调候选 |
+| FLUX.2 [klein] 9B / 9B KV / 9B Base | FLUX.2-dev Non-Commercial | ❌ 禁止 | 参数更大但**不可商用**，一律不碰 |
+| FLUX.2 [dev]（32B） | FLUX.2-dev Non-Commercial | ❌ 禁止 | 且仓库 gated（403） |
+| FLUX.2 autoencoder (VAE) | **Apache-2.0** | ✅ | 随 klein 仓库提供 |
 | 各类社区合并模型 / 蒸馏模型 | 多为 OpenRAIL 系或作者自定 | ⚠️ 高风险 | 社区模型常附加「禁转售」条款，必须逐个核对 |
+
+> ⚠️ **重要经验（2026-09-15）**：`HF_ENDPOINT=https://hf-mirror.com` 能解决**网络不通**，
+> 但**绕不过 gated 仓库**的授权校验 —— 会报 `GatedRepoError: ... you are not in the authorized list`。
+> 选模型时必须把「能否真正下载到」当成硬指标，许可证可商用但取不到 = 等于不可用。
 
 ## 3. 控制与适配
 

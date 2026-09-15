@@ -1,0 +1,67 @@
+{
+  "_meta": {
+    "id": "WF-T2I",
+    "version": "1.0.0",
+    "title": "SDXL 文生图 · 冒烟测试版",
+    "engine": "ComfyUI v0.3.75",
+    "checkpoint": "sd_xl_base_1.0.safetensors",
+    "note": "用于验证 API 链路通畅的最小工作流，后续 P3-03 会在此基础上扩展参数占位与高清分支"
+  },
+  "4": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "sd_xl_base_1.0.safetensors"
+    }
+  },
+  "5": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    }
+  },
+  "6": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "professional product photo of a ceramic coffee mug, matte white finish, on a light grey seamless background, soft studio lighting, subtle shadow, sharp focus, high detail, centered composition",
+      "clip": ["4", 1]
+    }
+  },
+  "7": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "blurry, low quality, distorted, deformed, watermark, text, logo, cropped, oversaturated, plastic look",
+      "clip": ["4", 1]
+    }
+  },
+  "3": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 20260915,
+      "steps": 25,
+      "cfg": 6.5,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1.0,
+      "model": ["4", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    }
+  },
+  "8": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["3", 0],
+      "vae": ["4", 2]
+    }
+  },
+  "9": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "smoke/t2i",
+      "images": ["8", 0]
+    }
+  }
+}
