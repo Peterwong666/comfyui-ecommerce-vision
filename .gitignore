@@ -1,0 +1,90 @@
+# ============================================================
+# ComfyUI 商用封装平台 · .gitignore
+# 原则：代码与文档入库，数据/模型/产物/密钥一律不入库
+# ============================================================
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------- 虚拟环境 ----------
+.venv/
+venv/
+env/
+ENV/
+
+# ---------- 环境变量与密钥（红线） ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+secrets/
+credentials.json
+service_account.json
+
+# ---------- 模型权重（体积巨大 + 许可敏感，只入库 registry 清单） ----------
+models/
+assets/models/
+*.safetensors
+*.ckpt
+*.pth
+*.pt
+*.bin
+*.gguf
+*.onnx
+*.engine
+*.fp8
+*.lora
+
+# ---------- 运行时产物 ----------
+output/
+outputs/
+input/
+temp/
+tmp/
+uploads/
+storage/
+*.log
+logs/
+
+# ---------- 数据库与对象存储 ----------
+*.db
+*.sqlite
+*.sqlite3
+postgres_data/
+redis_data/
+minio_data/
+
+# ---------- 前端 ----------
+node_modules/
+web/node_modules/
+web/dist/
+web/.vite/
+web/coverage/
+.pnpm-store/
+
+# ---------- 编辑器与系统 ----------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# ---------- 测试用例中的敏感图（按需白名单） ----------
+tests/golden_set/reference/*
+!tests/golden_set/reference/.gitkeep
