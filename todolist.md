@@ -262,23 +262,22 @@ comfyui-platform/
 
 ### P2 · 基础设施与环境（W1-W2）
 
-| ID | 任务 | 产出 | Pri |
-|---|---|---|---|
-| P2-01 | autoDL 选型与开卡（GPU 型号、显存、数据盘、地域、按量/包日策略） | 实例 + 成本记录 | P0 |
-| P2-02 | 数据与模型存储策略（数据盘 vs 对象存储 vs 网盘），模型下载与同步方案 | 存储方案文档 | P0 |
-| P2-03 | 基础镜像 Dockerfile（Ubuntu + CUDA + Python + PyTorch + xformers） | `deploy/Dockerfile.base` | P0 |
-| P2-04 | ComfyUI 部署，models 目录外挂，目录规划确定 | 可运行实例 | P0 |
-| P2-05 | ComfyUI-Manager + **自定义节点白名单**（只装必需的，节点越多越脆） | `engine/nodes_whitelist.txt` | P0 |
-| P2-06 | **版本锁定**：ComfyUI commit、各节点 commit、requirements freeze、模型 hash 基线 | `engine/versions.lock` | P0 |
-| P2-07 | 环境复现脚本 + 重建验证（销毁后重建，跑通同一张图） | `deploy/setup.sh` + 验证记录 | P0 |
-| P2-08 | 后端骨架 FastAPI（配置、日志、异常处理、健康检查、OpenAPI） | 可启动服务 | P0 |
-| P2-09 | PostgreSQL + Redis + MinIO 的 docker-compose，数据持久化 | `deploy/docker-compose.yml` | P0 |
-| P2-10 | 前端骨架（框架 + 路由 + 组件库 + 请求封装 + 主题） | 可启动前端 | P0 |
-| P2-11 | CI 基础（lint/format/type-check + 单测跑通 + GitHub Actions） | `.github/workflows/ci.yml` | P1 |
-| P2-12 | 配置与密钥管理（.env、环境隔离、密钥不入库、`.gitignore` 审查） | 配置体系 | P0 |
-| P2-13 | 数据库迁移方案（Alembic）与初始 schema | 迁移脚本 | P1 |
+- [x] **P2-01** autoDL 选型与开卡 → 已开 RTX 4090 24G / 128 核 / 1TB RAM（详见 `项目进展.md` §2.1）
+- [x] **P2-02** 数据与模型存储策略 → models/output/input 迁至数据盘 50G + 软链（`deploy/autodl/02_migrate_models.sh`）
+- [ ] **P2-03** 基础镜像 Dockerfile（**已决定暂缓**：autoDL 实例自带 CUDA 12.4 + torch 2.5.1，先用现有环境；镜像化推迟到 P11-02 部署文档时统一做）
+- [ ] **P2-04** ComfyUI 部署，models 目录外挂，目录规划确定
+- [ ] **P2-05** ComfyUI-Manager + 自定义节点白名单（现有 31 个节点太多太脆，需裁剪）
+- [x] **P2-06** 版本锁定 → `versions.lock`（398 行：GPU/驱动/python/torch/CUDA/ComfyUI commit/31 节点 commit/pip freeze）
+- [ ] **P2-07** 环境复现脚本 + 重建验证
+- [ ] **P2-08** 后端骨架 FastAPI
+- [ ] **P2-09** PostgreSQL + Redis + MinIO 的 docker-compose
+- [ ] **P2-10** 前端骨架
+- [ ] **P2-11** CI 基础
+- [ ] **P2-12** 配置与密钥管理
+- [ ] **P2-13** 数据库迁移方案与初始 schema
 
 **DoD**：环境可一键重建；`versions.lock` 存在；后端/前端/ComfyUI 三件套都能起来并互相调通一次。
+**阶段结果**：🔵 进行中（3/13，2026-09-15）。P2-03 有意推迟 —— 先用自带环境跑主线，避免在环境美化上消耗前期时间。
 
 ---
 

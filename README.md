@@ -130,9 +130,11 @@ cd comfyui-ecommerce-platform
 | 类别 | 位置 |
 |---|---|
 | 执行计划 | [`todolist.md`](./todolist.md) · [`项目进度.md`](./项目进度.md) |
+| **进展与问题处置纪实** | [`项目进展.md`](./项目进展.md) |
 | 产品文档 | `docs/mrd/` · `docs/prd/` · `docs/persona/` · `docs/flow/` · `docs/prototype/` |
 | 架构决策 | [`docs/adr/`](./docs/adr/) |
 | 工程 SOP | `docs/sop/`（工作流规范、控制矩阵、调优指南、排错手册、许可矩阵） |
+| 环境搭建 | [`deploy/autodl/`](./deploy/autodl/)（版本锁定、模型盘迁移脚本） |
 | 复盘 | `docs/review/` |
 
 ---
