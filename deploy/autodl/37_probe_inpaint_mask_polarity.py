@@ -43,7 +43,24 @@
         --base-image /root/autodl-tmp/l4_assets/ref_product.png \
         --seed 20260916 --json /root/autodl-tmp/l4_evidence/36_inpaint_mask_polarity.json
 
-退出码：0 = 探针跑完（**不代表极性正确**）· 1 = 探针自身失败 · 2 = 用法错
+退出码：0 = 探针跑完（**不代表极性正确**）· 1 = 探针自身失败 ·
+       2 = 用法/环境前提不满足（参数非法、输入文件不存在、缺依赖）
+
+依赖声明
+--------
+本脚本需要 **numpy** 与 **Pillow(PIL)**，而它们**不在任何 pyproject 里**：
+
+* 仓库根 `pyproject.toml` 刻意声明 `engine/` 核心**零运行时依赖**（只用标准库），
+  不能为了一个部署脚本破坏这条契约；
+* `backend/pyproject.toml` 是**后端服务**的依赖，后端运行期并不用 numpy/PIL，
+  声明进去等于让服务背上一份它不 import 的依赖（语义错误）；
+* `deploy/` 不是包、没有 pyproject —— 这些脚本的实际宿主是**远端 conda 环境**
+  （`/root/miniconda3/bin/python`，见上面的用法），那个环境**不是**按本仓库的
+  打包元数据装的，所以在此处声明**没有任何读取方**，只会造成"声明过=有保障"的假象。
+
+故采取**脚本内显式前置检查**：缺包时立即以退出码 2 响亮失败并说明装什么，
+而不是甩出一段 ImportError 崩栈（后者容易被误读成"脚本写错了"）。
+远端这两个包由 ComfyUI 自身依赖带入，通常已存在；此为**防空转**的兜底。
 """
 
 from __future__ import annotations
@@ -56,12 +73,38 @@ import pathlib
 import sys
 from typing import Any
 
-import numpy as np
-from PIL import Image, ImageFilter
-
 from engine.registry import Registry
 from engine.render import RenderOptions, load_definition, render
 from engine.tools.verify_render_path import ComfyClient, idat_digest
+
+#: 本探针的第三方依赖（部署脚本宿主环境提供，不在本仓库打包元数据里）
+_REQUIRED_THIRD_PARTY = ("numpy", "PIL")
+
+
+def _require_third_party() -> None:
+    """缺依赖时响亮失败，**不要**让 ImportError 崩栈。
+
+    刻意先探测全部再看结果：一次把缺的包都列出来，省得用户装一个再跑一次。
+    """
+    missing = []
+    for mod in _REQUIRED_THIRD_PARTY:
+        try:
+            __import__(mod)
+        except ImportError:
+            missing.append(mod)
+    if missing:
+        pkgs = " ".join("Pillow" if m == "PIL" else m for m in missing)
+        print(f"[fatal] 本探针缺少依赖: {', '.join(missing)}")
+        print(f"        装法: pip install {pkgs}")
+        print("        （远端 conda 环境通常已由 ComfyUI 依赖带入；本仓库不声明这两个包，"
+              "原因见模块 docstring『依赖声明』一节）")
+        raise SystemExit(2)
+
+
+_require_third_party()
+
+import numpy as np  # noqa: E402  # 依赖检查必须在导入之前，故不置于文件顶部
+from PIL import Image, ImageFilter  # noqa: E402
 
 #: 探针画在参考图上的「假想重绘区」：以图心为圆心的圆
 #: ⚠️ 用**圆**而不是矩形：`GrowMask.tapered_corners=true` 会把直角磨圆，
