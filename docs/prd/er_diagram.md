@@ -53,8 +53,7 @@ erDiagram
         string display_name
         text description
         jsonb definition "ComfyUI API 格式节点图"
-        jsonb param_schema "驱动动态表单 + 参数校验"
-        jsonb param_bindings "参数 → 节点入参路径"
+        jsonb param_schema "驱动动态表单 + 参数校验（注入位置在 targets 里）"
         bool is_active "回滚 = 旧版本置 true"
         float eval_score
         float good_rate
@@ -221,7 +220,7 @@ erDiagram
 | # | 表 | 职责 | 主要 FR |
 |---|---|---|---|
 | 1 | `users` | 账号、角色、配额 | FR-1.1 / FR-1.2 / FR-9.2 |
-| 2 | `workflows` | 版本化工作流（节点图 + 参数 Schema + 注入映射） | FR-6.1 / FR-6.3 / FR-6.4 |
+| 2 | `workflows` | 版本化工作流（节点图 + 参数 Schema；注入位置在 Schema 的 `targets` 里，**无独立绑定列**） | FR-6.1 / FR-6.3 / FR-6.4 |
 | 3 | `templates` | 场景模板 = 工作流 + 预设参数 + 示例图 | FR-2.2 / FR-2.4 / FR-3.2 |
 | 4 | `batches` | 批量父任务，状态由子任务聚合推导 | FR-3.4 / FR-3.5 |
 | 5 | `tasks` | **单张图**子任务，承载完整状态机 | FR-2.5 / FR-4.x / §5 |

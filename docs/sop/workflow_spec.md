@@ -545,8 +545,8 @@ python -m pytest engine/tests -q
 |---|---|---|---|
 | 1 | **`contracts.md` §3.5 示例的节点 ID 与真实工作流不符** | 契约示例写 `prompt→"6"` / 画布`→"5"` / 采样`→"3"`；而真实 klein 工作流是 `prompt→"4"` / 画布`→"6"` / 采样分散在 `"7"`(steps)、`"9"`(cfg)、`"8"`(seed) | 契约示例属**示意性**，但 A/D 流可能照抄。建议在 §3.5 加一句「节点 ID 为示例，实际以 `workflows/registry.yaml` 为准」，**不修改格式本身** |
 | 2 | **per-workflow 边界 vs 全局边界** | 契约 §3.4 说「A 后端边界值统一取 `settings`」；但 klein 蒸馏版 `cfg` 必须为 1、`steps` 应为 4，PRD §6.2 的 `cfg 1.0–20.0` 对它是错的 | 建议明确：**Schema 边界 ⊆ settings 边界，取更严者**；schema 可更窄（如 klein cfg 1.0–2.0），A 流校验时以 schema 为准 |
-| 3 | **`backend/app/models/workflow.py` 的 `param_bindings` 字段** | 该字段注释为 `{"steps": ["3","inputs","steps"]}`，是**契约 §3.3 `targets` 之前的旧设计**，与 `param_schema` 并存 | 属 A 流范围，建议**删除或标注废弃**，避免两套绑定机制并存（前端/后端各读一套必出事） |
-| 4 | **`visible` vs `advanced`** | `workflow.py` 的 docstring 写 `"visible": true`；契约 §3.1 用的是 `advanced`（默认 false，true 折叠） | 以契约为准；建议 A 流同步 docstring |
+| 3 | **旧绑定机制 `param_bindings`（A 流已删除）** | ✅ **已结案（此前某轮完成，本次 2026-09-16 核实）**：该字段**已不存在** —— `grep -rn param_bindings` 全仓库只剩 `backend/app/models/workflow.py:74` 的删除说明注释与 `backend/tests/test_migration.py` 的反向门禁 `test_dropped_binding_mechanism_stays_dropped`。它是契约 §3.3 `targets` 之前的旧设计，曾与 `param_schema` 表达同一件事 | 无需再处理：**唯一绑定机制是契约 §3.3 的 `targets`**（注入位置就写在 `param_schema` 里），两套并存的隐患已消除 |
+| 4 | **`visible` vs `advanced`** | ✅ **已结案（此前某轮完成，本次 2026-09-16 核实）**：`backend/app/models/workflow.py` 的 docstring **已不再出现** `"visible"` / `"basic"`（两条 grep 均无匹配，exit 1）；现用 `advanced`（默认 false，true 折叠）与 `visible_when`，与契约 §3.1 一致 | 无需再处理：docstring 已按契约 §3.1 同步 |
 | 5 | **`object_info` 缓存缺失** | 见 §8.1，L3 校验当前无法离线执行 | 需要一位能在服务器上跑 `--cpu` 的同流产出缓存文件并回传仓库 |
 | 6 | **提示词写入产物元数据** | 见 §7.2 的双向设计 | ✅ **2026-09-16 team-lead 已确认成立**，并追加要求：埋点侧 hash 须加盐（已写入 §7.2.2 并实现） |
 | 7 | **`status: enabled` 的放行判据** | team-lead 裁定「L4 未跑前一律不得标启用」。施行时发现需再细分一层：既有 `gpu_verified` 说的是「**模板裸提交**出过图」，而生产走的是「**渲染路径**」—— 两者不是同一件事 | 已加 `render_path_l4` 字段并**用校验强制**：`status: enabled` 必须 `render_path_l4: true` + `verification: gpu_verified`。当前两条工作流均 `disabled`（见 §8.3） |
