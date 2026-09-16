@@ -251,9 +251,9 @@ Worker 可能被 `kill -9` 或 OOM Killer 杀掉，**没有机会执行任何清
 | 模型商用许可 | registry 记录 license，未知即不用 | ✅ 已建矩阵 |
 | ComfyUI GPL-3.0 | 不 fork，仅 API 调用 | ✅ ADR-002 |
 | 生成标识 | 元数据写入（V1）→ C2PA（V2） | ⚠️ V1 部分 |
-| NSFW 过滤 | FR-9.4 | 待实现 |
-| 数据隔离 | user_id 隔离 | 待实现 |
-| 审计 | 登录/提交/删除留痕 | 待实现 |
+| NSFW 过滤 | FR-9.4 | ⚠️ 待实现：V1 只交付**输入侧**敏感词/合规词过滤与开关（P6-13）；**视觉检测未实现** |
+| 数据隔离 | user_id 隔离 | ✅ 已实现（越权一律 404：`tasks.py` 的 `_owned_task` / `assets.py` 的 `_owned_asset`） |
+| 审计 | 登录/提交/删除留痕 | ✅ 已实现（`AuditLog`，全仓库 9 处写入口：assets 3 / tasks 2 / auth 3 / worker 1） |
 
 ---
 
