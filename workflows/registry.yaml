@@ -62,18 +62,20 @@ workflows:
     engine: "ComfyUI v0.36.0 (commit ee71d5c4)"
     models:
       - sd_xl_base_1.0.safetensors
-    # ⚠️ status 一律 disabled：L4 未跑之前不得标启用（workflow_spec.md §8.3）
-    #    verification 的 gpu_verified 指的是「**模板裸提交**已出图」，详见 verification_note
-    status: disabled
-    rollout_percent: 0
+    # ✅ L4（渲染路径）已于 2026-09-16 在真实 GPU 上通过 —— 见 verification_note
+    status: enabled
+    rollout_percent: 100
     verification: gpu_verified
     verification_note: >-
-      出图验证是通过**裸提交模板 JSON**（deploy/autodl/07_bench_workflow.py）完成的。
-      经 engine/render 渲染后的产物**尚未与真实 ComfyUI 联调**，即「渲染路径 L4」待做。
-      因此 status=disabled —— 放行给用户的前置条件正是这条待做的渲染路径 L4。
-    # render_path_l4 是「engine/render → 真实引擎 → 核对产物」的开关。
-    # 置 true 的前提：用渲染后的图与基线图做等价性核对，且产物元数据可回读。
-    render_path_l4: false
+      **渲染路径 L4 已通过**（2026-09-16，RTX 4090，生产配置 --highvram，
+      工具 engine/tools/verify_render_path.py，显式 seed=20260916）：
+      通过 11 项 · 失败 0 · 跳过 0。覆盖：engine/render 渲染成功、
+      targets 注入落点正确（含多 target 一致性）、**同一显式 seed 两次出图
+      IDAT 逐字节一致**、写元数据未改动像素、wf_meta.seed 等于传入 seed、
+      ComfyUI 自写的 prompt chunk 保留。
+      ⚠️ 本项**不**证明画质（属 golden set）与性能达标（属稳态基准 #18）。
+      历史：此前的 gpu_verified 仅指「**模板裸提交**已出图」，不含渲染路径。
+    render_path_l4: true
 
     baseline:
       measured_at: "2026-09-16"
@@ -322,18 +324,20 @@ workflows:
       - flux-2-klein-4b.safetensors
       - flux2-vae.safetensors
       - qwen_3_4b.safetensors
-    # ⚠️ status 一律 disabled：L4 未跑之前不得标启用（workflow_spec.md §8.3）
-    #    verification 的 gpu_verified 指的是「**模板裸提交**已出图」，详见 verification_note
-    status: disabled
-    rollout_percent: 0
+    # ✅ L4（渲染路径）已于 2026-09-16 在真实 GPU 上通过 —— 见 verification_note
+    status: enabled
+    rollout_percent: 100
     verification: gpu_verified
     verification_note: >-
-      出图验证是通过**裸提交模板 JSON**（deploy/autodl/07_bench_workflow.py）完成的。
-      经 engine/render 渲染后的产物**尚未与真实 ComfyUI 联调**，即「渲染路径 L4」待做。
-      因此 status=disabled —— 放行给用户的前置条件正是这条待做的渲染路径 L4。
-    # render_path_l4 是「engine/render → 真实引擎 → 核对产物」的开关。
-    # 置 true 的前提：用渲染后的图与基线图做等价性核对，且产物元数据可回读。
-    render_path_l4: false
+      **渲染路径 L4 已通过**（2026-09-16，RTX 4090，生产配置 --highvram，
+      工具 engine/tools/verify_render_path.py，显式 seed=20260916）：
+      通过 13 项 · 失败 0 · 跳过 0。覆盖：engine/render 渲染成功、
+      targets 注入落点正确（含多 target 一致性）、**同一显式 seed 两次出图
+      IDAT 逐字节一致**、写元数据未改动像素、wf_meta.seed 等于传入 seed、
+      ComfyUI 自写的 prompt chunk 保留。
+      ⚠️ 本项**不**证明画质（属 golden set）与性能达标（属稳态基准 #18）。
+      历史：此前的 gpu_verified 仅指「**模板裸提交**已出图」，不含渲染路径。
+    render_path_l4: true
 
     baseline:
       measured_at: "2026-09-16"

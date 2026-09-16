@@ -840,13 +840,25 @@ class TestRegistry:
                 "changelog": [{"version": 1}],
             }, index=0, registry_path=_fake_path())
 
-    def test_current_registry_has_no_enabled_workflow(self):
-        """当前真实注册表必须一条 enabled 都没有 —— 渲染路径 L4 尚未执行。"""
-        registry = Registry.load()
-        assert registry.enabled() == (), (
-            "出现了 enabled 的工作流。放行前请先跑「渲染路径 L4」"
-            "（engine/render 渲染 → 提交真实引擎 → 核对产物与元数据）"
-        )
+    def test_enabled_workflows_satisfy_release_invariant(self):
+        """放行不变量（对当前真实数据）：enabled ⟹ render_path_l4 ∧ gpu_verified ∧ 有基线。
+
+        ⚠️ **本测试替换掉了一条已过期的快照断言**
+        （原 `test_current_registry_has_no_enabled_workflow`，断言「当前注册表
+        一条 enabled 都没有」）。它在 2026-09-16「渲染路径 L4」通过、两条工作流
+        被**合法**放行后**必然失败** —— 因为它是**状态快照**，不是**不变量**。
+
+        教训（与 `项目进展.md` #25「测试全绿 ≠ 没有冲突」同族）：
+        **守卫要用不变量表达。** 快照式守卫会随合法推进而失效，而失效时的
+        默认反应是"把测试改松"，于是守卫形同撤销。此处改为断言规则本身，
+        并用 `test_enabled_requires_render_path_l4` 做正对照证明规则有牙。
+        """
+        for entry in Registry.load():
+            if entry.status != "enabled":
+                continue
+            assert entry.render_path_l4 is True, entry.id
+            assert entry.verification == "gpu_verified", entry.id
+            assert entry.baseline.get("measured_at"), entry.id
 
 
 class TestObjectInfoCheck:
@@ -1268,6 +1280,56 @@ class TestG7WeightProbe:
         variant = _sdxl_variant(original, "PROBE", "6")
         assert variant["6"]["inputs"]["text"] == "PROBE"
         assert variant["7"]["inputs"]["text"] == original["7"]["inputs"]["text"]
+
+    def test_variants_are_independent_deep_copies(self):
+        """⭐ 回归：变体必须**深拷贝**，否则 baseline 会被后续迭代追溯性改写。
+
+        原先的实现只做浅拷贝，所有变体共享同一批节点 dict → 写 weighted 的
+        text 时把已构造好的 baseline 也改了 → 两者比较恒为"相同"，
+        于是探针会把"根本没比对"报成"完全无影响"（方向最危险的假通过）。
+        """
+        from engine.tools.probe_g7_weight import (
+            BASELINE_PROMPT,
+            WEIGHTED_PROMPT,
+            _variant,
+        )
+
+        entry, definition = self._entry_definition("flux2_klein_t2i_v1")
+        baseline = _variant("klein-core", BASELINE_PROMPT, definition, entry)
+        weighted = _variant("klein-core", WEIGHTED_PROMPT, definition, entry)
+
+        assert baseline["4"]["inputs"]["text"] == BASELINE_PROMPT, "baseline 被改写了"
+        assert weighted["4"]["inputs"]["text"] == WEIGHTED_PROMPT
+        assert baseline != weighted, "两个变体必须不同，否则比对无意义"
+        # 原定义不得被污染
+        assert definition["4"]["inputs"]["text"] != WEIGHTED_PROMPT
+
+    def test_control_differs_from_baseline_only_in_seed(self):
+        """正对照必须是**干净的单变量**：只改 seed，别的都不动。"""
+        from engine.tools.probe_g7_weight import (
+            BASELINE_PROMPT,
+            _seed_nodes,
+            _set_seed,
+            _variant,
+        )
+
+        entry, definition = self._entry_definition("flux2_klein_t2i_v1")
+        baseline = _variant("klein-core", BASELINE_PROMPT, definition, entry)
+        control = _variant("klein-core", BASELINE_PROMPT, definition, entry)
+        _set_seed(baseline, entry, 20260916)
+        _set_seed(control, entry, 20260917)
+
+        assert _seed_nodes(entry) == {"8"}
+        changed = {k for k in baseline if baseline[k] != control[k]}
+        assert changed == {"8"}, f"正对照只应改 seed 节点，实际: {changed}"
+        assert baseline["8"]["inputs"]["noise_seed"] == 20260916
+        assert control["8"]["inputs"]["noise_seed"] == 20260917
+
+    def test_seed_nodes_comes_from_registry_schema(self):
+        from engine.tools.probe_g7_weight import _seed_nodes
+
+        assert _seed_nodes(self._entry_definition("flux2_klein_t2i_v1")[0]) == {"8"}
+        assert _seed_nodes(self._entry_definition("t2i_v1")[0]) == {"3"}
 
     def test_probe_dry_run_passes(self, capsys):
         from engine.tools.probe_g7_weight import main as probe_main

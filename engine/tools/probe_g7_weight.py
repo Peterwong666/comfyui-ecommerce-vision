@@ -57,6 +57,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import pathlib
 import sys
@@ -108,9 +109,11 @@ def _build_bnk_variant(definition: dict[str, Any], prompt: str, encoder_node: st
     `token_normalization` + `weight_interpretation`，输出同样是 CONDITIONING，
     所以**下游（`ConditioningZeroOut` / `CFGGuider`）完全不用改**。
     """
-    meta, graph = dict(definition.get("_meta") or {}), {
-        k: v for k, v in definition.items() if k != "_meta"
-    }
+    # ⚠️ 必须**深拷贝**：浅拷贝会让所有变体共享同一批节点 dict，
+    # 后一次迭代写 text 时会「追溯性地」把前一次的产物也改掉，
+    # 于是 baseline 与 weighted 指向同一对象、比对结果恒为"相同"。
+    meta = copy.deepcopy(dict(definition.get("_meta") or {}))
+    graph = {k: copy.deepcopy(v) for k, v in definition.items() if k != "_meta"}
     node = graph.get(encoder_node)
     if not isinstance(node, dict) or node.get("class_type") != "CLIPTextEncode":
         raise RenderError(
@@ -143,20 +146,30 @@ def _set_seed(graph: dict[str, Any], entry: Any, value: int) -> None:
 
 
 def _klein_core_variant(definition: dict[str, Any], prompt: str, node_id: str) -> dict[str, Any]:
-    _meta, graph = dict(definition.get("_meta") or {}), {
-        k: v for k, v in definition.items() if k != "_meta"
-    }
+    # ⚠️ 必须**深拷贝**：浅拷贝会让所有变体共享同一批节点 dict，
+    # 后一次迭代写 text 时会「追溯性地」把前一次的产物也改掉，
+    # 于是 baseline 与 weighted 指向同一对象、比对结果恒为"相同"。
+    _meta = copy.deepcopy(dict(definition.get("_meta") or {}))
+    graph = {k: copy.deepcopy(v) for k, v in definition.items() if k != "_meta"}
     _write_prompt(graph, node_id, prompt)
     return {"_meta": _meta, **graph}
 
 
 def _sdxl_variant(definition: dict[str, Any], prompt: str, node_id: str) -> dict[str, Any]:
     """SDXL：只改正向节点，**负向保持模板原样**（做对照组，避免同时动两个变量）。"""
-    _meta, graph = dict(definition.get("_meta") or {}), {
-        k: v for k, v in definition.items() if k != "_meta"
-    }
+    # ⚠️ 必须**深拷贝**：浅拷贝会让所有变体共享同一批节点 dict，
+    # 后一次迭代写 text 时会「追溯性地」把前一次的产物也改掉，
+    # 于是 baseline 与 weighted 指向同一对象、比对结果恒为"相同"。
+    _meta = copy.deepcopy(dict(definition.get("_meta") or {}))
+    graph = {k: copy.deepcopy(v) for k, v in definition.items() if k != "_meta"}
     _write_prompt(graph, node_id, prompt)
     return {"_meta": _meta, **graph}
+
+
+def _seed_nodes(entry: Any) -> set[str]:
+    """该工作流的 seed 落在哪些节点上。"""
+    field = next((f for f in entry.schema if f.type == "seed"), None)
+    return {t.node_id for t in field.targets} if field else set()
 
 
 def _variant(mode: str, prompt: str, definition: dict[str, Any], entry: Any) -> dict[str, Any]:
@@ -283,10 +296,11 @@ def run(args: argparse.Namespace) -> int:
     if args.dry_run:
         print("\n=== DRY-RUN 结束（未提交，不需要 GPU）===")
         for mode in modes:
-            for tag in ("baseline", "weighted"):
+            for tag in ("baseline", "weighted", "control"):
                 if tag in variants_for.get(mode, {}):
                     print(f"  ✅ {mode}/{tag}: 节点数 {len(variants_for[mode][tag])}")
         print("\n→ 去掉 --dry-run 在 GPU 上跑真实比对。")
+        print("⚠️ 读结果时**先看正对照那列** —— 它未检出差异时，该模式的'相同'结论一律作废。")
         return 0
 
     client = ComfyClient(args.base_url)
@@ -299,10 +313,10 @@ def run(args: argparse.Namespace) -> int:
         return 1
 
     print("\n================ 结果 ================")
-    rows: list[tuple[str, str, str, bool | None]] = []
+    rows: list[tuple[str, str, str, str, str, bool | None, bool | None]] = []
     for mode in modes:
         digests: dict[str, str] = {}
-        for tag in ("baseline", "weighted"):
+        for tag in ("baseline", "weighted", "control"):
             graph = variants_for.get(mode, {}).get(tag)
             if graph is None:
                 continue
@@ -324,17 +338,38 @@ def run(args: argparse.Namespace) -> int:
             dest.write_bytes(png)
             print(f"  · {mode}/{tag}: IDAT={d[:16]}… → {dest}")
 
+        # 自证 2：正对照必须"不同"，否则本模式的"相同"结论作废
+        control_ok: bool | None = None
+        if "control" in digests and "baseline" in digests:
+            control_ok = digests["control"] != digests["baseline"]
+
         same: bool | None = None
         if "baseline" in digests and "weighted" in digests:
             same = digests["baseline"] == digests["weighted"]
-        rows.append((mode, digests.get("baseline", "-")[:16],
-                     digests.get("weighted", "-")[:16], same))
 
-    print("\n| 模式 | baseline IDAT | weighted IDAT | 像素相同？ |")
-    print("|---|---|---|---|")
-    for mode, a, b, same in rows:
-        mark = "—" if same is None else ("**相同**" if same else "不同")
-        print(f"| {mode} | `{a}` | `{b}` | {mark} |")
+        rows.append((mode, digests.get("baseline", "-")[:16],
+                     digests.get("weighted", "-")[:16],
+                     digests.get("control", "-")[:16], control_ok, same))
+
+    print("\n| 模式 | baseline IDAT | weighted IDAT | control IDAT（改 seed） | 正对照检出差异？ | 两次像素相同？ |")
+    print("|---|---|---|---|---|---|")
+    for mode, a, b, c, control_ok, same in rows:
+        c_mark = "⚠ 未检出" if control_ok is False else ("✅ 是" if control_ok else "—")
+        if control_ok is False:
+            v = "**结论作废**"
+        elif same is None:
+            v = "—"
+        else:
+            v = "**相同**" if same else "不同"
+        print(f"| {mode} | `{a}` | `{b}` | `{c}` | {c_mark} | {v} |")
+
+    invalid = [r[0] for r in rows if r[4] is False]
+    if invalid:
+        print(f"""
+🚨 **{invalid} 的正对照未检出差异 —— 这些模式的"相同"结论一律作废。**
+正对照只改了 seed，像素**必然**变化。它没变，说明两次跑**根本没真正执行**
+（缓存 / 提前返回 / 提交了同一份输入），此时"两次像素相同"证明不了任何事。
+**先排查运行时环境，不要用这里的任何"相同"结论去回填文档。**""")
 
     print("""
 **怎么读这张表（重要，别读错）**
@@ -342,8 +377,12 @@ def run(args: argparse.Namespace) -> int:
 - **不同** ⇒ 提示词改动**确实进了模型**，但**不能推出"权重按预期生效"** ——
   被当字面文本同样会改变结果。**必须人工并排看 `--outdir` 里的图**，判断
   「主体是否更突出/更弱（权重生效）」还是「画面出现异常的括号文字感/构图崩坏（被当字面文本）」
+- **正对照那列是前提**：它显示"未检出"时，本行其余结论全部作废（见上）
 - `klein-core` 预期：G7 源码定论为**不被解析** → 大概率「不同」（污染）或「相同」（token 被忽略），
   两者都需要看图定性质；`klein-bnk` 是问「换 BNK 节点能否救回来」；`sdxl` 是**对照组**。
+
+**回填给 C 流时请给"字母"而非结论**（`docs/sop/prompt_guide.md` §1.1.1 已预先约定 A/B/C/D 四种措辞）：
+A = `klein-bnk` 像素相同；B = 不同且人工判为权重生效；C = 不同且判为字面污染；D = 不同但人工无法判定。
 """)
     return 0
 

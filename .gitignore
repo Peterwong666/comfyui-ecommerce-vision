@@ -97,3 +97,9 @@ Thumbs.db
 # ---------- 测试用例中的敏感图（按需白名单） ----------
 tests/golden_set/reference/*
 !tests/golden_set/reference/.gitkeep
+
+# ---------- 探针/验证的产物图（可重生，数值证据见 项目进展.md 台账）----------
+/g7_probe_out/
+/render_l4_out/
+/bench_out/
+/verify_out/

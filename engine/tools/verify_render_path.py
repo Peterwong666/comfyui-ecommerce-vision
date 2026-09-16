@@ -367,7 +367,7 @@ def run(args: argparse.Namespace) -> int:
         params=result.params,
         seed=result.seed,
         models=entry.models,
-        digest_salt=args.hash_salt,
+        hash_salt=args.hash_salt,
     )
     before_idat = idat_digest(out_file.read_bytes())
     write_png_metadata(out_file, meta)
