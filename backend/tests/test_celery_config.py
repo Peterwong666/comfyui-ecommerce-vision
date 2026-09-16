@@ -4,10 +4,15 @@
 优先级队列被删掉只是"高优先级任务没有插队"，beat 指向不存在的任务只是定时兜底
 永远不生效，并发没锁死只是偶尔 OOM。所以这些不变量值得用测试钉住。
 
-⚠️ 本文件 import 了 `app.worker.tasks` 并**不是**多余的：任务是靠模块 import 时的
-装饰器注册的，生产环境由 `include=["app.worker.tasks"]` 触发；测试里必须显式 import，
-否则 `celery_app.tasks` 里只有 celery 自带的几个任务（下面 `test_tasks_module_is_included`
-就是钉这一点的）。
+⚠️ 本文件 import 了 `app.worker.tasks` / `app.worker.maintenance` 并**不是**多余的：
+任务是靠模块 import 时的装饰器注册的，生产环境由 `include=[...]` 触发；
+测试里必须显式 import，否则 `celery_app.tasks` 里只有 celery 自带的几个任务
+（下面 `test_tasks_module_is_included` 就是钉这一点的）。
+
+⚠️ P6-10 加了 `app.worker.maintenance`（生命周期清理）之后，这条纪律变得**更**重要：
+beat 里的清理条目指向未注册的任务时，Celery 不报错、只是永远不执行 ——
+于是"回收站里的素材永远不物理删除、存储只增不减"，而这件事**没有任何其他信号**
+会告诉你有问题（不像出图任务卡住会被用户立刻发现）。
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ import pytest
 
 from app.core.config import settings
 from app.services.dispatch import queue_for_priority
+from app.worker import maintenance as worker_maintenance
 from app.worker import tasks as worker_tasks
 from app.worker.celery_app import celery_app
 
@@ -27,6 +33,7 @@ def test_tasks_module_is_included() -> None:
     "Received unregistered task" —— 而 beat 里的兜底任务会**静默不执行**。
     """
     assert "app.worker.tasks" in celery_app.conf.include
+    assert "app.worker.maintenance" in celery_app.conf.include
 
 
 def test_gpu_concurrency_is_one() -> None:
@@ -80,8 +87,26 @@ def test_core_tasks_are_registered() -> None:
         worker_tasks.execute_task,
         worker_tasks.requeue_orphans,
         worker_tasks.recover_zombies,
+        worker_maintenance.cleanup_assets,
     ):
         assert task.name in celery_app.tasks
+
+
+def test_cleanup_schedule_is_low_frequency_on_maintenance_queue() -> None:
+    """清理任务的调度频率必须与 60 秒级的兜底扫描**差一个量级**。
+
+    60 秒级的两条兜底保的是"任务不会永久卡在非终态"（AC-5.1），停一分钟就会被用户
+    看见；清理保的是"空间最终会还回来"，保留期本身是天级的。把清理也塞进 60 秒的
+    节奏里，只会让唯一的 worker 执行位（concurrency=1）被反复占用来扫一个
+    大概率无事可做的库。
+
+    这条断言不是"钉死某个数字"，而是钉住**量级**：谁把它调成分钟级就会红。
+    """
+    entry = celery_app.conf.beat_schedule["cleanup-assets"]
+    assert entry["task"] == "app.worker.maintenance.cleanup_assets"
+    assert float(entry["schedule"]) >= 3600  # 至少小时级
+    # 非实时任务一律走 maintenance 队列，别混进出图队列
+    assert entry["options"]["queue"] == "maintenance"
 
 
 def test_acks_late_is_enabled() -> None:

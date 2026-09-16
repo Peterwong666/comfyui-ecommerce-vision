@@ -16,7 +16,7 @@ celery_app = Celery(
     "comfyui_platform",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
-    include=["app.worker.tasks"],
+    include=["app.worker.tasks", "app.worker.maintenance"],
 )
 
 celery_app.conf.update(
@@ -101,6 +101,26 @@ celery_app.conf.beat_schedule = {
     "recover-zombies": {
         "task": "app.worker.tasks.recover_zombies",
         "schedule": 60.0,
+        "options": {"queue": "maintenance"},
+    },
+    # 过期素材/产物的物理清理（P6-10）。**每 6 小时**，与上面两条 60 秒级的兜底
+    # 刻意拉开量级，理由：
+    #
+    # 1. **它不是活性问题**。上面两条兜底保的是 AC-5.1「无任务永久停留非终态」——
+    #    停 60 秒就能被用户看见（"我的图怎么不跑了"），所以必须分钟级。
+    #    清理晚几个小时执行，用户和指标都不会有任何感觉：保留期本身就是"天"级的。
+    # 2. **但也不能拖到一天一次**。数据盘是这台机器上最紧的资源（EX-4 disk_full，
+    #    配置里的 disk_min_free_gb），而清理是**唯一**能把空间还回来的手段。
+    #    6 小时让「实际保留期」的偏差最多 6 小时，并且积压时的排空速度是
+    #    每天 4 × cleanup_batch_limit（500）= 2000 条，而不是 500 条。
+    # 3. **频率越高越好也是错的**。worker 的 concurrency 是 1（NFR-2），
+    #    这个任务和出图任务共用同一个 worker 进程 —— 每分钟扫一遍库既白烧 DB
+    #    连接，又和出图主链路抢那个唯一的执行位。
+    #
+    # 结果：6 小时是「空间能及时还回来」与「不去干扰出图」之间的折中。
+    "cleanup-assets": {
+        "task": "app.worker.maintenance.cleanup_assets",
+        "schedule": 21600.0,  # 6 小时
         "options": {"queue": "maintenance"},
     },
 }
