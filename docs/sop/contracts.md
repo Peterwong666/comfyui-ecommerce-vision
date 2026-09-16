@@ -406,10 +406,38 @@ WebSocket 进度推送（P6-04）、管理后台接口（P7-09）、API Key 鉴�
 |---|---|---|
 | D 前端 | 提交前校验（体验） | Schema 的 `type` / `min` / `max` / `options` |
 | A 后端 | **必须二次校验**（安全） | 前端校验可被绕过；非法参数会让 ComfyUI 报难以理解的错 |
-| A 后端 | 边界值统一取 `settings` | 保证「PRD §6.2」与「代码校验」不各说各话 |
 | B 工作流 | 保证 `targets` 指向真实存在的节点与入参 | 用 `08_probe_nodes.py` + `26_validate_workflow.py` 验证 |
 
-### 3.5 完整示例（FLUX.2 klein 文生图）
+**两套边界的关系（⚠️ 易混淆）**
+
+存在两套边界，含义不同，**必须同时满足**：
+
+| 边界 | 存放位置 | 含义 | 谁能改 |
+|---|---|---|---|
+| **全局红线** | `backend/app/core/config.py` 的 `settings`（对齐 PRD §6.2） | 防炸机制：拦住 `steps=100000` 这类会让 GPU 崩掉的输入 | 改 PRD §6.2 时同步改 |
+| **工作流有效边界** | 各工作流 Schema 的 `min` / `max` | 该工作流的**技术有效范围**，可以更严 | B 流按模型特性定 |
+
+**判定规则：以更严者为准。**
+
+```
+实际可接受范围 = [max(schema.min, settings.min), min(schema.max, settings.max)]
+```
+
+- Schema 边界**比 settings 更严是正常的、也是推荐的**。例：FLUX.2 klein 是蒸馏版，`cfg` 必须为 1 —— Schema 写 `min:1, max:2, default:1` 并配 `help` 说明，比放开到 1.0–20.0 更正确。
+- Schema 边界**比 settings 更宽是配置错误**。加载注册表时应告警，并按 settings 收紧（settings 是安全兜底，不可被工作流突破）。
+- **固定值参数**用 `min == max` 表达（不要用特殊字段），这样前端无需特判、后端无需特判。这类参数应同时标 `advanced: true` 并在 `help` 里写明**为什么必须固定**。
+
+**关于本文档里的示例**
+
+§3.5 的节点 ID 取自 `workflows/flux2_klein_t2i_v1.json` 的**真实值**（2026-09-16 核对）。
+但**节点 ID 会随工作流演进变化**，任何实现都必须以 `workflows/registry.yaml` 的实时 Schema 为准，
+**不要把本文档示例里的 ID 硬编码进代码或测试**。
+
+### 3.5 完整示例（FLUX.2 klein 文生图 · 节点 ID 取自真实工作流）
+
+> 下列节点 ID 与入参名**逐项核对于 `workflows/flux2_klein_t2i_v1.json`**（2026-09-16）。
+> 注意两处容易写错的地方：`seed` 在 klein 图里的入参名是 **`noise_seed`**（不是 `seed`）；
+> `width` / `height` 需要**同时写两个节点**（见 `_comment`）。
 
 ```json
 {
@@ -417,39 +445,80 @@ WebSocket 进度推送（P6-04）、管理后台接口（P7-09）、API Key 鉴�
   "fields": [
     {
       "key": "prompt", "label": "正向提示词", "type": "text",
-      "default": "", "max_length": 2000, "group": "提示词",
-      "targets": [ { "node_id": "6", "input": "text" } ]
+      "default": "professional product photo of a matte white ceramic coffee mug on a light grey seamless background, soft studio lighting, subtle shadow, sharp focus, centered composition, high detail, commercial e-commerce photography",
+      "max_length": 2000, "group": "提示词",
+      "_comment": "节点 4 = CLIPTextEncode；klein 必须走它（输出键 qwen3_4b），不能用 CLIPTextEncodeFlux（依赖 t5xxl 键，会 KeyError）",
+      "targets": [ { "node_id": "4", "input": "text" } ]
     },
     {
       "key": "width", "label": "宽度", "type": "int",
       "default": 1024, "min": 512, "max": 2048, "step": 64,
-      "group": "画布", "targets": [ { "node_id": "5", "input": "width" } ]
+      "group": "画布",
+      "_comment": "⚠️ 多 target 示例：EmptyFlux2LatentImage 与 Flux2Scheduler 都要 width，只写一个会导致潜空间尺寸与 sigmas 不一致",
+      "targets": [
+        { "node_id": "6", "input": "width" },
+        { "node_id": "7", "input": "width" }
+      ]
     },
     {
       "key": "height", "label": "高度", "type": "int",
       "default": 1024, "min": 512, "max": 2048, "step": 64,
-      "group": "画布", "targets": [ { "node_id": "5", "input": "height" } ]
+      "group": "画布",
+      "targets": [
+        { "node_id": "6", "input": "height" },
+        { "node_id": "7", "input": "height" }
+      ]
     },
     {
       "key": "steps", "label": "采样步数", "type": "int",
-      "default": 4, "min": 1, "max": 100, "step": 1,
-      "group": "采样", "advanced": true, "help": "klein 蒸馏版固定 4 步",
-      "targets": [ { "node_id": "3", "input": "steps" } ]
+      "default": 4, "min": 1, "max": 8, "step": 1,
+      "group": "采样", "advanced": true,
+      "_comment": "⚠️ 固定值示例：本工作流跑的是**蒸馏版**（flux-2-klein-4b，无 -base- 前缀），官方标定 4 步；调高不提升质量只增加耗时。故边界收窄到 1-8 而非 settings 的 1-100",
+      "help": "蒸馏版固定 4 步，调高无收益",
+      "targets": [ { "node_id": "7", "input": "steps" } ]
     },
     {
       "key": "cfg", "label": "CFG", "type": "float",
-      "default": 1.0, "min": 1.0, "max": 20.0, "step": 0.1,
+      "default": 1.0, "min": 1.0, "max": 2.0, "step": 0.1,
       "group": "采样", "advanced": true,
-      "targets": [ { "node_id": "3", "input": "cfg" } ]
+      "help": "蒸馏版已把 guidance 蒸进权重，必须保持 1.0",
+      "targets": [ { "node_id": "9", "input": "cfg" } ]
     },
     {
       "key": "seed", "label": "随机种子", "type": "seed",
       "default": -1, "group": "采样",
-      "targets": [ { "node_id": "3", "input": "seed" } ]
+      "_comment": "⚠️ 入参名是 noise_seed（节点 8 = RandomNoise），不是 seed；-1 由渲染器解析成真实整数后才注入，否则元数据里只剩 -1，用户复现不出那张图",
+      "targets": [ { "node_id": "8", "input": "noise_seed" } ]
     }
   ]
 }
 ```
+
+**节点对照表**（供核对，同样以 registry 为准）
+
+| 节点 ID | class_type | 本 Schema 使用的入参 |
+|---|---|---|
+| 4 | `CLIPTextEncode` | `text` |
+| 6 | `EmptyFlux2LatentImage` | `width` `height` |
+| 7 | `Flux2Scheduler` | `steps` `width` `height` |
+| 8 | `RandomNoise` | `noise_seed` |
+| 9 | `CFGGuider` | `cfg` |
+| — | 1 / 2 / 3 / 5 / 10 / 11 / 12 / 13 | 加载器与管线节点，不由用户参数驱动 |
+
+> ⚠️ 节点 6 的 `batch_size` **有意不暴露**（也不在示例中），理由见 §3.6 不变量 1。
+
+---
+
+### 3.6 工作流必须遵守的不变量
+
+以下不是建议，是**契约约束**。违反会让系统的其他部分静默出错。
+
+| # | 不变量 | 为什么 | 谁来保证 |
+|---|---|---|---|
+| **1** | **一条工作流的单次执行只产出 1 张图** | 「子任务粒度 = 一张图」是 PRD §3.1 的基石决策，**断点续跑（只重跑失败项）、单张成本核算、批量进度**全部建立在它之上。若某工作流一次产出 N 张，则：① 一张失败要连坐重跑 N 张（浪费 GPU）② `gpu_seconds` 是 N 张共享的，单张成本算不出来 ③ 批量进度分母与实际不符 | B 流**不得暴露** `batch_size` / `batch_count` 这类参数；A 流在收图时**断言产物数 == 1**，否则按 `ErrorType.UNKNOWN` 失败并告警 |
+| **2** | **参数默认值必须与工作流 JSON 里的实际值一致** | 模板、契约示例、registry 三处的默认提示词一度出现字面差异（`subtle shadow` 缺失）。默认值不一致 = 用户在 UI 里看到的初始状态与真实执行的不是同一件事 | B 流（注册表加载时校验） |
+| **3** | **不得暴露「不起作用」的参数** | 暴露一个无效参数比不暴露更糟：用户以为能调，调了没反应，且没有任何报错。典型：klein 的负向提示词（被 `ConditioningZeroOut` 整段置零）、蒸馏版的采样器选择（无调优空间） | B 流；A 流不额外限制 |
+| **4** | **`targets` 必须指向真实存在的节点与入参** | 写错 ID 或入参名会**静默**把值写到别处或不生效 | B 流用 L3 校验（`object_info` 快照）|
 
 ---
 
@@ -487,9 +556,12 @@ WebSocket 进度推送（P6-04）、管理后台接口（P7-09）、API Key 鉴�
 | 1 | `backend/app/models/enums.py` 文档字符串 | 写「8 个状态」，实际 `TaskStatus` 是 7 个（第 8 个 `partial` 属于 `BatchStatus`） | ✅ 已修 |
 | 2 | `docs/prd/PRD_v1.md` §5.4 T13 | 只写「failed/partial 可重试」，漏了 `canceled` | ✅ 已修（按本契约 §1.1 补齐） |
 | 3 | `docs/prd/PRD_v1.md` §5.4 T2 | 写「调度器取任务」，实际是**提交时同步入队** | ✅ 已修（补注并指向 §1.4） |
-| 4 | `backend/app/schemas/task.py` `TaskOut.can_retry` | 用 `@property` 且恒返回 `False`，Pydantic v2 下语义不清，前端拿到的可能是 `false` 常量 | ⬜ 待办（A 流：改为显式字段或删除） |
-| 5 | `TaskSubmitIn.prompt` 与 `params["prompt"]` | 两条通道都能传提示词，优先级未文档化 | ✅ 本契约 §3.4 已定：顶层优先；建议 A 流收掉重复通道 |
-| 6 | `BatchSubmitIn` 的 `max_batch_size` | 校验器检查的是 **SKU 数**，`submit_batch` 检查的是 **总张数**，同名不同义 | ⬜ 待办（A 流：拆成 `max_sku_count` / `max_batch_size`） |
+| 4 | `backend/app/schemas/task.py` `TaskOut.can_retry` | 用 `@property` 且恒返回 `False`，**Pydantic v2 不序列化 property → 前端 JSON 里压根没这个键**；且 `canceled` 返回 False，前端会把实际可点的重试按钮藏起来 | ✅ 已修（改为显式字段；判据＝状态 ∈ {failed, canceled}，与 §1.1 及 `/retry` 接口一致。瞬时/致命判定仍归 `ErrorType.is_retryable`，只管**自动**重试） |
+| 5 | `TaskSubmitIn.prompt` 与 `params["prompt"]` | 两条通道传同一件事，优先级未文档化 | ✅ 已修（顶层覆盖 params，与 §3.4 一致；`Task.prompt` 改为从 params 回读，保证「落库的」与「注入图的」同值） |
+| 6 | `BatchSubmitIn` 的 `max_batch_size` | 校验器查 **SKU 数**、`submit_batch` 查 **总张数**，同名不同义 | ✅ 已修（拆为 `max_sku_count` 与 `max_batch_size`） |
+| 7 | `Task.seed` 列 与 `params["seed"]` | 与 #5 同类：两条输入通道可能发散 | ✅ 已裁定：**保留列，但取消"第二条输入通道"** —— `params` 是唯一事实来源，`Task.seed` 是派生投影（与 #5 的 prompt 同一模式）。不删列，因为它是可查询的一等属性 |
+| 8 | `backend/app/models/workflow.py:63` `param_bindings` | 是 `targets` 之前的**旧绑定机制**，与 `param_schema` 并存；`param_bindings={"steps": ["1","inputs","steps"]}` 与本契约 §3.3 的 `targets` 语义重叠。**两套绑定并存必出事**（前端读一套、后端读一套） | ⬜ 待办（A 流：**删除**，不做废弃标注 —— 仅测试 fixture 引用，删除成本极低） |
+| 9 | `backend/app/models/workflow.py:58` docstring | 示例写 `"visible": true` + `"group": "basic"`，与契约 §3.1 的 `advanced`（默认 false，true 折叠）冲突 | ⬜ 待办（A 流：docstring 按契约 §3.1 改写） |
 
 ---
 
