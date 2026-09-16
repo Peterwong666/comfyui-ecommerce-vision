@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "fields": [
+    {
+      "key": "prompt",
+      "label": "正向提示词",
+      "type": "text",
+      "default": "professional product photo of a matte white ceramic coffee mug on a light grey seamless background, soft studio lighting, subtle shadow, sharp focus, centered composition, high detail, commercial e-commerce photography",
+      "max_length": 2000,
+      "group": "提示词",
+      "help": "klein 的文本编码器是 Qwen3-4B，**中文提示词同样可用**",
+      "targets": [
+        {
+          "node_id": "4",
+          "input": "text"
+        }
+      ]
+    },
+    {
+      "key": "width",
+      "label": "宽度",
+      "type": "int",
+      "default": 1024,
+      "min": 512,
+      "max": 2048,
+      "step": 64,
+      "group": "画布",
+      "help": "必须同时写入潜空间与 sigma 调度器，否则曲线按错误分辨率生成",
+      "targets": [
+        {
+          "node_id": "6",
+          "input": "width"
+        },
+        {
+          "node_id": "7",
+          "input": "width"
+        }
+      ]
+    },
+    {
+      "key": "height",
+      "label": "高度",
+      "type": "int",
+      "default": 1024,
+      "min": 512,
+      "max": 2048,
+      "step": 64,
+      "group": "画布",
+      "targets": [
+        {
+          "node_id": "6",
+          "input": "height"
+        },
+        {
+          "node_id": "7",
+          "input": "height"
+        }
+      ]
+    },
+    {
+      "key": "seed",
+      "label": "随机种子",
+      "type": "seed",
+      "default": -1,
+      "group": "采样",
+      "help": "-1 表示随机。klein 走 RandomNoise 节点，入参名是 noise_seed",
+      "targets": [
+        {
+          "node_id": "8",
+          "input": "noise_seed"
+        }
+      ]
+    },
+    {
+      "key": "steps",
+      "label": "采样步数",
+      "type": "int",
+      "default": 4,
+      "min": 1,
+      "max": 8,
+      "step": 1,
+      "group": "采样",
+      "advanced": true,
+      "help": "蒸馏版固定 4 步，调高无收益且会变慢。上限有意收窄到 8",
+      "targets": [
+        {
+          "node_id": "7",
+          "input": "steps"
+        }
+      ]
+    },
+    {
+      "key": "cfg",
+      "label": "CFG",
+      "type": "float",
+      "default": 1.0,
+      "min": 1.0,
+      "max": 2.0,
+      "step": 0.1,
+      "group": "采样",
+      "advanced": true,
+      "help": "蒸馏版必须为 1.0。调高不会「更听话」，只会让画面崩坏",
+      "targets": [
+        {
+          "node_id": "9",
+          "input": "cfg"
+        }
+      ]
+    }
+  ]
+}

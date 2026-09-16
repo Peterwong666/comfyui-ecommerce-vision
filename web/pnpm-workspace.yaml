@@ -1,0 +1,10 @@
+# pnpm 配置（⚠️ pnpm 10+ 起，这些设置**不再从 package.json 的 `pnpm` 字段读**，
+# 写在那里会被静默忽略、只留一条 WARN —— 本文件是它们的正确位置）。
+#
+# 为什么必须显式放行 esbuild：
+# pnpm 默认**禁止依赖执行安装脚本**（供应链防护，合理）。而 esbuild 依赖 postinstall
+# 落地平台专用的二进制，被拦住时 `vite` / `vitest` 会以"找不到二进制"的形式失败。
+#
+# 只放行 esbuild 一个。要再加之前先想清楚那个依赖的脚本到底做什么。
+allowBuilds:
+  esbuild: true

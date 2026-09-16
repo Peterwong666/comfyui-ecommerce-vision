@@ -1,0 +1,387 @@
+{
+  "schema_version": 1,
+  "fields": [
+    {
+      "key": "prompt",
+      "label": "正向提示词",
+      "type": "text",
+      "default": "professional product photo of a ceramic coffee mug, matte white finish, on a light grey seamless background, soft studio lighting, subtle shadow, sharp focus, high detail, centered composition",
+      "max_length": 2000,
+      "group": "提示词",
+      "help": "描述商品与场景。建议包含：主体 + 背景 + 光线 + 视角",
+      "targets": [
+        {
+          "node_id": "6",
+          "input": "text"
+        }
+      ]
+    },
+    {
+      "key": "negative_prompt",
+      "label": "负向提示词",
+      "type": "text",
+      "default": "blurry, low quality, distorted, deformed, watermark, text, logo, cropped, oversaturated, plastic look",
+      "max_length": 2000,
+      "group": "提示词",
+      "advanced": true,
+      "help": "不想出现的内容。SDXL 需要 cfg>1 才生效",
+      "targets": [
+        {
+          "node_id": "7",
+          "input": "text"
+        }
+      ]
+    },
+    {
+      "key": "width",
+      "label": "宽度",
+      "type": "int",
+      "default": 1024,
+      "min": 512,
+      "max": 2048,
+      "step": 64,
+      "group": "画布",
+      "help": "长边受 PRD §6.2 约束：512–2048",
+      "targets": [
+        {
+          "node_id": "5",
+          "input": "width"
+        }
+      ]
+    },
+    {
+      "key": "height",
+      "label": "高度",
+      "type": "int",
+      "default": 1024,
+      "min": 512,
+      "max": 2048,
+      "step": 64,
+      "group": "画布",
+      "targets": [
+        {
+          "node_id": "5",
+          "input": "height"
+        }
+      ]
+    },
+    {
+      "key": "seed",
+      "label": "随机种子",
+      "type": "seed",
+      "default": -1,
+      "group": "采样",
+      "help": "-1 表示随机。渲染时会解析成真实值并写进产物元数据，便于复现（FR-5.4/5.5）",
+      "targets": [
+        {
+          "node_id": "3",
+          "input": "seed"
+        }
+      ]
+    },
+    {
+      "key": "steps",
+      "label": "采样步数",
+      "type": "int",
+      "default": 25,
+      "min": 1,
+      "max": 100,
+      "step": 1,
+      "group": "采样",
+      "advanced": true,
+      "help": "SDXL 推荐 20–35。PRD §6.2 边界 1–100",
+      "targets": [
+        {
+          "node_id": "3",
+          "input": "steps"
+        }
+      ]
+    },
+    {
+      "key": "cfg",
+      "label": "CFG",
+      "type": "float",
+      "default": 6.5,
+      "min": 1.0,
+      "max": 20.0,
+      "step": 0.1,
+      "group": "采样",
+      "advanced": true,
+      "help": "SDXL 推荐 5–8；过高会过饱和",
+      "targets": [
+        {
+          "node_id": "3",
+          "input": "cfg"
+        }
+      ]
+    },
+    {
+      "key": "denoise",
+      "label": "重绘幅度",
+      "type": "float",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.0,
+      "step": 0.01,
+      "group": "采样",
+      "advanced": true,
+      "help": "纯文生图固定 1.0。图生图链路才会用到 <1 的取值",
+      "targets": [
+        {
+          "node_id": "3",
+          "input": "denoise"
+        }
+      ]
+    },
+    {
+      "key": "sampler_name",
+      "label": "采样器",
+      "type": "enum",
+      "default": "dpmpp_2m",
+      "options": [
+        {
+          "value": "euler",
+          "label": "euler"
+        },
+        {
+          "value": "euler_cfg_pp",
+          "label": "euler_cfg_pp"
+        },
+        {
+          "value": "euler_ancestral",
+          "label": "euler_ancestral"
+        },
+        {
+          "value": "euler_ancestral_cfg_pp",
+          "label": "euler_ancestral_cfg_pp"
+        },
+        {
+          "value": "heun",
+          "label": "heun"
+        },
+        {
+          "value": "heunpp2",
+          "label": "heunpp2"
+        },
+        {
+          "value": "exp_heun_2_x0",
+          "label": "exp_heun_2_x0"
+        },
+        {
+          "value": "exp_heun_2_x0_sde",
+          "label": "exp_heun_2_x0_sde"
+        },
+        {
+          "value": "dpm_2",
+          "label": "dpm_2"
+        },
+        {
+          "value": "dpm_2_ancestral",
+          "label": "dpm_2_ancestral"
+        },
+        {
+          "value": "lms",
+          "label": "lms"
+        },
+        {
+          "value": "dpm_fast",
+          "label": "dpm_fast"
+        },
+        {
+          "value": "dpm_adaptive",
+          "label": "dpm_adaptive"
+        },
+        {
+          "value": "dpmpp_2s_ancestral",
+          "label": "dpmpp_2s_ancestral"
+        },
+        {
+          "value": "dpmpp_2s_ancestral_cfg_pp",
+          "label": "dpmpp_2s_ancestral_cfg_pp"
+        },
+        {
+          "value": "dpmpp_sde",
+          "label": "dpmpp_sde"
+        },
+        {
+          "value": "dpmpp_sde_gpu",
+          "label": "dpmpp_sde_gpu"
+        },
+        {
+          "value": "dpmpp_2m",
+          "label": "DPM++ 2M（推荐）"
+        },
+        {
+          "value": "dpmpp_2m_cfg_pp",
+          "label": "dpmpp_2m_cfg_pp"
+        },
+        {
+          "value": "dpmpp_2m_sde",
+          "label": "dpmpp_2m_sde"
+        },
+        {
+          "value": "dpmpp_2m_sde_gpu",
+          "label": "dpmpp_2m_sde_gpu"
+        },
+        {
+          "value": "dpmpp_2m_sde_heun",
+          "label": "dpmpp_2m_sde_heun"
+        },
+        {
+          "value": "dpmpp_2m_sde_heun_gpu",
+          "label": "dpmpp_2m_sde_heun_gpu"
+        },
+        {
+          "value": "dpmpp_3m_sde",
+          "label": "dpmpp_3m_sde"
+        },
+        {
+          "value": "dpmpp_3m_sde_gpu",
+          "label": "dpmpp_3m_sde_gpu"
+        },
+        {
+          "value": "ddpm",
+          "label": "ddpm"
+        },
+        {
+          "value": "lcm",
+          "label": "lcm"
+        },
+        {
+          "value": "ipndm",
+          "label": "ipndm"
+        },
+        {
+          "value": "ipndm_v",
+          "label": "ipndm_v"
+        },
+        {
+          "value": "deis",
+          "label": "deis"
+        },
+        {
+          "value": "cfgpp_ud10_ab",
+          "label": "cfgpp_ud10_ab"
+        },
+        {
+          "value": "res_multistep",
+          "label": "res_multistep"
+        },
+        {
+          "value": "res_multistep_cfg_pp",
+          "label": "res_multistep_cfg_pp"
+        },
+        {
+          "value": "res_multistep_ancestral",
+          "label": "res_multistep_ancestral"
+        },
+        {
+          "value": "res_multistep_ancestral_cfg_pp",
+          "label": "res_multistep_ancestral_cfg_pp"
+        },
+        {
+          "value": "gradient_estimation",
+          "label": "gradient_estimation"
+        },
+        {
+          "value": "gradient_estimation_cfg_pp",
+          "label": "gradient_estimation_cfg_pp"
+        },
+        {
+          "value": "er_sde",
+          "label": "er_sde"
+        },
+        {
+          "value": "seeds_2",
+          "label": "seeds_2"
+        },
+        {
+          "value": "seeds_3",
+          "label": "seeds_3"
+        },
+        {
+          "value": "sa_solver",
+          "label": "sa_solver"
+        },
+        {
+          "value": "sa_solver_pece",
+          "label": "sa_solver_pece"
+        },
+        {
+          "value": "ddim",
+          "label": "ddim"
+        },
+        {
+          "value": "uni_pc",
+          "label": "uni_pc"
+        },
+        {
+          "value": "uni_pc_bh2",
+          "label": "uni_pc_bh2"
+        }
+      ],
+      "group": "采样",
+      "advanced": true,
+      "help": "取值集合已按 v0.36.0 的 /object_info 逐项核对（L3）",
+      "targets": [
+        {
+          "node_id": "3",
+          "input": "sampler_name"
+        }
+      ]
+    },
+    {
+      "key": "scheduler",
+      "label": "调度器",
+      "type": "enum",
+      "default": "karras",
+      "options": [
+        {
+          "value": "simple",
+          "label": "simple"
+        },
+        {
+          "value": "sgm_uniform",
+          "label": "sgm_uniform"
+        },
+        {
+          "value": "karras",
+          "label": "Karras（推荐）"
+        },
+        {
+          "value": "exponential",
+          "label": "exponential"
+        },
+        {
+          "value": "ddim_uniform",
+          "label": "ddim_uniform"
+        },
+        {
+          "value": "beta",
+          "label": "beta"
+        },
+        {
+          "value": "normal",
+          "label": "normal"
+        },
+        {
+          "value": "linear_quadratic",
+          "label": "linear_quadratic"
+        },
+        {
+          "value": "kl_optimal",
+          "label": "kl_optimal"
+        }
+      ],
+      "group": "采样",
+      "advanced": true,
+      "help": "取值集合已按 v0.36.0 的 /object_info 逐项核对（L3）",
+      "targets": [
+        {
+          "node_id": "3",
+          "input": "scheduler"
+        }
+      ]
+    }
+  ]
+}
