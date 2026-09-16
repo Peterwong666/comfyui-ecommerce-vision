@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useAuthStore } from '../../stores/authStore'
+import { ERROR_TYPE } from '../enums'
 import { ApiError } from '../errors'
 import { API_BASE_URL, request } from '../http'
 
@@ -8,7 +9,8 @@ import { API_BASE_URL, request } from '../http'
  * HTTP 层的契约测试。
  *
  * 重点覆盖**三种错误信封**与两个容易搞错的行为：
- * - 402 的 `detail` 是**纯字符串**，所以只能按状态码判断额度不足
+ * - 402 的判据是 `detail.code`（对象形式），**同时**保留 402 状态码后备 ——
+ *   2026-09-17 之前它是纯字符串，那类响应契约上仍然合法
  * - 401 只在**非匿名**请求上才清会话（登录失败的 401 含义不同）
  */
 
@@ -104,16 +106,48 @@ describe('错误信封（契约 §2.2 的三种形状）', () => {
 })
 
 describe('402 额度不足', () => {
-  it('detail 是纯字符串，必须按状态码识别', async () => {
-    // 后端在额度不足时返回 {detail: "额度不足：需要 10，剩余 3"}，
-    // **不带 code**。若靠 code === 'QUOTA_EXCEEDED' 判断，永远匹配不上。
+  it('形状 2：按 detail.code 识别（2026-09-17 起后端就是这个形状）', async () => {
+    // 契约 §2.2：需要前端分支处理时 detail 用对象形式，code 取后端枚举的取值。
+    mockJson(402, {
+      detail: {
+        code: ERROR_TYPE.QUOTA_EXCEEDED,
+        message: '额度不足：需要 3，剩余 1',
+        fields: [{ key: 'count', reason: '需要 3，剩余 1' }],
+      },
+    })
+
+    const err = (await request('/api/v1/tasks', { method: 'POST', body: {} }).catch(
+      (e: unknown) => e,
+    )) as ApiError
+
+    expect(err.isQuotaExceeded).toBe(true)
+    expect(err.code).toBe(ERROR_TYPE.QUOTA_EXCEEDED)
+    // message 保持人类可读，页面直接拿它当提示文案
+    expect(err.message).toBe('额度不足：需要 3，剩余 1')
+    expect(err.fields).toEqual([{ key: 'count', reason: '需要 3，剩余 1' }])
+  })
+
+  it('后备：老形状（纯字符串 detail、没有 code）的 402 仍要认得出来', async () => {
+    // 契约 §2.2 明确保留字符串形式以兼容既有实现 ——
+    // 也就是说"没有 code 的 402"在契约上仍合法。只按 code 判会让它降级成普通错误提示。
     mockJson(402, { detail: '额度不足：需要 10，剩余 3' })
 
     const err = (await request('/api/v1/tasks', { method: 'POST', body: {} }).catch(
       (e: unknown) => e,
     )) as ApiError
+
     expect(err.isQuotaExceeded).toBe(true)
     expect(err.code).toBeUndefined()
+    expect(err.message).toBe('额度不足：需要 10，剩余 3')
+  })
+
+  it('code 是判据本身：换个状态码带同款 code 也认', async () => {
+    // 这条钉住"code 分支真的存在"。若只留状态码后备，
+    // 上面第一条仍会通过（状态恰好是 402），只有这一条会红。
+    mockJson(400, { detail: { code: ERROR_TYPE.QUOTA_EXCEEDED, message: '额度不足' } })
+
+    const err = (await request('/api/v1/tasks').catch((e: unknown) => e)) as ApiError
+    expect(err.isQuotaExceeded).toBe(true)
   })
 })
 

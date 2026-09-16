@@ -8,10 +8,12 @@
  * 3. `{"detail": "...", "error_type": "...", "retryable": bool}` —— **503**，
  *    由 `backend/app/main.py` 的 `ComfyUIError` 处理器返回，**多两个顶层键**。
  *
- * ⚠️ 一个反直觉但必须遵守的点：**402（额度不足）的 `detail` 是纯字符串**，
- * 不带 `code`。所以判断额度问题**只能按状态码**，不能靠
- * `code === 'QUOTA_EXCEEDED'` —— 那样永远匹配不上。
+ * ⚠️ 402（额度不足）的形状在 2026-09-17 变了：此前 `detail` 是**纯字符串**，
+ * 判据只有状态码；现在是**形状 2**，带机器可读的 `code`（契约 §2.2）。
+ * 两种都要兜住 —— 理由见 `isQuotaExceeded`。
  */
+
+import { ERROR_TYPE } from './enums'
 
 /** 需要前端逐字段提示时，后端用这个结构（`detail.fields[]`）。 */
 export interface ApiFieldError {
@@ -58,10 +60,21 @@ export class ApiError extends Error {
   /**
    * 额度不足（EX-12）。
    *
-   * ⚠️ **按状态码判断**，不要看 `code` —— 后端这里返回纯字符串 detail。
+   * **优先按 `detail.code` 判断**（契约 §2.2：需要前端分支处理的错误用对象形式，
+   * `code` 取后端 `ErrorType` 的取值），因为那才是机器可读的语义标识 ——
+   * 状态码只是传输层的约定，`code` 才是契约。
+   *
+   * ⚠️ **同时保留按 402 状态码的后备**：2026-09-17 之前后端返回的是纯字符串
+   * detail（此时 `code` 为 `undefined`），而契约 §2.2 明确保留字符串形式以兼容
+   * 既有实现 —— 也就是说"没有 code 的 402"在契约上仍然合法。去掉状态码后备
+   * 会让这类响应被当成普通错误，用户看不到"额度不足"的专门提示。
+   *
+   * 两个判据取或，不会互相遮蔽：新响应两个都成立，老响应只成立后者。
+   * `ERROR_TYPE.QUOTA_EXCEEDED` 是后端枚举的前端镜像（`enums.ts`），
+   * 不在这里写字面量 —— 取值漂移由 `test_web_enum_parity.py` 拦。
    */
   get isQuotaExceeded(): boolean {
-    return this.status === 402
+    return this.code === ERROR_TYPE.QUOTA_EXCEEDED || this.status === 402
   }
 
   /** 资源不存在**或不属于当前用户**。后端对越权也用 404（不泄露资源存在性）。 */

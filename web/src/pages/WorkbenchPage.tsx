@@ -4,7 +4,7 @@ import { useState } from 'react'
 
 import { api } from '../api/client'
 import { TASK_STATUS_CANCELLABLE } from '../api/enums'
-import { describeError } from '../api/errors'
+import { ApiError, describeError } from '../api/errors'
 import { useTask, useWorkflows } from '../api/hooks'
 import { queryKeys } from '../api/keys'
 import { TaskStatusBadge } from '../components/StatusBadge'
@@ -75,7 +75,10 @@ export function WorkbenchPage() {
     onError: (err) => void message.error(describeError(err)),
   })
 
-  const quotaError = submit.error !== null && (submit.error as { status?: number }).status === 402
+  // 用 `ApiError.isQuotaExceeded` 而不是就地判 `status === 402`：
+  // 判据只有一处（`errors.ts`），否则「按 code 判还是按状态码判」会在这里
+  // 出现第二套说法，后端换了形状前端不会跟着变。
+  const quotaError = submit.error instanceof ApiError && submit.error.isQuotaExceeded
 
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -118,7 +121,8 @@ export function WorkbenchPage() {
               type="warning"
               showIcon
               message="额度不足"
-              // 后端对额度不足返回的是**纯字符串** detail，所以这里只按状态码判断（402）
+              // 后端 402 的 detail 是对象形式（契约 §2.2），message 里带
+              // 「需要 N，剩余 M」（`describeError` 取的就是它）
               description={describeError(submit.error)}
             />
           )}
