@@ -1,0 +1,56 @@
+[project]
+name = "comfyui-platform-backend"
+version = "0.1.0"
+description = "电商视觉 AIGC 量产平台 · 后端服务"
+requires-python = ">=3.10"
+dependencies = [
+    # Web 框架
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "python-multipart>=0.0.12",
+    # 配置与校验
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    # 数据库
+    "sqlalchemy>=2.0.36",
+    "alembic>=1.14",
+    "psycopg[binary]>=3.2",
+    # 队列与缓存
+    "celery>=5.4",
+    "redis>=5.2",
+    # 对象存储
+    "minio>=7.2",
+    # 推理引擎客户端
+    "httpx>=0.27",
+    "websockets>=13.1",
+    # 安全
+    "pyjwt>=2.10",
+    "bcrypt>=4.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+    "mypy>=1.13",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
