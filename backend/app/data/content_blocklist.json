@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "updated": "2026-09-17",
+  "_note": [
+    "用途：本文件是**输入侧**内容安全（P6-13）的规则素材。用户提交时给的提示词文本（prompt / negative_prompt）会先归一化、再逐条做子串匹配：命中 severity=hit 的规则**拒绝提交**（422 + code=CONTENT_BLOCKED，不落库、不扣额度），命中 severity=warn 的规则**放行但写审计**（AuditLog action=content.warn，只记规则 id / hash / 长度 / 阶段 / 字段名）。加载器见 backend/app/services/content_safety.py。",
+    "⚠️ 别把它和另一份东西搞混：assets/prompt_lib/negative.yaml 是**给模型的反向提示词**（语义相反 —— 那是「希望模型别画出来」的东西，从不拒绝用户）；本文件是**拒绝用户**的规则。两者不共享加载路径，也不互相替代。",
+    "来源依据：① docs/sop/license_matrix.md §6「输出内容本身的合规（不只是模型）」列出的三类 —— 商标与品牌 / 肖像权 / 儿童形象；② assets/prompt_lib/negative.yaml 中带 [合规] 标签的条目：neg-027 伪造品牌标识、neg-030 不雅暴露性暗示、neg-031 暴力血腥、neg-032 儿童形象被商业化使用；③ 分级词汇沿用 negative.yaml 的 severity 定义（hit=出现即判废 / warn=影响观感，可重跑 / soft=轻微瑕疵）—— 本表只用到 hit 与 warn。",
+    "分级判据：**severity=hit 只放法律红线**（当前仅 child 一类），且必须满足「这句话不可能出现在正常电商文案里」。其余一律 warn（放行 + 留痕）。凡是常见商品名 / 材质 / 场景 / 光影描述可能沾边的词，**一律不进 hit**：`暴力` 会命中「暴力熊」（潮玩摆件），`枪` 会命中「水枪玩具」，`儿童` 会命中「儿童服装 / 儿童模特」这类大类目，`gore` 会命中「Gore-Tex」（户外面料），`sex` 会命中「unisex」（无性别服装）—— 这些词因此都不在本表里。",
+    "⚠️ 已知局限（写清楚，免得读者高估这份表）：① 只覆盖**可枚举的文本**，绕写（拆字、拼音首字母、谐音、插入引号）与**图片内容**一律覆盖不到；② 归一化后是**子串**匹配，所以刻意不收会成为其它词子串的短词：`sex`（unisex 含它）、`性交`（个性交互 含它）、`性行为`（特性行为 含它）、`裸露`（裸露的砖墙 是正常装修描述）；③ 仍有 **warn 级**误报，已知 `血腥玛丽`（鸡尾酒名）会命中 cs-violence-01 而被留痕（**不影响提交**，只是审计里多一条）；④ **本表不含任何 NSFW 视觉检测能力** —— FR-9.4 的视觉检测在 V1 未实现，也没有假实现，见 services/content_safety.py 的 NullNsfwDetector；⑤ 本表未做逐条许可证/法条溯源（法律红线是常识性判定，不是从某份许可证推出的）。",
+    "⚠️ 增删词条的纪律：每条规则必须写明 reason（人类可读、给用户看，且**不许回显命中的原词**）；宁少勿多 —— 误报比漏报更伤这个功能。同类教训见 backend/app/core/config.py 中 max_sku_count 的注释：无依据地收紧边界会让用户莫名其妙被拒，而「莫名其妙」是最消耗信任的一类报错。"
+  ],
+  "rules": [
+    {
+      "id": "cs-child-01",
+      "category": "child",
+      "severity": "hit",
+      "terms": [
+        "儿童色情",
+        "儿童性虐待",
+        "儿童性行为",
+        "儿童裸照",
+        "儿童性化",
+        "未成年色情",
+        "未成年人性行为",
+        "幼女色情",
+        "幼女性行为",
+        "萝莉色情"
+      ],
+      "reason": "提示词涉及对儿童的性化描述，属法律与平台双重红线，禁止用于任何生成任务。请移除相关内容后重试。"
+    },
+    {
+      "id": "cs-child-02",
+      "category": "child",
+      "severity": "hit",
+      "terms": [
+        "childporn",
+        "childpornography",
+        "childrape",
+        "pedophile",
+        "pedophilia"
+      ],
+      "reason": "提示词涉及对儿童的性化或性剥削内容（英文写法），属法律红线，禁止用于任何生成任务。请移除相关内容后重试。"
+    },
+    {
+      "id": "cs-brand-01",
+      "category": "brand",
+      "severity": "warn",
+      "terms": [
+        "伪造品牌",
+        "伪造商标",
+        "伪造logo",
+        "假冒品牌",
+        "仿冒商标",
+        "山寨logo",
+        "高仿logo",
+        "假logo",
+        "盗版商标",
+        "fakebrand",
+        "fakelogo",
+        "counterfeitlogo",
+        "counterfeitbrand"
+      ],
+      "reason": "提示词要求生成他人商标标识，可能产出侵权素材（依据 license_matrix.md §6「商标与品牌」，对应 negative.yaml 的 neg-027）。本次放行但已留痕，请确认所用商标已获授权。"
+    },
+    {
+      "id": "cs-sexual-01",
+      "category": "sexual",
+      "severity": "warn",
+      "terms": [
+        "色情",
+        "性暗示",
+        "成人内容",
+        "全裸",
+        "裸体",
+        "nsfw",
+        "porn"
+      ],
+      "reason": "提示词含性化或裸露内容要求（依据 license_matrix.md §6 与 negative.yaml 的 neg-030）。本次放行但已留痕，请确认用途合规。"
+    },
+    {
+      "id": "cs-violence-01",
+      "category": "violence",
+      "severity": "warn",
+      "terms": ["血腥", "肢解", "斩首"],
+      "reason": "提示词含暴力类内容要求（对应 negative.yaml 的 neg-031）。本次放行但已留痕，请确认用途合规。"
+    }
+  ]
+}

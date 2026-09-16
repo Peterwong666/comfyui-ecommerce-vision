@@ -30,7 +30,7 @@ from app.schemas.task import (
     TaskOut,
     TaskSubmitIn,
 )
-from app.services import quota
+from app.services import content_safety, quota
 from app.services import state_machine as sm
 from app.services.dispatch import enqueue_task
 from app.services.events import track
@@ -117,6 +117,65 @@ def _merge_params(
     return merged
 
 
+# ---------------------------------------------------------------- 内容安全（P6-13）
+
+
+def _screen_content(params: dict[str, Any]) -> dict[str, list[content_safety.RuleHit]]:
+    """输入侧内容安全检查（P6-13 / FR-9.4 的输入侧部分）。
+
+    ⚠️ 必须在 `_merge_params` **之后**调用：`params` 是提示词的唯一事实来源
+    （契约 §3.4），顶层 `prompt` / `negative_prompt` 都已收敛进去。只查顶层字段会漏掉
+    `params["prompt"]` 这条通道 —— 而它此前**没有任何**长度或内容校验（顶层字段至少还有
+    `max_length`）。
+
+    命中硬红线 → **422**。不发明 451/403-内容码：契约 §2.2 的状态码表里 422 就是
+    「参数校验失败」，多一个表外的码就多一条前端分支 —— 这与上传校验因表里没有 413 而
+    统一用 422 是同一个取舍（见 `assets.py` 头部说明）。
+    命中 warn → **放行**，命中清单返回给调用方写审计（`_record_content_warnings`）。
+
+    开关 `settings.content_safety_enabled=False` 时**完全不检查**（不拦、也不留痕）。
+    """
+    if not settings.content_safety_enabled:
+        return {}
+
+    hits_by_field = content_safety.check_params(params)
+    if any(hit.blocks for hits in hits_by_field.values() for hit in hits):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=content_safety.blocked_detail(hits_by_field),
+        )
+    return hits_by_field
+
+
+def _record_content_warnings(
+    db: DbSession,
+    user: CurrentUser,
+    warned: dict[str, list[content_safety.RuleHit]],
+    params: dict[str, Any],
+    *,
+    target_type: str,
+    target_id: int,
+) -> None:
+    """给 warn 级命中留痕（FR-1.4 审计）。
+
+    🔴 **隐私红线**：`detail` 里只有规则 id / hash / 长度 / 阶段 / 字段名，
+    **没有命中的原词、也没有提示词全文** —— `tracking_plan.md` §1.2 规定提示词可能含
+    商品名/品牌等敏感信息，**只记长度与 hash**。payload 一律由
+    `content_safety.warn_detail` 构造，本函数不做任何字符串拼接：这样就没有一个
+    "顺手把 `params[field]` 塞进去"的位置。
+    """
+    for field, hits in warned.items():
+        db.add(
+            AuditLog(
+                user_id=user.id,
+                action=content_safety.WARN_AUDIT_ACTION,
+                target_type=target_type,
+                target_id=str(target_id),
+                detail=content_safety.warn_detail(field, hits, params[field]),
+            )
+        )
+
+
 # ---------------------------------------------------------------- 单次生成
 
 
@@ -152,6 +211,8 @@ def submit_task(payload: TaskSubmitIn, user: CurrentUser, db: DbSession) -> Task
     if payload.negative_prompt is not None:
         params["negative_prompt"] = payload.negative_prompt
     _validate_params(params)
+    # 内容安全放在参数合并之后：两条提示词通道（顶层 / params）都已收敛进 params
+    warned = _screen_content(params)
 
     task = sm.create_task(
         db,
@@ -186,6 +247,9 @@ def submit_task(payload: TaskSubmitIn, user: CurrentUser, db: DbSession) -> Task
     )
     db.add(
         AuditLog(user_id=user.id, action="task.submit", target_type="task", target_id=str(task.id))
+    )
+    _record_content_warnings(
+        db, user, warned, params, target_type="task", target_id=task.id
     )
     db.commit()
 
@@ -307,6 +371,9 @@ def submit_batch(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> Ba
     template = db.get(Template, payload.template_id) if payload.template_id else None
     common = _merge_params(wf, template, payload.common_params)
     _validate_params(common)
+    # 批量与单任务走同一套检查：批量的提示词只可能来自 common_params
+    # （`BatchSubmitIn` 没有顶层 prompt 字段），所以查 common 即可覆盖整批。
+    warned = _screen_content(common)
 
     batch = Batch(
         user_id=user.id,
@@ -370,6 +437,11 @@ def submit_batch(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> Ba
         AuditLog(
             user_id=user.id, action="batch.submit", target_type="batch", target_id=str(batch.id)
         )
+    )
+    # 留痕挂在 **batch** 上（不是某一张子任务）：提示词是整批共用的，
+    # 逐张写会在一个 500 张的批量里留下 500 条一模一样的审计。
+    _record_content_warnings(
+        db, user, warned, common, target_type="batch", target_id=batch.id
     )
     db.commit()
 

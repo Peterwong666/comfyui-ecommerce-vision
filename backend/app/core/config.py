@@ -98,6 +98,17 @@ class Settings(BaseSettings):
     min_gen_side: int = 512
     max_gen_side: int = 2048
 
+    # ---------- 内容安全（P6-13 / FR-9.4 的输入侧部分） ----------
+    # 输入侧敏感词/合规词过滤的总开关。词表在 `app/data/content_blocklist.json`
+    # （规则、分级与已知局限都写在那份文件里；机制在 `app/services/content_safety.py`）。
+    #
+    # ⚠️ **False = 完全不检查**：既不拒绝、也不写 warn 审计。之所以要求"连审计都不写"，
+    # 是为了让这个开关的效果能被一次请求证伪（"检查真的没发生"）；留下"不拦但仍记"的
+    # 中间态，既说不清也测不准。
+    # ⚠️ 它**不**包含 NSFW 视觉检测 —— 那部分在 V1 未实现（见 `services/content_safety.py`
+    # 的 `NullNsfwDetector`）。打开本开关**不会**让任何图片被检测，别把它读成"NSFW 过滤已上线"。
+    content_safety_enabled: bool = True
+
     task_max_retries: int = 3
     task_max_retries_hard_limit: int = 5
     task_timeout_seconds: int = 300
