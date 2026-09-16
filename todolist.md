@@ -257,19 +257,20 @@ comfyui-platform/
 - [x] **P2-01** autoDL 选型与开卡 → 已开 RTX 4090 24G / 128 核 / 1TB RAM（详见 `项目进展.md` §2.1）
 - [x] **P2-02** 数据与模型存储策略 → models/output/input 迁至数据盘 50G + 软链（`deploy/autodl/02_migrate_models.sh`）
 - [ ] **P2-03** 基础镜像 Dockerfile（**已决定暂缓**：autoDL 实例自带 CUDA 12.4 + torch 2.5.1，先用现有环境；镜像化推迟到 P11-02 部署文档时统一做）
-- [x] **P2-04** ComfyUI 部署，models 目录外挂 → ✅ 已启动并验证：**SDXL 文生图 12.0s 出图成功**（`deploy/autodl/03_start_comfyui.sh` + `04_api_smoke_test.py`）
-- [ ] **P2-05** ComfyUI-Manager + 自定义节点白名单（现有 31 个节点太多太脆，需裁剪）
-- [x] **P2-06** 版本锁定 → `versions.lock`（398 行：GPU/驱动/python/torch/CUDA/ComfyUI commit/31 节点 commit/pip freeze）
+- [x] **P2-04** ComfyUI 部署，models 目录外挂 → ✅ 已启动并验证出图（`deploy/autodl/03_start_comfyui.sh` + `04_api_smoke_test.py`）。<br>　引擎已于 2026-09-16 升级 **v0.3.75 → v0.36.0 + torch 2.13.0+cu130**（为支持 FLUX.2 klein）。生产配置固定加 **`--highvram`**（v0.36 默认开启的 dynamic VRAM 会使 SDXL 慢 1.58x，见 `项目进展.md` #17/#18）。<br>　实测稳态（N=12 warmup=1）：SDXL 1024²/30 步 **median 5.00s / P95 5.48s / 地板 4.59s**；FLUX.2 klein 蒸馏版 4 步 **median 1.83s / P95 2.67s / 地板 1.52s**。<br>　⚠️ 原记录的「12.0s」是冷启动值，已作废（见 `项目进展.md` #15）
+- [ ] **P2-05** ComfyUI-Manager + 自定义节点白名单（现有 31 个节点太多太脆，需裁剪）<br>　升级后失败清单已明确：`nunchaku`（torch ABI）· `TeaCache`（`precompute_freqs_cis` 被移除）· `smZNodes`（diffusers）
+- [x] **P2-06** 版本锁定 → `deploy/versions.lock`（426 行，2026-09-16 重做）。含 `[host]/[gpu]/[python]/[comfyui]` 基础段 + **`[launch]`（启动参数 + 从日志解析出的生效运行时开关，如 `Set vram state to: HIGH_VRAM`）** + **`[models]`（6 个模型文件 size + sha256，M2「销毁重建仍可出同一张图」的锚点）** + `[custom_nodes]`（24 个节点 commit）+ `[pip]` freeze
 - [ ] **P2-07** 环境复现脚本 + 重建验证
-- [ ] **P2-08** 后端骨架 FastAPI
+- [x] **P2-08** 后端骨架 FastAPI → ✅ 已落地并验证（`backend/`，约 3100 行 / 31 测试全绿 / ruff 无告警）。<br>　按 ADR-004：FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic + Celery/Redis；**18 条路由**（auth / tasks / batches / workflows / templates / models / health），`/health` 与 `/health/ready` 分离。启动实测通过（结构化 JSON 日志生效）。<br>　⚠️ 补记：该骨架为 09-15 所建但当时**未提交、未入文档**，2026-09-16 补交并修正 6 个 ruff 问题（含 2 处非纯风格隐患）
 - [ ] **P2-09** PostgreSQL + Redis + MinIO 的 docker-compose
 - [ ] **P2-10** 前端骨架
 - [ ] **P2-11** CI 基础
 - [ ] **P2-12** 配置与密钥管理
-- [ ] **P2-13** 数据库迁移方案与初始 schema
+- [ ] **P2-13** 数据库迁移方案与初始 schema → 🟡 **部分完成**：11 张表的模型定义已就位（users/tasks/batches/workflows/templates/assets/prompt_library/defect_knowledge/events/audit_logs/model_registry）+ `alembic/env.py` 已配置，但 **`alembic/versions/` 为空 —— 尚未生成初始迁移**。另 PRD §9 标注缺 ER 图，建库时需补并回写 `PRD_v1.md`
 
 **DoD**：环境可一键重建；`versions.lock` 存在；后端/前端/ComfyUI 三件套都能起来并互相调通一次。
-**阶段结果**：🔵 进行中（3/13，2026-09-15）。P2-03 有意推迟 —— 先用自带环境跑主线，避免在环境美化上消耗前期时间。
+**阶段结果**：🔵 进行中（**5/13**，2026-09-16 复核）。P2-03 有意推迟 —— 先用自带环境跑主线，避免在环境美化上消耗前期时间。P2-06 于 09-16 因引擎升级回退后已重做完成；P2-08 后端骨架补交并验证完成。
+**待办提示**：⚠️ `backend/.venv` 中 **mypy 未安装**（`pyproject.toml` 已声明为 dev 依赖），类型检查这条防线目前是空的，需补装后才能生效。
 
 ---
 
