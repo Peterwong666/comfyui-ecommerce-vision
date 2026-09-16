@@ -126,6 +126,23 @@ class Settings(BaseSettings):
     disk_min_free_gb: int = 5
     disk_warn_free_gb: int = 10
 
+    # ---------- 素材与产物的生命周期（P6-10） ----------
+    # 回收站保留期：软删除后超过它才**物理**删除（对象 + 记录）。
+    # 为什么不是立即物理删：用户误删需要挽回窗口，且素材可能被历史产物引用
+    # （FR-5.4 要复现那张图，复现需要的正是参考图）。
+    asset_trash_retention_days: int = 30
+    # 产物保留期。**0 = 永久保留**（V1 的默认）。
+    # 产物是用户花钱生成的资产，无依据地过期删除会直接摧毁信任；
+    # 保留这条配置是为了 V2 做「免费用户 N 天 / 付费永久」时有位置可改。
+    # ⚠️ 即使设了非 0，**已采纳 / 已收藏的产物也永不清理**（见 maintenance.cleanup_assets）。
+    asset_output_retention_days: int = 0
+    # 单次打包下载的图片数上限。它是**内存/磁盘护栏**，不是业务规则：
+    # 打包会在临时文件里生成完整 zip，无上限时一次请求就能把盘写满（EX-4）。
+    max_pack_assets: int = 200
+    # 每轮清理最多处理多少条。设为有限值的理由：清理跑在 maintenance 队列上，
+    # 一轮全量扫百万行会把 DB 连接占满，影响出图主链路。
+    cleanup_batch_limit: int = 500
+
     # ---------- 默认配额 ----------
     default_quota_total: int = 50  # 新用户赠送额度（旅程 2：免信用卡+送额度）
     default_priority: int = 5  # 1(最高) ~ 9(最低)

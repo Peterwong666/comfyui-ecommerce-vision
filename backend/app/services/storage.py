@@ -1,8 +1,8 @@
-"""产物与素材的对象存储（P6-02 所需的最小实现）。
+"""产物与素材的对象存储（P6-02 建立抽象，P6-10 补全生命周期）。
 
-⚠️ **这不是 P6-10**。P6-10 负责「MinIO + 过期清理 + 签名 URL 下载」的完整生命周期；
-这里只提供执行层落盘必需的一个 `put` 接口，并把它做成**可替换的抽象**，
-好让 worker 在测试里不必依赖 MinIO、也让 P6-10 能平滑接管而不动 worker。
+P6-10 负责「MinIO + 过期清理 + 受控取图」的完整生命周期。这里提供执行层与
+生命周期任务都需要的三个原语：`put` / `get` / `delete`，并把它们做成
+**可替换的抽象**，好让 worker 与清理任务在测试里不必依赖 MinIO。
 
 设计要点：
 1. **object_key 由 ID 生成，绝不接受用户传入的路径**（NFR-4 路径遍历防护）。
@@ -11,6 +11,10 @@
    `assets.meta.model_sha256` 一类的可复现性元数据（FR-5.4 / C1）与去重判断。
 3. MinIO 不可用时**不静默降级到本地磁盘**：产物是用户的核心资产，
    悄悄写到容器本地磁盘会随实例释放一起丢。宁可让任务失败并重试。
+4. **`delete` 必须幂等**（删不存在的对象算成功）。理由见该方法的 docstring ——
+   它是「清理任务不会被一条坏数据永久卡死」的前提。
+5. **取图不经由本模块暴露预签名 URL**：V1 经 SSH 隧道访问，浏览器到不了 MinIO，
+   且对象键不该进接口契约。取图走 `api/v1/assets.py` 的受控接口（见该模块说明）。
 """
 
 from __future__ import annotations
@@ -57,6 +61,23 @@ class AssetStorage(abc.ABC):
         用途是「把用户上传的素材取出来、转交给 ComfyUI」（参考图类工作流的必需路径）。
         **bucket 由具体实现自己决定**（见 `MinioAssetStorage.__init__`），
         因此 `object_key` 是**与存储实现无关**的，可以安全地存进数据库。
+        """
+
+    @abc.abstractmethod
+    def delete(self, key: str) -> None:
+        """删除对象。**必须幂等**：对象本就不存在时算成功，不得抛异常。
+
+        ⚠️ 幂等不是"顺手加的宽容"，而是清理任务能收敛的前提。清理任务的顺序是
+        「先删对象、再删 DB 记录」——由此产生两种必然出现的重入场景：
+
+        - 上一次清理删掉了对象、但删记录时进程被杀 → 下一次会**再删一次不存在的对象**；
+        - 上传流程写入了对象、DB 提交却失败 → 该对象是孤儿，清理时同样"本来就没有记录"。
+
+        若 `delete` 对不存在的对象抛异常，这两条路径都会**永久失败**：
+        记录删不掉、下一轮还会重挑到同一条，清理任务从此不再推进任何东西（且不报错）。
+
+        实现注意事项：S3/MinIO 的 `RemoveObject` 本身就符合该语义；
+        进程内实现用 `pop(key, None)`，不要用 `del`。
         """
 
     def close(self) -> None:  # pragma: no cover - 默认无资源可释放
@@ -134,6 +155,11 @@ class MinioAssetStorage(AssetStorage):
                 response.close()
                 response.release_conn()
 
+    def delete(self, key: str) -> None:
+        """S3 的 `RemoveObject` 对不存在的 key 返回成功 —— 天然满足幂等要求。"""
+        client = self._ensure_bucket()
+        client.remove_object(self._bucket, key)
+
 
 class InMemoryAssetStorage(AssetStorage):
     """进程内实现。**只给测试与本地开发用**，进程退出即丢。"""
@@ -154,6 +180,10 @@ class InMemoryAssetStorage(AssetStorage):
         if key not in self.objects:
             raise KeyError(f"对象不存在：{key}")
         return self.objects[key]
+
+    def delete(self, key: str) -> None:
+        # 用 pop 而不是 del：见 ABC 上 `delete` 的幂等要求。
+        self.objects.pop(key, None)
 
 
 def build_output_key(user_id: int, task_id: int, extension: str = "png") -> str:
