@@ -1,0 +1,426 @@
+# ============================================================
+# ComfyUI 商用封装平台 · 环境版本基线
+# 生成时间: 2026-09-16T03:14:19Z
+# 用途: P2-06 版本锁定。重建环境时以此为唯一事实来源。
+# ============================================================
+
+[host]
+platform=autoDL
+os=Ubuntu 22.04.4 LTS
+kernel=5.15.0-78-generic
+cpu_cores=128
+ram_gb=1007
+
+[gpu]
+gpu=NVIDIA GeForce RTX 4090
+driver=580.76.05
+vram=24564 MiB
+
+[python]
+version=3.12.3
+torch=2.13.0+cu130
+cuda=13.0
+cuda_available=True
+
+[comfyui]
+path=/root/ComfyUI
+version=v0.36.0
+commit=ee71d5c4993f29086b27fde1629a945ae48425bf
+
+[launch]
+argv=main.py --listen 127.0.0.1 --port 8188 --highvram
+effective_82=[32m[INFO][0m Total VRAM 24081 MB, total RAM 92160 MB
+effective_85=[32m[INFO][0m Set vram state to: HIGH_VRAM
+effective_87=[32m[INFO][0m Using async weight offloading with 2 streams
+effective_89=[32m[INFO][0m Using pytorch attention
+
+[models]
+# sha256 是 M2「销毁重建仍可复现同图」的锚点；size 便于快速比对
+checkpoints/sd_xl_base_1.0.safetensors size=6938078334 sha256=31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b
+unet/flux-2-klein-4b.safetensors size=7751105712 sha256=ec3d4e733a771f61c052fb4856c48b336c55eaf2c65487c2a1faeb9bbda7a343
+vae/flux2-vae.safetensors size=336211292 sha256=868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3
+vae/sdxl_vae_fp16fix.safetensors size=334641162 sha256=235745af8d86bf4a4c1b5b4f529868b37019a10f7c0b2e79ad0abca3a22bc6e1
+text_encoders/qwen_3_4b.safetensors size=8044982048 sha256=6c671498573ac2f7a5501502ccce8d2b08ea6ca2f661c458e708f36b36edfc5a
+text_encoders/qwen_3_4b_fp4_flux2.safetensors size=3848213998 sha256=3eab03a77adb0ee5304a4e677d5c10ac22f9049c1d7c894adca4f8bb39206ca8
+
+[custom_nodes]
+ComfyUI-Advanced-ControlNet=2bde95a468ce5fd3959f646258606ae221fa1e17
+ComfyUI-Coziness=d841eaea9a560836682876a1c9a4dee087a130f3
+ComfyUI-Custom-Scripts=f2838ed5e59de4d73cde5c98354b87a8d3200190
+ComfyUI-Dev-Utils=38852e78803adfdb20c9fa477a88febb03440978
+ComfyUI-Easy-Use=9947b8be70e17ceabafa4fa7f476b54626de4704
+ComfyUI-Frame-Interpolation=a969c01dbccd9e5510641be04eb51fe93f6bfc3d
+ComfyUI-Impact-Pack=61bd8397a18e7e7668e6a24e95168967768c2bed
+ComfyUI-Inspire-Pack=d23db9aa544de9a6d4c609cb7005fa9e0d42031d
+ComfyUI-KJNodes=f37df472dfb325f1f72c90e2df56e72f40f850f0
+ComfyUI-Manager=06496d07b3c3f47995210667c1aff031f3e8767e
+ComfyUI-TeaCache=91dff8e31684ca70a5fda309611484402d8fa192
+ComfyUI-Upscaler-Tensorrt=461c73e1cb3408d7901b104f15c8c0572e2e0b04
+ComfyUI-VideoHelperSuite=537f3a02269e14ab4b0350d4189a52034e9a3b12
+ComfyUI-WanVideoWrapper=772642b4f132a077f655ff24d11cb99ef108aff5
+ComfyUI-nunchaku=dbfd194294b727d9bec597a9a5df6d431c5d3a6f
+ComfyUI_ADV_CLIP_emb=63984deefb005da1ba90a1175e21d91040da38ab
+ComfyUI_BiRefNet_ll=5443a2aa16cfbd98bb2f7dcc8bdcb70439e08529
+ComfyUI_FizzNodes=7d6ea60c55ebd1268bd76fa462da052852bff192
+ComfyUI_IPAdapter_plus=a0f451a5113cf9becb0847b92884cb10cbdec0ef
+ComfyUI_essentials=9d9f4bedfc9f0321c19faf71855e228c93bd0dc9
+ComfyUI_smZNodes=9562d76c3cf206a3c2362e2baf8bbf717a4869a5
+ComfyUI_tinyterraNodes=1a90e43480563e9202f7f5482629b1d444e805ed
+Derfuu_ComfyUI_ModdedNodes=d0905bed31249f2bd0814c67585cf4fe3c77c015
+PowerNoiseSuite=581c164114dcb428759196617c8b18364c80ebeb
+comfyui-browser=95fd55d663f4ebbc54949af5dfd1b0650153fc52
+comfyui-ollama=6db7560576e5a59488708e6be13e07b5aba2432a
+comfyui-supersave=59f6e0538b4ea36877bbd94acc085756f9ed2e78
+comfyui_controlnet_aux=12f35647f0d510e03b45a47fb420fe1245a575df
+efficiency-nodes-comfyui=f0971b5553ead8f6e66bb99564431e2590cd3981
+masquerade-nodes-comfyui=432cb4d146a391b387a0cd25ace824328b5b61cf
+rgthree-comfy=42e73c3c48e8268129a6a1ea6d9766913bfc5435
+was-node-suite-comfyui=ea935d1044ae5a26efa54ebeb18fe9020af49a45
+
+[pip]
+absl-py==2.1.0
+accelerate==1.10.1
+addict==2.4.0
+aiofiles==24.1.0
+aiohappyeyeballs==2.6.1
+aiohttp==3.13.1
+aiohttp-sse==2.2.0
+aiohttp_socks==0.10.1
+aiosignal==1.4.0
+albucore==0.0.24
+albumentations==2.0.8
+alembic==1.17.0
+anaconda-anon-usage @ file:///croot/anaconda-anon-usage_1710965072196/work
+annotated-types==0.7.0
+antlr4-python3-runtime==4.9.3
+anyio==4.6.2.post1
+archspec @ file:///croot/archspec_1709217642129/work
+argon2-cffi==23.1.0
+argon2-cffi-bindings==21.2.0
+arrow==1.3.0
+asttokens==2.4.1
+async-lru==2.0.4
+attrs==24.2.0
+av==18.1.0
+babel==2.16.0
+beautifulsoup4==4.12.3
+blake3==1.0.9
+bleach==6.2.0
+boltons @ file:///work/perseverance-python-buildout/croot/boltons_1698851177130/work
+Brotli @ file:///croot/brotli-split_1714483155106/work
+cachetools==6.2.1
+certifi @ file:///croot/certifi_1707229174982/work/certifi
+cffi @ file:///croot/cffi_1714483155441/work
+chardet==5.2.0
+charset-normalizer @ file:///tmp/build/80754af9/charset-normalizer_1630003229654/work
+click==8.3.0
+clip-interrogator==0.6.0
+cmake==4.1.0
+codewithgpu==0.2.8
+color-matcher==0.6.0
+coloredlogs==15.0.1
+colorlog==6.10.1
+colour-science==0.4.6
+comfy-aimdo==0.5.3
+comfy-angle==0.1.1
+comfy-kitchen==0.2.34
+comfyui-embedded-docs==0.5.11
+comfyui-workflow-templates-core==0.3.350
+comfyui-workflow-templates-json==0.1.85
+comfyui-workflow-templates-media-api==0.3.84
+comfyui-workflow-templates-media-assets-01==0.1.46
+comfyui-workflow-templates-media-image==0.3.160
+comfyui-workflow-templates-media-other==0.3.229
+comfyui-workflow-templates-media-video==0.3.101
+comfyui_frontend_package==1.52.7
+comfyui_workflow_templates==0.11.62
+comm==0.2.2
+compel==2.3.0
+conda @ file:///croot/conda_1714403036266/work
+conda-content-trust @ file:///croot/conda-content-trust_1714483159009/work
+conda-libmamba-solver @ file:///croot/conda-libmamba-solver_1706733287605/work/src
+conda-package-handling @ file:///croot/conda-package-handling_1714483155348/work
+conda_package_streaming @ file:///work/perseverance-python-buildout/croot/conda-package-streaming_1698847176583/work
+contourpy==1.3.1
+cryptography @ file:///croot/cryptography_1714660666131/work
+cstr @ git+https://github.com/WASasquatch/cstr@0520c29a18a7a869a6e5983861d6f7a4c86f8e9b
+cuda-bindings==13.3.1
+cuda-pathfinder==1.6.0
+cuda-toolkit==13.0.3.0
+cycler==0.12.1
+Cython==3.1.4
+ddt==1.7.2
+debugpy==1.8.9
+decorator==5.1.1
+defusedxml==0.7.1
+diffusers==0.35.2
+dill==0.4.0
+distro @ file:///croot/distro_1714488253808/work
+docutils==0.22.2
+dotenv==0.9.9
+easydict==1.13
+einops==0.8.1
+embreex==2.17.7.post7
+executing==2.1.0
+facexlib==0.3.0
+fairscale==0.4.13
+fastjsonschema==2.20.0
+ffmpy @ git+https://github.com/WASasquatch/ffmpy.git@f000737698b387ffaeab7cd871b0e9185811230d
+filelock==3.16.1
+filterpy==1.4.5
+flatbuffers==25.9.23
+fonttools==4.55.0
+fqdn==1.5.1
+frozenlist==1.8.0
+fsspec==2024.10.0
+ftfy==6.3.1
+future==1.0.0
+fvcore==0.1.5.post20221221
+gdown==5.2.0
+gguf==0.17.1
+gitdb==4.0.12
+GitPython==3.1.45
+greenlet==3.2.4
+grpcio==1.68.0
+h11==0.14.0
+h2==4.3.0
+hf-xet==1.1.10
+hpack==4.1.0
+httpcore==1.0.7
+httpx==0.27.2
+huggingface-hub==0.35.3
+humanfriendly==10.0
+hydra-core==1.3.2
+hyperframe==6.1.0
+idna @ file:///croot/idna_1714398848350/work
+imageio==2.37.0
+imageio-ffmpeg==0.6.0
+img2texture @ git+https://github.com/WASasquatch/img2texture.git@d6159abea44a0b2cf77454d3d46962c8b21eb9d3
+importlib_metadata==8.7.0
+insightface==0.7.3
+iopath==0.1.10
+ipykernel==6.29.5
+ipython==8.29.0
+ipywidgets==8.1.5
+isoduration==20.11.0
+jax==0.7.1
+jaxlib==0.7.1
+jedi==0.19.2
+Jinja2==3.1.4
+joblib==1.5.2
+json5==0.9.28
+jsonpatch @ file:///croot/jsonpatch_1714483231291/work
+jsonpointer==2.1
+jsonschema==4.23.0
+jsonschema-specifications==2024.10.1
+jupyter-events==0.10.0
+jupyter-lsp==2.2.5
+jupyter_client==8.6.3
+jupyter_core==5.7.2
+jupyter_server==2.14.2
+jupyter_server_terminals==0.5.3
+jupyterlab==4.4.9
+jupyterlab-language-pack-zh-CN==4.2.post3
+jupyterlab_pygments==0.3.0
+jupyterlab_server==2.27.3
+jupyterlab_widgets==3.0.13
+kiwisolver==1.4.7
+kornia==0.8.1
+kornia_rs==0.1.9
+lark==1.3.0
+lazy_loader==0.4
+libmambapy @ file:///croot/mamba-split_1714483352891/work/libmambapy
+llvmlite==0.45.1
+lxml==6.0.2
+Mako==1.3.10
+manifold3d==3.2.1
+mapbox_earcut==1.0.3
+Markdown==3.7
+markdown-it-py==4.0.0
+MarkupSafe==3.0.2
+matplotlib==3.9.2
+matplotlib-inline==0.1.7
+matrix-nio==0.25.2
+mdurl==0.1.2
+mediapipe==0.10.21
+menuinst @ file:///croot/menuinst_1714510563922/work
+mistune==3.0.2
+ml_dtypes==0.5.3
+mpmath==1.3.0
+mss==10.1.0
+multidict==6.7.0
+nbclient==0.10.0
+nbconvert==7.16.4
+nbformat==5.10.4
+nest-asyncio==1.6.0
+networkx==3.4.2
+ninja==1.13.0
+notebook==7.4.7
+notebook_shim==0.2.4
+numba==0.62.1
+numexpr==2.14.1
+numpy==2.2.6
+nunchaku @ https://modelscope.cn/models/nunchaku-tech/nunchaku/resolve/master/nunchaku-1.0.1+torch2.5-cp312-cp312-linux_x86_64.whl
+nvidia-cublas==13.1.1.3
+nvidia-cuda-cupti==13.0.85
+nvidia-cuda-nvrtc==13.0.88
+nvidia-cuda-runtime==13.0.96
+nvidia-cudnn-cu13==9.20.0.48
+nvidia-cufft==12.0.0.61
+nvidia-cufile==1.15.1.6
+nvidia-curand==10.4.0.35
+nvidia-cusolver==12.0.4.66
+nvidia-cusparse==12.6.3.3
+nvidia-cusparselt-cu13==0.8.1
+nvidia-nccl-cu13==2.29.7
+nvidia-nvjitlink==13.3.33
+nvidia-nvshmem-cu13==3.4.5
+nvidia-nvtx==13.0.85
+ollama==0.6.0
+omegaconf==2.3.0
+onnx==1.19.1
+onnxruntime==1.23.1
+open_clip_torch==3.2.0
+opencv-contrib-python==4.11.0.86
+opencv-python==4.12.0.88
+opencv-python-headless==4.12.0.88
+opt_einsum==3.4.0
+overrides==7.7.0
+packaging==25.0
+pandas==2.3.3
+pandocfilters==1.5.1
+parso==0.8.4
+peft==0.17.1
+pexpect==4.9.0
+pickleshare==0.7.5
+piexif==1.1.3
+pilgram==1.2.1
+pillow==11.0.0
+pixeloe==0.1.4
+platformdirs @ file:///work/perseverance-python-buildout/croot/platformdirs_1701732573265/work
+pluggy @ file:///work/perseverance-python-buildout/croot/pluggy_1698805497733/work
+polygraphy==0.49.26
+pooch==1.8.2
+portalocker==3.2.0
+prettytable==3.16.0
+prometheus_client==0.21.0
+prompt_toolkit==3.0.48
+propcache==0.4.1
+protobuf==4.25.8
+psutil==6.1.0
+ptyprocess==0.7.0
+pure_eval==0.2.3
+pycollada==0.9.2
+pycosat @ file:///croot/pycosat_1714510623388/work
+pycparser @ file:///tmp/build/80754af9/pycparser_1636541352034/work
+pycryptodome==3.23.0
+pydantic==2.12.3
+pydantic-settings==2.11.0
+pydantic_core==2.41.4
+PyGithub==2.8.1
+Pygments==2.18.0
+PyJWT==2.10.1
+pyloudnorm==0.1.1
+PyMatting==1.1.14
+PyNaCl==1.6.0
+PyOpenGL==3.1.10
+pyparsing==3.2.0
+PySocks @ file:///work/perseverance-python-buildout/croot/pysocks_1698845478203/work
+python-dateutil==2.9.0.post0
+python-dotenv==1.1.1
+python-json-logger==2.0.7
+python-socks==2.7.2
+pytz==2025.2
+PyYAML==6.0.2
+pyzmq==26.2.0
+referencing==0.35.1
+regex==2025.9.18
+rembg==2.0.67
+requests @ file:///croot/requests_1707355572290/work
+rfc3339-validator==0.1.4
+rfc3986-validator==0.1.1
+rich==14.2.0
+rpds-py==0.21.0
+rtree==1.4.1
+ruamel.yaml @ file:///work/perseverance-python-buildout/croot/ruamel.yaml_1698863605521/work
+safetensors==0.6.2
+sageattention==2.2.0
+SAM-2 @ git+https://github.com/facebookresearch/sam2@2b90b9f5ceec907a1c18123530e92e794ad901a4
+scikit-image==0.25.2
+scikit-learn==1.7.2
+scipy==1.16.2
+segment-anything==1.0
+Send2Trash==1.8.3
+sentencepiece==0.2.1
+setuptools==78.1.0
+shapely==2.1.2
+shellingham==1.5.4
+simpleeval==1.0.3
+simsimd==6.5.3
+six==1.16.0
+smmap==5.0.2
+sniffio==1.3.1
+sounddevice==0.5.3
+soundfile==0.13.1
+soupsieve==2.6
+spandrel==0.4.1
+spas_sage_attn==0.1.0
+SQLAlchemy==2.0.44
+stack-data==0.6.3
+stringzilla==4.2.1
+supervisor==4.2.5
+svg.path==7.0
+sympy==1.14.0
+tabulate==0.9.0
+tensorboard==2.18.0
+tensorboard-data-server==0.7.2
+tensorrt==10.12.0.36
+tensorrt_cu12==10.12.0.36
+tensorrt_cu12_bindings==10.12.0.36
+tensorrt_cu12_libs==10.12.0.36
+termcolor==3.1.0
+terminado==0.18.1
+threadpoolctl==3.6.0
+tifffile==2025.10.16
+timm==1.0.20
+tinycss2==1.4.0
+tokenizers==0.22.1
+toml==0.10.2
+tomli==2.3.0
+torch==2.13.0+cu130
+torchaudio==2.11.0+cu130
+torchsde==0.2.6
+torchvision==0.28.0+cu130
+tornado==6.4.2
+tqdm @ file:///croot/tqdm_1714567712644/work
+traitlets==5.14.3
+trampoline==0.1.2
+transformers==4.57.1
+transparent-background==1.3.4
+trimesh==4.9.0
+triton==3.7.1
+truststore @ file:///work/perseverance-python-buildout/croot/truststore_1701735771625/work
+typer==0.19.2
+types-python-dateutil==2.9.0.20241003
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+tzdata==2025.2
+unpaddedbase64==2.1.0
+uri-template==1.3.0
+urllib3 @ file:///croot/urllib3_1707770551213/work
+uv==0.9.4
+vhacdx==0.0.9
+wcwidth==0.2.13
+webcolors==24.11.1
+webencodings==0.5.1
+websocket-client==1.8.0
+Werkzeug==3.1.3
+wget==3.2
+wheel==0.43.0
+widgetsnbextension==4.0.13
+xxhash==3.6.0
+yacs==0.1.8
+yapf==0.43.0
+yarl==1.22.0
+zipp==3.23.0
+zstandard @ file:///croot/zstandard_1714677652653/work
