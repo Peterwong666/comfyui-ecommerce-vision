@@ -3,7 +3,11 @@
 用 SQLite 内存库而非 PostgreSQL：
 - 单测目标是纯 Python 逻辑（状态机、错误分类、聚合规则），不需要 PG 特性；
 - SQLite 让 `pytest` 零依赖即可跑，CI 与本地都省事。
-- **但 JSONB / BigInteger 是 PG 优先的类型**，所以这里做两项编译期适配。
+
+⚠️ JSONB / BigInteger 的 SQLite 编译适配**已移出本文件**，改为 import
+`app.db.sqlite_compat`（**唯一一份**，app / alembic / 测试共用）。
+它曾一度只存在于本文件，结果是「同一实现两份」且 app 根本起不来 ——
+不要再抄回来，那是 #22 的事故类。
 
 集成测试（需要真实 PG / Redis / ComfyUI 的）在 `tests/integration/` 下另行标记。
 """
@@ -13,30 +17,12 @@ from __future__ import annotations
 from collections.abc import Generator
 
 import pytest
-from sqlalchemy import BigInteger, create_engine, event
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.ext.compiler import compiles
+from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.db import sqlite_compat
 from app.models import Base
-
-# --- SQLite 相容层（仅测试用，不影响生产行为） ---------------------------------
-
-
-@compiles(JSONB, "sqlite")
-def _jsonb_as_json(element, compiler, **kw):  # type: ignore[no-untyped-def]
-    """JSONB → JSON。生产仍是 JSONB（PG 原生，支持索引与路径查询）。"""
-    return "JSON"
-
-
-@compiles(BigInteger, "sqlite")
-def _bigint_as_integer(element, compiler, **kw):  # type: ignore[no-untyped-def]
-    """BigInteger → INTEGER。
-
-    SQLite 只有 `INTEGER PRIMARY KEY` 才自增，BigInteger 会导致主键不生成。
-    """
-    return "INTEGER"
 
 
 @pytest.fixture
@@ -56,12 +42,9 @@ def engine():  # type: ignore[no-untyped-def]
         poolclass=StaticPool,
     )
 
-    @event.listens_for(eng, "connect")
-    def _fk_on(dbapi_conn, _record):  # type: ignore[no-untyped-def]
-        # SQLite 默认不启用外键约束，显式打开，否则级联删除相关的测试会失真
-        cur = dbapi_conn.cursor()
-        cur.execute("PRAGMA foreign_keys=ON")
-        cur.close()
+    # 编译适配由 import 副作用注册；外键约束走同一份兼容层实现，
+    # 不在测试里再抄一遍 PRAGMA（SQLite 默认不启用外键，不打开会让级联删除失真）。
+    sqlite_compat.install_sqlite_foreign_keys(eng)
 
     Base.metadata.create_all(eng)
     yield eng

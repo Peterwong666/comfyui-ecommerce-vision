@@ -15,15 +15,33 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
+from app.db import sqlite_compat
 
-engine = create_engine(
-    settings.database_url,
-    pool_size=settings.db_pool_size,
-    max_overflow=settings.db_max_overflow,
-    pool_pre_ping=True,  # 避免连接被 PG 单方面断开后报错
-    echo=settings.db_echo,
-    future=True,
-)
+# ⚠️ 必须在 create_engine **之前** import：SQLite 的 JSONB/BigInteger 编译适配
+# 是 import 时注册的副作用，晚于建表就会编译失败。见 app/db/sqlite_compat.py。
+_url = settings.database_url
+
+if sqlite_compat.is_sqlite_url(_url):
+    # 本地开发路径（无 PG）。**不传 pool_size/max_overflow**：
+    # 那是 QueuePool 的参数，SQLite 的 :memory: 用 SingletonThreadPool，传了会报 TypeError。
+    engine = create_engine(
+        _url,
+        connect_args=sqlite_compat.sqlite_connect_args(),
+        pool_pre_ping=True,
+        echo=settings.db_echo,
+        future=True,
+    )
+    # SQLite 默认不启用外键，须显式打开，否则约束行为与 PG 不一致。
+    sqlite_compat.install_sqlite_foreign_keys(engine)
+else:
+    engine = create_engine(
+        _url,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
+        pool_pre_ping=True,  # 避免连接被 PG 单方面断开后报错
+        echo=settings.db_echo,
+        future=True,
+    )
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 

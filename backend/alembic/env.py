@@ -17,6 +17,7 @@ from sqlalchemy import engine_from_config, pool
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import settings  # noqa: E402
+from app.db import sqlite_compat  # noqa: E402,F401  注册 SQLite 编译适配（import 副作用）
 from app.models import Base  # noqa: E402  聚合导入，见 app/models/__init__.py
 
 config = context.config
