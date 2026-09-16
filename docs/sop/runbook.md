@@ -515,20 +515,39 @@ cd backend
 ### 11.2 启动
 
 默认配置连 PostgreSQL（`postgresql+psycopg://platform:platform@127.0.0.1:5432/platform`）。
-**本机没起 PG 时用 SQLite 兜底**（实测可用）：
+**本机没起 PG 时用 SQLite 兜底**：
 
 ```bash
 cd backend
-DATABASE_URL="sqlite:///./dev.db" \
-  .venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+export DATABASE_URL='sqlite+pysqlite:///./dev.db'
+
+.venv/bin/python -m app.cli.init_db          # ① 先建表（幂等）
+.venv/bin/python -m app.cli.seed_workflows   # ② 再把 registry.yaml 灌进 workflows 表（幂等）
+.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8010
 ```
 
 ```bash
-curl -s http://127.0.0.1:8000/health
+curl -s http://127.0.0.1:8010/health
 # {"status":"ok","app":"电商视觉 AIGC 量产平台","version":"0.1.0","env":"dev"}
 ```
 
-交互式 API 文档：<http://127.0.0.1:8000/docs>
+⚠️ **三条容易踩的**：
+
+1. **① ② 两步不能省。** 只启动服务不建表 → 一查就 500；
+   不灌库 → `GET /api/v1/workflows` 返回**空数组**（接口正常，只是没数据）。
+   `init_db` 只会对 SQLite 执行，**非 SQLite 的 DSN 会被直接拒绝**（exit 2），
+   避免误在共享库上 `create_all` 绕过迁移。
+2. **本机 8000 端口被另一个项目占用**（ToyVerse Cloud）→ 本项目本地用 **8010**，
+   前端对应地写 `web/.env.local`（该文件已被 `.gitignore` 排除）：
+   ```bash
+   echo 'VITE_API_BASE_URL=http://127.0.0.1:8010' > web/.env.local
+   ```
+3. ⚠️ **SQLite 不能替代 PG 验证**：JSONB 路径/包含查询、窗口函数、真并发、
+   部分唯一索引的语义都不会被行使。`init_db` 的输出里也会打印这条提示。
+
+交互式 API 文档：<http://127.0.0.1:8010/docs>
+
+> 前端一侧见 **`web/README.md`**；本节的实测输出见 **`debug_log.md` §3.5**。
 
 **现有 18 条路由**：`/health`、`/health/ready`、`/api/v1/auth/{register,login,me}`、
 `/api/v1/tasks[/{id}][/estimate][/cancel][/retry]`、`/api/v1/batches[/{id}][/retry-failed]`、

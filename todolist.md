@@ -263,14 +263,15 @@ comfyui-platform/
 - [ ] **P2-07** 环境复现脚本 + 重建验证
 - [x] **P2-08** 后端骨架 FastAPI → ✅ 已落地并验证（`backend/`；补交时为 31 测试，至 2026-09-16 收尾已达 **200 passed** / ruff 全绿）。<br>　按 ADR-004：FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic + Celery/Redis；**18 条路由**（auth / tasks / batches / workflows / templates / models / health），`/health` 与 `/health/ready` 分离。启动实测通过（结构化 JSON 日志生效）。<br>　⚠️ 补记：该骨架为 09-15 所建但当时**未提交、未入文档**，2026-09-16 补交并修正 6 个 ruff 问题（含 2 处非纯风格隐患）
 - [ ] **P2-09** PostgreSQL + Redis + MinIO 的 docker-compose
-- [ ] **P2-10** 前端骨架
-- [ ] **P2-11** CI 基础
+- [x] **P2-10** 前端骨架 → ✅ `web/`（**从 `.gitkeep` 到可运行**）。React 18 + TS + Vite 5 + antd 5 + TanStack Query + zustand，`corepack pnpm@12.4.2`。<br>　落地内容：① 契约层（`api/{enums,types,errors,http,client,hooks,keys}.ts`，含**三种错误信封**、402 按状态码判断、401 清会话、`/assets` 的 `{total,items}` 不对称）② 布局骨架（顶栏 56 + 侧栏 200 + 主区 1280，线框图 §0.1）③ 登录页 + 工作台页（打通全链路）+ 5 个占位页 ④ ESLint/Prettier/TS 严格模式。<br>　⚠️ **本轮顺带解掉两个后端硬阻塞**（不修则"前后端调通"无法成立）：**B1** 全仓库**没有任何代码把 `registry.yaml` 灌进 `workflows` 表**（`engine/registry.py:6` 明说"不做写库（那是 A 流的事）"，而 A 流从未实现）→ 新增 `backend/app/services/registry_loader.py` + `python -m app.cli.seed_workflows`；**B2** app 默认连 PG 而本机无 PG、SQLite 编译适配只存在于 `conftest.py`（测试专用）→ 抽出**唯一一份** `backend/app/db/sqlite_compat.py` + `python -m app.cli.init_db`。<br>　✅ **已实测**：后端 `256 passed`（基线 215 + 新增 41）、ruff 全绿；前端 `72 passed`（6 个文件）、typecheck/build 通过、eslint 0 error；`GET /api/v1/workflows` 由**恒为空**变为返回 2 条 active；CORS 预检 200 且 `allow-origin: http://localhost:5173`。<br>　⚠️ **未验证**（详见 `web/README.md` §6）：无 Redis 时任务停在 `queued`（出图/重试/取消往返**待 Redis+ComfyUI+GPU**）；图片上传**待 MinIO**；`str`/`bool`/`image_list` **待真实数据**（注册表 0 处）；浏览器人工走查**待人工验证**。
+- [~] **P2-11** CI 基础 → 🔵 **局部**：两道**防漂移门禁**已就绪且可进 CI —— `backend/tests/test_web_enum_parity.py`（前端 `enums.ts` 与后端枚举**双向**比对，含 terminal/cancellable/retryable 派生集合；已做**变异测试**确认有鉴别力）与 `test_web_form_fixtures.py`（前端夹具与注册表逐字节相等）。二者都是**纯 pytest**，不需要 Node 环境，将来直接进 CI 即可。<br>　❌ **仍未建真正的流水线**：仓库里没有 `.github/workflows/`，所以这个任务**不算完成**
 - [ ] **P2-12** 配置与密钥管理
 - [x] **P2-13** 数据库迁移方案与初始 schema → ✅ 初始迁移 `alembic/versions/20260916_1656_f9192eeddac1_initial_schema_11_tables.py`（11 张表 / 12 条外键 / 58 条索引 / CHECK 约束）+ `docs/prd/er_diagram.md`（Mermaid ER 图 + 逐表职责 + 8 条非显然设计决策）。<br>　⚠️ autogenerate 产物**不能直接用**，修了三处：外键内联在 `create_table` 里（模型有环 `batches→templates→assets→tasks→batches`，PG 上必然失败）→ 改为建表后再统一 `ADD CONSTRAINT`；`JSONB(astext_type=Text())` 的 `Text` 未定义；SQLite 方言残留的 `server_default` 会让以后每次 autogenerate 报假差异。<br>　验证：9 条迁移测试（用「记录器冒充 `alembic.op`」逐项比对表/外键/索引），并**做了变异测试**确认测试有鉴别力（删外键、改错表名均被抓到）。<br>　❌ 未做：真实 PostgreSQL 上 apply 一次（本机无 PG 二进制也无 docker daemon）→ 归入 P2-09
 
 **DoD**：环境可一键重建；`versions.lock` 存在；后端/前端/ComfyUI 三件套都能起来并互相调通一次。
-**阶段结果**：🔵 进行中（**7/13**，2026-09-16 收尾复核）。已完成 P2-01/02/04/05/06/08/13。
-P2-03 有意推迟（先用自带环境跑主线）；剩 P2-07（复现脚本+重建验证）、P2-09（中间件 compose，需有卡内存）、P2-10（前端骨架）、P2-11（CI）、P2-12（配置与密钥管理）。
+**阶段结果**：🔵 进行中（**8/13**，2026-09-16 晚复核）。已完成 P2-01/02/04/05/06/08/10/13。
+P2-03 有意推迟（先用自带环境跑主线）；剩 P2-07（复现脚本+重建验证）、P2-09（中间件 compose，需有卡内存）、P2-11（CI 流水线）、P2-12（配置与密钥管理）。
+✅ **P2 的 DoD 中「三件套互相调通一次」本轮已兑现**：前端起得来（5173）+ 后端起得来（SQLite）+ CORS 预检通过 + `GET /api/v1/workflows` 返回真实数据。⚠️ 但 ComfyUI 与出图链路仍**待 GPU/Redis**，所以是"调通"而非"跑通"。
 🚩 **P2-12 有一项已发现的实质缺口**：`.env.example` 与 `app/core/config.py` 完全不匹配 —— 30 个变量 0 个会被读取（命名体系两套 + `extra="ignore"` 静默忽略），而 ADR-004 的部署方式是「客户只改 `.env`」。
 **待办提示**：⚠️ `backend/.venv` 中 **mypy 未安装**（`pyproject.toml` 已声明为 dev 依赖），类型检查这条防线目前是空的，需补装后才能生效。
 
@@ -368,7 +369,7 @@ P2-03 有意推迟（先用自带环境跑主线）；剩 P2-07（复现脚本+�
 | ID | 任务 | 产出 | Pri |
 |---|---|---|---|
 | P7-01 | 设计系统（色板 / 字体 / 组件 / 栅格 / 暗色模式） | 设计 token | P1 |
-| P7-02 | **工作流驱动的动态表单**（由参数 Schema 自动生成 UI，新增工作流不改前端） | 表单引擎 | P0 |
+| P7-02 | **工作流驱动的动态表单**（由参数 Schema 自动生成 UI，新增工作流不改前端） | ✅ **已完成** `web/src/features/workflow-form/`：`controlRegistry`（9 种类型→控件，未知类型落 `FallbackControl` 不崩）+ `defaults`/`validate`/`WorkflowForm` + 9 个控件。<br>　**「不改前端」由构造与测试共同保证**：`WorkflowForm` 从不 `switch(field.type)`；同一引擎已渲染 **3 条真实工作流的 Schema**（klein 6 字段 / t2i 10 / inpaint 12，均取自注册表导出的夹具）而无任何工作流特判。<br>　⚠️ `str`/`bool`/`image_list` 三种类型在注册表里**出现 0 次**，仅合成夹具覆盖 → 状态是**待真实数据验证**，不得写成已验证 | 表单引擎 | P0 |
 | P7-03 | 生成工作台（左参数 / 中预览 / 右历史的三栏布局） | 页面 | P0 |
 | P7-04 | 任务中心（队列 / 实时进度 / 日志 / 失败原因 / 一键重试） | 页面 | P0 |
 | P7-05 | 画廊与素材库（网格 / 筛选 / 对比 / 批量下载 / 查看详情与元数据） | 页面 | P0 |
@@ -381,6 +382,10 @@ P2-03 有意推迟（先用自带环境跑主线）；剩 P2-07（复现脚本+�
 | P7-12 | 空态 / 加载态 / 错误态 / 首次引导（决定「是不是商用级」的细节） | 交互完善 | P1 |
 
 **DoD**：非技术用户无需指导即可完成「上传 → 选模板 → 批量出图 → 下载」全流程；新增一条工作流不需要改前端。
+
+**阶段结果**：🔵 进行中（**2/12**，2026-09-16 晚）。已完成 **P7-02**（动态表单引擎）与 **P2-10 附带的前端骨架**（含登录页 + 工作台页 + 布局 + 契约层 + 防漂移门禁）。
+其余 P7-03~P7-12 仍是占位页（`web/src/pages/PlaceholderPage.tsx`），每个都标了归属任务号。
+⚠️ 受后端缺口影响的两项：**P7-05 画廊**依赖 P6-10 的取图接口（**未实现**，故前端目前无法显示任何已上传/已生成的图）；**P7-04 任务中心**的实时进度依赖 P6-04 的 WebSocket（**未实现**，当前只能轮询）。
 
 ---
 

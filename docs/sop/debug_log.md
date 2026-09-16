@@ -489,6 +489,95 @@ bypass 裁剪、输出前缀覆写这一整套。**"裸提交能出图"不能推
 
 ---
 
+## 3.5 本地无 PG 起库 + 前端联调（P2-10，2026-09-16 晚）
+
+> 这一节记录的是**可复现的命令与实测输出**，供下一个会话直接对照。
+> 背景：本机没有 PostgreSQL 也没有 docker daemon，而后端默认连 PG —— 此前**根本跑不起来**。
+
+### 3.5.1 起库与灌库
+
+```bash
+cd backend
+export DATABASE_URL='sqlite+pysqlite:////tmp/cui_dev.db'
+.venv/bin/python -m app.cli.init_db
+#  → ✅ 已建表（幂等）：sqlite+pysqlite:////tmp/cui_dev.db
+#  → ⚠️ 这是本地开发用的 SQLite —— 它**不能**替代 PostgreSQL 验证
+
+.venv/bin/python -m app.cli.seed_workflows
+#  → 灌库完成：共 5 条
+#  → 新增 5：t2i_v1@v1, inpaint_v1@v1, i2i_v1@v1, upscale_v1@v1, flux2_klein_t2i_v1@v1
+#  → ⚠️ 下列键在 `workflows` 表里没有对应列，因此未落库：
+#     （baseline / changelog / engine / models / notes / render_path_l4 / rollout_percent / title / verification / verification_note）
+
+# 幂等性：再跑一次
+.venv/bin/python -m app.cli.seed_workflows
+#  → 未变 5：...
+```
+
+**库内状态核对**
+
+```
+  flux2_klein_t2i_v1       v1 active=True  fields=6
+  i2i_v1                   v1 active=False fields=11
+  inpaint_v1               v1 active=False fields=12
+  t2i_v1                   v1 active=True  fields=10
+  upscale_v1               v1 active=False fields=11
+  total rows = 5
+```
+
+> `active=True` 恰为 **2 条**，与注册表里 `status: enabled` 的条目一致
+> —— 另 3 条是 `disabled`（它们的 `render_path_l4: false`）。
+
+### 3.5.2 接口实测（端到端证据）
+
+```bash
+.venv/bin/python -m uvicorn app.main:app --port 8010
+curl -s localhost:8010/health          # → 200 {"status":"ok",...}
+curl -s localhost:8010/health/ready    # → database:{ok:true}  comfyui:{ok:false}(预期：本地无 ComfyUI)
+```
+
+| 请求 | 结果 |
+|---|---|
+| `POST /api/v1/auth/register` | **201** + `access_token` |
+| `GET /api/v1/workflows` | **200**，返回 **2 条**（`flux2_klein_t2i_v1` / `t2i_v1`）—— **修复前恒为 `[]`** |
+| `GET /api/v1/workflows/flux2_klein_t2i_v1/schema` | **200**，顶层键含 `param_schema`（**嵌套**）、**不含** `definition`（后端有意不暴露节点图） |
+| klein schema 字段 | `prompt`(text) / `width`(int,1024) / `height`(int,1024) / `seed`(seed,**-1**) / `steps`(int,4,advanced) / `cfg`(float,1.0,advanced) |
+| **CORS 预检** `OPTIONS` + `Origin: http://localhost:5173` | **200** + `access-control-allow-origin: http://localhost:5173` |
+| **跨域 GET**（同上 Origin） | **200** + 同样的 allow-origin 头 |
+
+> ⚠️ 本机 **8000 已被另一个项目占用**（ToyVerse Cloud），所以本轮一律用 **8010**。
+> 前端通过 `web/.env.local` 的 `VITE_API_BASE_URL` 指向它（该文件已被 `.gitignore` 排除）。
+
+### 3.5.3 前端实测
+
+```bash
+cd web
+corepack pnpm exec vitest run      # → Test Files 6 passed / Tests 72 passed
+corepack pnpm typecheck            # → 通过
+corepack pnpm build                # → ✓ built in 24.29s（3114 modules）
+corepack pnpm exec eslint .        # → 0 error（1 warning：router.tsx 的 react-refresh 提示）
+curl -s -o /dev/null -w '%{http_code}' localhost:5173/            # → 200
+curl -s -o /dev/null -w '%{http_code}' localhost:5173/src/main.tsx # → 200（Vite 能转译入口）
+```
+
+`pnpm` 的获取**没有失败**（原计划担心网络）：`corepack pnpm --version` → **12.4.2**（自动下载）。
+⚠️ 但 pnpm 12 默认**禁止依赖执行安装脚本**，`esbuild` 的 postinstall 会被拦下 →
+已用 `web/pnpm-workspace.yaml` 的 `allowBuilds: {esbuild: true}` 声明式放行
+（**注意**：pnpm 10+ 起该设置不再从 `package.json` 的 `pnpm` 字段读，写在那里只留一条 WARN）。
+
+### 3.5.4 ⚠️ 本节的边界：**这些没有被验证**
+
+| 项 | 状态 |
+|---|---|
+| 任务走到 `succeeded` / 重试 / 取消往返 | **待 Redis + ComfyUI + GPU** —— 无 Redis 时任务停在 `queued` |
+| 图片上传与 `params.reference_image` | **待 MinIO** —— `POST /assets` 写对象存储 |
+| `str` / `bool` / `image_list` 控件 | **待真实数据** —— 注册表里出现 0 次 |
+| 浏览器里的人工走查 | **待人工验证** —— 已验的是构建/单测/CORS/接口响应，不是"人在浏览器里点通了" |
+| 生产 PostgreSQL 行为 | **待 PG 验证** —— 本机无 PG 二进制也无 docker daemon |
+| `alembic upgrade head` 在 SQLite 上建的表能否 INSERT | **待验证** —— 迁移里硬编码 `sa.text("now()")`，SQLite 无该函数；本轮本地引导**刻意走 `create_all`** 绕开它 |
+
+---
+
 ## 4. 变更记录
 
 | 日期 | 版本 | 变更 |
@@ -501,3 +590,4 @@ bypass 裁剪、输出前缀覆写这一整套。**"裸提交能出图"不能推
 | 2026-09-16 | v1.5 | 探针补**两道自证**（由 C 流提出，「像素相同 = 决定性结论」隐含"两次真跑了 + 输入真不同"这个前提）：① 离线校验 baseline 与 weighted 的图必须不同 ② GPU 上加**正对照**（同提示词、只改 seed）必须像素不同，否则该模式所有"相同"结论**作废**。**自证 ① 上线即抓到真 bug**：变体构造只做浅拷贝 → 所有变体共享同一批节点 dict → 后一次迭代把已构造的 baseline 追溯性改写 → 比对恒为"相同"（方向最危险的假通过）。已改深拷贝 + 加回归测试。回填口径改为**只给字母 A/B/C/D**（`prompt_guide.md` §1.1.1 已预先约定四种措辞，避免事后合理化） |
 | 2026-09-16 | v1.6 | 新增 **G9**「**判据本身也要能被检出**」：把"检查通过 ≠ 检查真的在检查"立为独立全局坑。该族已出现**至少四次**（#20 无痕 / #21 工作区绿 ≠ 仓库完整 / 本轮假通过 + 假阴性 / C 流白名单禁用验收的同构陷阱），两次方向相反但**特征一致：错误结论不报错，只显得更稳妥或更成功**。纪律：**凡判据都要能被人为破坏后检出；验证工具交付前故意让它失败一次**。附带两条：**"作废"要比"提示"显眼**、**别把"该不该采信"交给当场心情判断** |
 | 2026-09-16 | v1.7 | **新增三条工作流的调试记录**（§2.5 `i2i_v1` / §2.6 `inpaint_v1` / §2.7 `upscale_v1`），并把踩到的坑写成可复用规则。**§2.4 更新**：`t2i_v1` 与 `flux2_klein_t2i_v1` 的「渲染路径 L4」**已于 2026-09-16 实机通过**（通过 11 / 13 项，失败 0），两条已 `status: enabled`；三条新工作流待跑。**§2.3 清理**：已实现的条目移出，只剩 `style_transfer_v1`（缺 IP-Adapter + CLIP Vision + LoRA 三类权重）；`batch_v1` 定论为「不是工作流」并与契约 §3.6 不变量 1 显式澄清不矛盾。**同时记录一个校验器缺陷的修复**：`check_object_info` 会把 `transform=ref_to_filename` 产生的**运行时文件名**也拿去比静态快照枚举 → **任何带参考图的工作流都无法通过 L1/L2/L3**，已加 `runtime_asset_inputs` 豁免（只豁免这些入参）并按 G9 补正对照测试 |
+| **2026-09-16 晚** | v1.8 | 新增 **§3.5「本地无 PG 起库 + 前端联调（P2-10）」**：把 `init_db` / `seed_workflows` / uvicorn / CORS 预检 / 前端四项校验的**实测命令与输出**逐条记下，供下个会话直接对照；并单列「本节的边界」表（6 项**未验证**，含"浏览器人工走查"与"SQLite 上的 alembic 迁移能否 INSERT"）。<br>同时记入一条**本轮踩到的环境事实**：pnpm 12 默认禁止依赖执行安装脚本，`esbuild` 的 postinstall 被拦 → 必须用 `pnpm-workspace.yaml` 的 `allowBuilds` 放行，且该设置**在 pnpm 10+ 已不再从 `package.json` 读**。<br>另记：`pkill -f "vite"` **自匹配杀掉自己的 shell**（旧坑复发，已记入 `项目进展.md` #29）—— 同一条纪律写进文档并未阻止它复发 |
