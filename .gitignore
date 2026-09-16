@@ -37,8 +37,11 @@ credentials.json
 service_account.json
 
 # ---------- 模型权重（体积巨大 + 许可敏感，只入库 registry 清单） ----------
-models/
-assets/models/
+# ⚠️ 必须用**根锚定**（前导 /）：不锚定的 `models/` 会匹配任意层级的同名目录，
+#    曾把源码目录 `backend/app/models/`（8 个 ORM 模型文件）整个挡在仓库之外，
+#    导致 clone 下来后端无法 import。改这几条时务必保留前导斜杠。
+/models/
+/assets/models/
 *.safetensors
 *.ckpt
 *.pth
@@ -50,16 +53,16 @@ assets/models/
 *.fp8
 *.lora
 
-# ---------- 运行时产物 ----------
-output/
-outputs/
-input/
-temp/
-tmp/
-uploads/
-storage/
+# ---------- 运行时产物（同样必须根锚定，理由同上） ----------
+/output/
+/outputs/
+/input/
+/temp/
+/tmp/
+/uploads/
+/storage/
 *.log
-logs/
+/logs/
 
 # ---------- 数据库与对象存储 ----------
 *.db
