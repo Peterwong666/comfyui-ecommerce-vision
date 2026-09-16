@@ -60,6 +60,7 @@ from app.services.storage import (
     build_output_key,
     mime_for_filename,
 )
+from app.services.workflow_models import extract_models
 from app.worker.celery_app import celery_app
 from app.worker.concurrency import GpuLockUnavailable, GpuSlot
 
@@ -561,6 +562,17 @@ class TaskExecutor:
                 "工作流执行完成但没有产出任何图片（检查是否缺少 SaveImage 节点）",
             )
 
+        # 模型清单只跟"提交上去的那张图"有关，与产出几张图无关 —— 在循环外算一次。
+        #
+        # ⚠️ 取的是 `rendered.workflow`（已按 `_meta.switches` 裁剪 bypass 分支、
+        # 且已剥离 `_meta` 的那份），**不是** `workflow.definition`：
+        # 前者才是真正 `client.submit()` 出去、引擎实际执行的节点图。
+        # 被 bypass 掉的 loader 节点在引擎侧根本不会加载权重，把它记进
+        # `meta["models"]` 就是在元数据里写一个"用过"的假声明，反而破坏可复现性。
+        # （仓库现有 5 个工作流都还没用 switches，所以今天两者结果相同；
+        #  一旦按 TODO 加上开关，只有取 rendered 才是对的。）
+        models = extract_models(rendered.workflow)
+
         saved = 0
         try:
             with self._storage_factory() as storage:
@@ -583,11 +595,19 @@ class TaskExecutor:
                             # - seed 是**解析后**的真实值（`-1` 已实体化）——
                             #   记 -1 的话事后根本复现不出这张图；
                             # - params 是本次**实际生效**的完整参数（含 Schema 默认值）。
+                            # `models` = 这张图实际加载的权重清单（C1 / FR-5.4）。
+                            # 没有它，「同一 seed + 同一参数」并不能保证复现出同一张图 ——
+                            # 换底模或换 LoRA 版本都会让结果变样，而元数据里看不出来。
+                            #
+                            # 用**列表**而不是 dict：多 LoRA 时 dict 的 `lora_name`
+                            # 只能留下最后一个，信息就丢了。顺序按节点 id 确定（同一
+                            # 输入跑两次结果一致），便于人读，也便于前端直接渲染。
                             meta={
                                 "seed": rendered.seed,
                                 "workflow": f"{workflow.name}@v{workflow.version}",
                                 "engine_prompt_id": result.prompt_id,
                                 "params": rendered.params,
+                                "models": models,
                                 "filename": image["filename"],
                                 "node_id": image.get("node_id"),
                                 "sha256": stored.sha256,

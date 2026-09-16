@@ -410,6 +410,140 @@ def test_seed_left_alone_when_workflow_does_not_expose_it(
         session.close()
 
 
+def test_success_records_used_models_in_asset_meta(
+    session_factory, db, user, storage
+) -> None:  # type: ignore[no-untyped-def]
+    """产物必须记下这张图**实际加载**了哪些权重（C1 / FR-5.4 / FR-5.5）。
+
+    只有 seed + 参数是不够的：换底模、或把 LoRA 从 v1 换成 v2，seed 与参数
+    全都一样，出来的却是另一张图 —— 元数据里必须能看出这一点，否则
+    「客户追单要能出一样的图」就是一句口号。
+    """
+    definition = {
+        "_meta": {},
+        "2": {
+            "class_type": "LoraLoader",
+            "inputs": {
+                "model": ["4", 0],
+                "clip": ["4", 1],
+                "lora_name": "cups_v2.safetensors",
+                "strength_model": 0.7,
+            },
+        },
+        "3": {
+            "class_type": "DualCLIPLoader",
+            "inputs": {
+                "clip_name1": "t5xxl.safetensors",
+                "clip_name2": "clip_l.safetensors",
+                "type": "sdxl",
+            },
+        },
+        "4": {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {"ckpt_name": "sd_xl_base_1.0.safetensors"},
+        },
+        "9": {"class_type": "KSampler", "inputs": {"steps": 4, "sampler_name": "dpmpp_2m"}},
+    }
+    task_id = make_task_with_workflow(user.id, definition, minimal_schema(), {})(session_factory)
+    outcome = make_executor(session_factory, FakeDriver(), storage).execute(task_id)
+    assert outcome is Outcome.SUCCEEDED
+
+    session = session_factory()
+    try:
+        meta = session.query(Asset).one().meta
+        # 顺序 = 节点 id 数值序，同一节点内按入参名序（clip_name1 在 clip_name2 前）
+        assert meta["models"] == [
+            {
+                "node": "2",
+                "class_type": "LoraLoader",
+                "input": "lora_name",
+                "name": "cups_v2.safetensors",
+            },
+            {
+                "node": "3",
+                "class_type": "DualCLIPLoader",
+                "input": "clip_name1",
+                "name": "t5xxl.safetensors",
+            },
+            {
+                "node": "3",
+                "class_type": "DualCLIPLoader",
+                "input": "clip_name2",
+                "name": "clip_l.safetensors",
+            },
+            {
+                "node": "4",
+                "class_type": "CheckpointLoaderSimple",
+                "input": "ckpt_name",
+                "name": "sd_xl_base_1.0.safetensors",
+            },
+        ]
+        # 既有字段一个都不能被这次改动碰坏（JSONB 加键必须向后兼容）
+        assert meta["params"] == {}
+        assert meta["workflow"].startswith("wf-")
+        assert meta["engine_prompt_id"] == "pid-fake"
+        assert meta["sha256"]
+    finally:
+        session.close()
+
+
+def test_meta_models_is_empty_list_when_workflow_has_no_loader(
+    session_factory, db, queued_task, storage
+) -> None:  # type: ignore[no-untyped-def]
+    """没有 loader 的工作流 → `models == []`（不是缺键、不是 None）。"""
+    make_executor(session_factory, FakeDriver(), storage).execute(queued_task.id)
+    session = session_factory()
+    try:
+        assert session.query(Asset).one().meta["models"] == []
+    finally:
+        session.close()
+
+
+def test_malformed_definition_does_not_turn_success_into_failure(
+    session_factory, db, user, storage
+) -> None:  # type: ignore[no-untyped-def]
+    """定义形状异常**绝不允许**把一张已经出好的图变成失败任务。
+
+    元数据提取跑在成功收尾路径上（`_finish_success`），它不该有"杀图"的能力。
+    这里把各种坏形状塞进定义 —— `engine.render` 不校验节点结构、会原样透传，
+    所以它们真的会走到提取函数面前（这是真实的失败模式，不是假想的）。
+    """
+    definition = {
+        "_meta": {},
+        "1": {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {"ckpt_name": "sd_xl_base_1.0.safetensors"},
+        },
+        "2": None,
+        "3": {"class_type": "KSampler"},
+        "4": {"class_type": "LoraLoader", "inputs": "不是字典"},
+        "5": {"class_type": "VAELoader", "inputs": {"vae_name": None}},
+        "6": {"class_type": "UNETLoader", "inputs": {"unet_name": 123}},
+    }
+    task_id = make_task_with_workflow(user.id, definition, minimal_schema(), {})(session_factory)
+    outcome = make_executor(session_factory, FakeDriver(), storage).execute(task_id)
+
+    assert outcome is Outcome.SUCCEEDED
+    assert read_task(session_factory, task_id).status == TaskStatus.SUCCEEDED.value
+
+    session = session_factory()
+    try:
+        # 图仍然落库了（"已经出好的图"没有被元数据提取的健壮性问题连累）
+        asset = session.query(Asset).one()
+        assert asset.kind == AssetKind.OUTPUT.value
+        # 坏节点静默跳过，好节点照记
+        assert asset.meta["models"] == [
+            {
+                "node": "1",
+                "class_type": "CheckpointLoaderSimple",
+                "input": "ckpt_name",
+                "name": "sd_xl_base_1.0.safetensors",
+            }
+        ]
+    finally:
+        session.close()
+
+
 def test_success_emits_started_and_finished_events(
     session_factory, db, queued_task, storage
 ) -> None:  # type: ignore[no-untyped-def]
