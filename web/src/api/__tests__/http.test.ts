@@ -2,8 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useAuthStore } from '../../stores/authStore'
 import { ERROR_TYPE } from '../enums'
-import { ApiError } from '../errors'
+import { ApiError, describeError } from '../errors'
 import { API_BASE_URL, request } from '../http'
+
+/**
+ * 内容安全命中时的 `code`（契约 §2.2 的 422 行）。
+ *
+ * ⚠️ 它**不是** `ErrorType` 的取值（不对应任何 EX），所以不进 `enums.ts` ——
+ * 那份文件是「冻结枚举的前端镜像」，由 `test_web_enum_parity.py` 双向守着。
+ * 前端**不需要**按它分支（后端已经给了人类可读的 `message`），所以它只在这里作为
+ * 响应夹具出现一次，而不是在生产代码里形成第二个真相来源。
+ */
+const CONTENT_BLOCKED_CODE = 'CONTENT_BLOCKED'
 
 /**
  * HTTP 层的契约测试。
@@ -71,6 +81,32 @@ describe('错误信封（契约 §2.2 的三种形状）', () => {
     expect(err.code).toBe('INVALID_PARAM')
     expect(err.message).toBe('参数不合法')
     expect(err.fields).toEqual([{ key: 'width', reason: '超过单任务上限' }])
+  })
+
+  it('内容被拦（422 + CONTENT_BLOCKED）：展示后端的 message，而不是白屏', async () => {
+    // P6-13 的输入侧内容安全命中后，后端返回 422 + 对象形式 detail（契约 §2.2 的 422 行）。
+    // 前端**没有为它加任何 UI**：页面统一走 `describeError(err)`（WorkbenchPage 的
+    // `message.error`），所以这里钉在 `describeError` 这一层 —— 内容被拦时用户看到的
+    // 是后端那句「哪一类问题」的说明，不是空白或「请求失败（HTTP 422）」。
+    const message = '提示词未通过内容安全策略（儿童相关的法律红线），已拒绝提交。'
+    mockJson(422, {
+      detail: {
+        code: CONTENT_BLOCKED_CODE,
+        message,
+        fields: [{ key: 'prompt', reason: '涉及法律红线，禁止用于任何生成任务。' }],
+      },
+    })
+
+    const err = (await request('/api/v1/tasks', { method: 'POST', body: {} }).catch(
+      (e: unknown) => e,
+    )) as ApiError
+
+    expect(err.isValidation).toBe(true)
+    expect(err.code).toBe(CONTENT_BLOCKED_CODE)
+    expect(describeError(err)).toBe(message)
+    expect(err.fields).toEqual([
+      { key: 'prompt', reason: '涉及法律红线，禁止用于任何生成任务。' },
+    ])
   })
 
   it('形状 3：503 多了 error_type / retryable 两个顶层键', async () => {
