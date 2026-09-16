@@ -65,7 +65,20 @@ policy:
       print(list(d['<节点类名>']['input'].get('required',{})), list(d['<节点类名>']['input'].get('optional',{})))"
     first_case: "**判例 G8**（`debug_log.md`）：`Power Lora Loader (rgthree)` 的 `required=[]`、`optional=['model','clip']` —— **LoRA 条目是动态 widget，没有可注入的入参** → `targets` 写 `lora_1` 被校验器拒绝（VALIDATE=FAIL）。详见本文件 rgthree 条目"
     implication_for_whitelist: "⚠️ 这条轴**独立于**技术状态（ok/broken）与许可（MIT/GPL）—— 一个节点可以三点全绿却在我们的链路上不可用。**keep 档的判定必须同时过这一轴**（见 §2.1 的可注入性审计）。"
-    source: "B 流（stream-b-workflow）在 G8 中提出并给出查法；C 流用 `deploy/schemas/object_info.v0.36.0.json`（L3，2530 节点）完成量化"
+    scope: |
+      ⚠️ **适用范围（重要，勿误推）**：这条轴**只对「需要被参数驱动」的节点生效**。
+      它**不适用于**安装/运维类工具 —— 典型是 `ComfyUI-Manager`：它**不注册任何节点类**，
+      对节点图零影响，走的是**另一类判定**（运维价值 + 安全面 + V1 上线后是否还需要）。
+
+      ❌ **错误推理路径（务必避免）**：「Manager 的类数 = 0 → 不可注入 → 应当禁用」。
+      这个推理每一步都错：Manager 的 0 类**不是因为参数被藏起来**，而是它**根本不参与出图**；
+      它从不需要被 `targets` 注入。它的禁用理由是「V1 环境冻结后不再需要安装新节点的能力 +
+      它能执行任意 pip/git 操作的安全面」——**与可注入性无关**。
+
+      ✅ **正确用法**：先问「这个节点是否需要作为图的一部分被参数驱动？」
+      · 需要 → 用本轴判定（`required ∪ optional` 是否覆盖你要注入的参数）
+      · 不需要（运维/UI/安装类）→ 用「运维必需性 + 安全面 + 时机」判定
+    source: "B 流（stream-b-workflow）在 G8 中提出并给出查法；C 流用 `deploy/schemas/object_info.v0.36.0.json`（L3，2530 节点）完成量化；team-lead 补充「适用范围」这一节"
 
 # ============================================================
 # 1. 节点清单（32 个，与 deploy/versions.lock [custom_nodes] 一一对应）
@@ -179,8 +192,10 @@ nodes:
     risk: "低（技术）。**它是「权重怎么解释」的开关，不是「能不能写权重」的前提** —— 当前未接线 ⇒ V1 用的是 ComfyUI 默认语义，**不接线对 V1 零功能影响**。因此它不满足 keep 的定义（不在 V1 关键路径上，也非交付必需）"
     findings:
       - "**dirty=1** —— 工作区有未提交改动，需查明并记录（否则环境不可复现）"
-      - "🔧 把它留在环境里的**唯一理由**：若 L4 实测证明默认语义下权重效果不足（`debug_log.md` G7 待验证项），则接入 `BNK_*` 节点以改用 `A1111` / `compel` 等解释方式 → 届时升回 keep"
-    lean: "待 L4 结果：需要改权重解释方式 → keep 并接线；否则 disable"
+      - "⭐ **正确定位（team-lead 2026-09-16 确认）：它不是「可能没用的遗留物」，而是「klein 权重支持的可选方案，V1 暂不启用」** ——<br>关键机制差异：klein 的核心 `CLIPTextEncode` 走 `KleinTokenizer`，而后者**硬编码 `disable_weights=True`**（不解析权重）；而 `BNK_*` 节点是**自己解析权重并生成加权 embedding** 的（`weight_interpretation` 5 种语法）→ **不依赖 tokenizer 的 `disable_weights`，也不需要 `cfg > 1`**"
+      - "🔶 **但机制上并不保证有效 —— 这是 G7 待验证 ③ 的开放问题，且存在反例机制**：`KleinTokenizer` 内部硬编码 `disable_weights=True`，因此**任何**调用 `clip.tokenize*()` 的节点（含 `BNK_*`）拿到的都可能是**已丢弃权重**的 token 序列 —— 除非该节点自己重新解析并把权重直接作用到 embedding。<br>→ **故不能预期它有效**；实测它的价值在于：**若无效，「klein 支持权重」这条路即被证伪，不必再投入**（`debug_log.md` G7）"
+    convergence: "**保留 review（收敛后仅剩 2 个 review，本项为其中之一）—— 且是「有计划的保留」，不是「待定」**。<br>① 可注入性：**4 类全部可注入**（`required` = `text`/`clip`/`token_normalization`/`weight_interpretation` 全为声明式入参）✅<br>② 不在 V1 关键路径（`v1_path: false`）：接线对 V1 **零功能影响**<br>③ ⚠️ **明确不按「review 一律禁用」处理** —— 那会为规则一致性丢掉一个**真正的备选方案**，还多一次改名-改回的开销（team-lead 指示）"
+    lean: "**保持 review** —— 若 P4 决定为 klein 启用权重语法（G7 待验证 ③ 通过），此项**回到 keep 并接线**；否则维持现状（不禁用）"
 
   - name: rgthree-comfy
     commit: 42e73c3c48e8
@@ -196,8 +211,11 @@ nodes:
     findings:
       - "⚠️ 第二次 CPU 审计（17:01）中 rgthree-comfy 自述与 ComfyUI 新的 **Node 2.0 渲染不兼容** —— 原文：*\"ComfyUI's new Node 2.0 rendering may be incompatible with some rgthree-comfy nodes and features, breaking some rendering as well as losing the ability to access a node's properties...\"*（见 evidence/comfyui_cpu_startup.log）"
       - "🚨 **已由 B 流用真实校验器 A/B 证伪「Power Lora Loader 可用」（`debug_log.md` G8）**：<br>`Power Lora Loader (rgthree)` 在 `object_info` 里 **`required=[]`、`optional=['model','clip']`** —— LoRA 条目是**动态 widget 属性**，不是声明式入参 → 注入 `lora_1` 直接被拒（`入参 'lora_1' 不被该节点接受（可选: ['clip','model']）→ VALIDATE=FAIL`）。<br>**这不是「属性可能访问不到」，而是「LoRA 参数压根没有可注入的入参」** → 本节点**无法**承担 P4-04 的多 LoRA 注入"
-      - "✅ **但 keep 判定仍然成立 —— 理由需要换**：同一包内 **`Lora Loader Stack (rgthree)`** 的 `required=['model','clip','lora_01','strength_01','lora_02','strength_02','lora_03','strength_03','lora_04','strength_04']` —— **10 个全是声明式入参，完全可注入**（一个节点装 4 个 LoRA + 权重，见 §2.1）。另有 `Seed` / `KSampler Config` / `Image Resize` / `Image Comparer` / `Power Prompt`（`required=['prompt']`）等可注入节点"
-      - "🔧 **处置（修正后）**：P4-04 的多 LoRA 走 **`Lora Loader Stack`（单节点、4 LoRA、可注入）**，而非 B 流原计划的「核心 `LoraLoader` 串链 4 个」（串链需 4 个节点且要自建连线）；更**不要**用 `Power Lora Loader`。<br>本节点由 `keep` **维持 keep**，但保留理由从「Power Lora Loader」改为「**`Lora Loader Stack` 等可注入节点**」—— 这条修正必须同步给 B 流（P4-04 的节点选型）"
+      - "✅ **但 keep 判定仍然成立 —— 理由需要换**：同一包内 **`Lora Loader Stack (rgthree)`** 的 `required=['model','clip','lora_01','strength_01','lora_02','strength_02','lora_03','strength_03','lora_04','strength_04']` —— **10 个全是声明式入参，完全可注入**。另有 `Seed` / `KSampler Config` / `Image Resize` / `Image Comparer` / `Power Prompt`（`required=['prompt']`）等可注入节点"
+      - "⭐⭐ **选它的核心理由是「Schema 稳定性」，不只是「支持 4 个 LoRA」**（team-lead 指出要点，必须写清）：<br>`Lora Loader Stack` 把 LoRA 数量**固定为 4 个槽位** → **参数 Schema 不随模板变**。<br>对比串链核心 `LoraLoader` 的方案：<br>· **4 个节点 + 需自建 3 条连线**；<br>· **增删 LoRA 数量会改变链长 → 工作流 JSON 变 → 参数 Schema 的 targets 必须跟着改**；<br>· 而契约 §3 的设计目标是「**一个 Schema 驱动前端表单**」—— Schema 一变，前端表单、后端校验、埋点口径都要跟着动。<br>→ 因此**槽位固定**的价值在于**把模板演进与 Schema 解耦**：将来多用一个 LoRA 只是**改取值**（`lora_03` 从 `None` 换成文件名），**不改结构**。这才对上契约 §3 的分工。<br>· 代价：硬上限 4 个 LoRA。V1 的 FR-8.5 是 Should 级，够用"
+      - "🔧 **处置（修正后）**：P4-04 的多 LoRA 走 **`Lora Loader Stack`（单节点、4 LoRA 槽位、可注入、Schema 稳定）**，而非 B 流原计划的「核心 `LoraLoader` 串链 4 个」；更**不要**用 `Power Lora Loader`。<br>本节点由 `keep` **维持 keep**，但保留理由从「Power Lora Loader」改为「**`Lora Loader Stack` 等可注入节点**」 —— 已通知 B 流，其 `debug_log.md` G8.1 已独立复核采纳（A/B 探针：`Lora Loader Stack` 的报错是**取值**不在允许集合，而非**入参名**不被接受 → 入参名全部有效）"
+      - "💡 另一候选登记：`LoraLoaderModelOnly`（`required=['model','lora_name','strength_model']`，**无 clip**）—— 若将来只调模型不调文本编码器，它比 `LoraLoader` 更贴切"
+      - "⚠️ **FR-8.5 的真实前置依赖不是节点选型，而是「有没有 LoRA 文件」**（B 流 G8.1 指出）：`object_info` 里 `LoraLoader.lora_name` 的枚举**当前为空** → 服务器上一个 LoRA 权重都没有。**排查 FR-8.5 时先看模型，别在节点接线里绕**（下载 LoRA 还需过许可审查，见 license_matrix §5）"
       - "⚠️ 同时保留 Node 2.0 的渲染不兼容风险：我们**不经 UI 出图**（走 API 注入），故该风险主要影响人工调试体验，不影响生产链路 —— 但**若 P4-04 需要人工在 UI 里搭图，要留意卡顿与属性面板失效**"
 
   - name: ComfyUI-KJNodes
@@ -425,6 +443,7 @@ nodes:
     lean: disable
     convergence: "**收敛判定 → disable**（判据：可注入性 + 是否 V1 关键路径）。① 不在 V1 关键路径（`v1_path: false`，无 `v1_refs`）② 200 个类里 8 个 `required` 为空，且它的**核心设计是「把多节点封装成一键节点」→ 隐藏真实节点结构**，与 `contracts.md` §3.3「targets 必须指向真实存在的节点与入参」**直接冲突** ③ 与 `efficiency-nodes-comfyui` 功能重叠（两者择一，已保留后者）④ GPL-3.0，减少 GPL 面本身有正收益。**禁用不删除**，需要时一条改名即可恢复"
 
+
   - name: efficiency-nodes-comfyui
     commit: f0971b5553ea
     dirty: 2
@@ -435,9 +454,10 @@ nodes:
     decision: review
     license: GPL-3.0
     evidence: "审计日志（0.2s，import 正常）。高清修复流程（P3-04）与 **XY 图参数扫描**（P5-03 权重甜区实验）有实用价值"
-    risk: "中 —— 聚合节点会封装结构（同 Easy-Use）。**XY 图对评测阶段价值高** → 建议 P5-03 期间临时启用，评测完成后复评"
+    risk: "中 —— 聚合节点会封装结构（与 Easy-Use 同类问题，故**两者只保留本项**）"
     findings: ["**dirty=2** —— 有 2 处未提交改动，需查明并记录（否则环境不可复现）"]
-    lean: 按阶段启用
+    convergence: "**保留 review（收敛后仅剩 2 个 review，本项为其中之一）** —— 判据：① 可注入性 **40 类全部可注入（`required` 空 = 0）**，在自动化链路上没有问题 ② 不在 V1 关键路径（`v1_path: false`）③ **但有一个具名的近期用途**：`P3-04`（WF-UPSCALE 高清修复）。<br>**收敛决定与唯一触发条件**：<br>· **P3-04 定型时**（归属 B 流）判定：若核心 `KSampler` 链路即可满足高清修复 → **disable**；若确需它的高效采样 / 高清修复封装 → **keep**<br>· ⚠️ **`P5-03` 的 LoRA 参数扫描不再作为保留理由** —— 改走**平台自身的批量引擎**（FR-3.4 参数矩阵），理由：XY 图是 **UI 能力**，产物不进我们的元数据体系（破坏 FR-5.4 可复现性），也不经 `targets` 注入（`contracts.md` §3.3）。原 `v1_refs` 里的 `P5-03` 据此降级为「参考」<br>· **因此本项归属只取决于 P3-04，收敛路径已唯一化**"
+    lean: "P3-04 定型时二选一（见 convergence）"
 
   - name: ComfyUI-Inspire-Pack
     commit: d23db9aa544d
@@ -453,6 +473,7 @@ nodes:
     lean: keep
     convergence: "**收敛判定 → disable**（判据同上）。① 不在 V1 关键路径（无 `v1_refs` 的硬需求，`P5-03` 属「有用非必需」）② 功能与**已保留**的 `ComfyUI-KJNodes`（198 类）与 `ComfyUI_essentials`（85 类）大幅重叠，**无独有能力证据** ③ 其「随机提示词」能力由后端 / P5-09 模板引擎提供更可控（可见、可校验、可统计），放节点里反而不可观测。**禁用不删除**"
 
+
   - name: comfyui-ollama
     commit: 6db7560576e5
     dirty: 0
@@ -466,6 +487,7 @@ nodes:
     risk: "⚠️ 中 —— 它会拉起本地 LLM 服务，**挤占 4090 显存**（双底模已常驻 13.1G/24G；NFR-2 要求并发=1 且模型常驻）"
     lean: disable（V1 期间）
     convergence: "**收敛判定 → disable**（判据同上）。① 不在 V1 关键路径：**PRD §3.1 的 M1–M9 无 LLM 需求**，它服务的是 V2 的 E4 ② ⚠️ **显存竞争**：它会拉起本地 LLM 服务，而 NFR-2 要求「并发=1、双底模常驻 13.1G/24G」—— 并行跑 LLM 会直接挤压出图显存 ③ 许可干净（Apache-2.0），**仅因 V1 时机不对而禁用**。<br>**触发条件（明确）**：V2 启动做 LLM 提示词助手（E4）时重新评估并回升"
+
 
   - name: ComfyUI-Dev-Utils
     commit: 38852e78803a
@@ -481,6 +503,7 @@ nodes:
     lean: disable
     convergence: "**收敛判定 → disable**（判据同上）。① 不在 V1 关键路径 ② 它是**节点开发者**的调试工具，而本项目**不自研自定义节点** → 该能力对本项目无使用场景。**禁用不删除**"
 
+
   - name: ComfyUI_tinyterraNodes
     commit: 1a90e4348056
     dirty: 0
@@ -495,6 +518,7 @@ nodes:
     lean: disable
     convergence: "**收敛判定 → disable**（判据同上）。① 不在 V1 关键路径（无 `v1_refs`）② 42 类里仅 1 个 `required` 为空，其余可注入 —— **技术/许可都无问题，纯粹是「与 KJNodes / essentials 重叠且无独有必需能力」** ③ 「节点越多越脆」是本轮裁剪动机，重叠包是首选裁剪对象。**禁用不删除**"
 
+
   - name: PowerNoiseSuite
     commit: 581c164114dc
     dirty: 0
@@ -508,6 +532,7 @@ nodes:
     risk: "低。若 P5-03 证明对材质特写有帮助可回归"
     lean: 待评测
     convergence: "**收敛判定 → disable**（判据同上）。① 不在 V1 关键路径 ② 11 类且**全部可注入**（`required` 空 = 0），技术上无问题 ③ 但**无任何实测证据**表明它对材质/质感有实际收益 —— 按「无证据不启用」先禁用；若 P5-03 评测确认需要细节增强手段，再回升（**禁用不删除，回退成本 ≈ 0**）"
+
 
   - name: ComfyUI-Coziness
     commit: d841eaea9a56
@@ -524,6 +549,7 @@ nodes:
     lean: "若 P4-04 用提示词驱动 LoRA → keep；否则 disable"
     convergence: "**收敛判定 → disable**（判据同上）。① 不在 V1 关键路径 ② 2 类且全部可注入、MIT 许可 —— 技术/许可均无问题 ③ **但它的设计方向与平台架构相反**：它把「用哪些 LoRA、权重多少」**藏进提示词文本**（`<lora:name:1.1>` 语法）→ 这些参数**绕过了后端校验与注入**，与 `contracts.md` §3.4「后端必须二次校验」、§3.3「参数经 Schema 暴露」相冲突；且产物元数据无法结构化记录用了哪些 LoRA（破坏 FR-5.4 可复现性）④ P4-04 的多 LoRA 已选定更优方案 `Lora Loader Stack (rgthree)`（固定 4 槽位、Schema 稳定、参数可校验）。<br>**触发条件**：若 P4-04 最终确需「提示词内联 LoRA」这一交互，再回升"
 
+
   - name: was-node-suite-comfyui
     commit: ea935d1044ae
     dirty: 0
@@ -536,6 +562,8 @@ nodes:
     evidence: "审计日志（**3.7s —— 全部节点中最慢**，无 IMPORT FAILED）。**依赖最重的综合套件之一**（自带 cstr / ffmpy / img2texture 等 git+ 依赖，见 versions.lock [pip]），功能面广但与 KJNodes/Essentials 大量重叠"
     risk: "⚠️ **中高 —— 它是「太多太脆」的典型代表**：依赖面最广、加载最慢、与其它套件重叠。**倾向禁用**；若某条工作流确实依赖它的独有节点，则保留并**记录具体是哪个节点**"
     lean: disable（除非有独有依赖）
+    convergence: "**收敛判定 → disable**（判据同上）。① 不在 V1 关键路径 ② **221 个类、8 个 `required` 为空**，是 32 个节点里体量最大者之一，且自带多个 `git+` 依赖（`cstr` / `ffmpy` / `img2texture`）→ **依赖面最广 = 单点故障概率最高** ③ 与 KJNodes / essentials 大量重叠，**无独有能力证据** ④ MIT 许可无问题，纯技术裁剪。<br>**它是「太多太脆」的最典型代表**，禁用收益最高。**禁用不删除**；若某条工作流将来确实依赖它的独有节点，再按具体节点类恢复"
+
 
 # ============================================================
 # 2. 汇总（全部为实证数字，非估计）
@@ -544,8 +572,20 @@ summary:
   total: 32
   by_decision:
     keep: 11
-    disable: 11
-    review: 10
+    disable: 19            # 收敛后：8 个 review 转 disable（理由见各节点 convergence 字段）
+    review: 2              # ✅ 收敛完成：ADV_CLIP_emb / efficiency-nodes-comfyui（均有具名触发条件）
+  convergence_record:
+    date: "2026-09-16（切有卡模式前完成，供 L4 工作流选型使用）"
+    method: "用两条判据收敛 review 档：**① 可注入性（`required` 是否为空）② 是否 V1 关键路径（`v1_path`）**"
+    result: "review 10 → 2；keep 11 / disable 19 / review 2（共 32）"
+    transferred_to_disable: [ComfyUI-Easy-Use, ComfyUI-Inspire-Pack, comfyui-ollama, ComfyUI-Dev-Utils, ComfyUI_tinyterraNodes, PowerNoiseSuite, ComfyUI-Coziness, was-node-suite-comfyui]
+    rationale_summary:
+      - "**8 个转 disable 的节点里，有 6 个技术状态与许可都没问题** —— 禁用理由是「不在 V1 关键路径 + 与已保留节点重叠且无独有能力证据」或「设计方向与平台架构冲突」"
+      - "→ 这正是「**32 个节点太多太脆**」的裁剪核心：不是它们坏了，而是**它们不必要**"
+      - "**保留 2 个 review 都有具名触发条件**（P4 的 klein 权重方案 / P3-04 的高清修复选型），不是「待定」"
+    key_architectural_findings:
+      - "**`ComfyUI-Easy-Use` 与 `ComfyUI-Coziness` 的禁用是架构理由而非技术理由**：前者「一键封装」隐藏真实节点结构，与 `contracts.md` §3.3 的 `targets` 注入契约冲突；后者把 LoRA 参数藏进提示词文本，绕过后端校验（§3.4）并破坏产物元数据的结构化记录（FR-5.4）"
+      - "→ **可复用的判据：「把参数藏起来」的节点（藏进 widget / 藏进文本）在自动化链路上都是负资产**，即使它技术完好、许可干净"
     # ⚠️ 2026-09-16 变更：ComfyUI_ADV_CLIP_emb 由 keep → review（其 keep 依据「权重语法依赖它」被 B 流证伪，
     #    见该条目的 correction 字段与 docs/sop/debug_log.md G7）→ keep 12→11、review 9→10
   by_status:
@@ -652,7 +692,7 @@ gpl_constraint:
 execution_plan:
   steps:
     - "① 备份现状：`ls -1 custom_nodes/ > /root/autodl-tmp/nodes_before.txt`；`curl -s 127.0.0.1:8188/object_info > /root/autodl-tmp/object_info_before.json` 并记录节点类总数"
-    - "② 对 disable 档（11 个）执行重命名：`mv <name> <name>.disabled`（**不删除**）"
+    - "② 对 disable 档（**19 个**）执行重命名：`mv <name> <name>.disabled`（**不删除**）"
     - "③ 重启 ComfyUI —— 用 deploy/autodl/31_restart_prod.sh，**不要内联 pkill**（项目进展.md #19）"
     - "④ 验证：23_cpu_mode_node_audit.sh + 26_validate_workflow.py 均须通过；summary.by_v1_path.critical_nodes 列出的 10 个节点必须仍在"
     - "⑤ 采集禁用后的 /object_info，回填 §2 的 node_class_delta"
@@ -662,9 +702,50 @@ execution_plan:
   recommended_order:
     - "1st: **ComfyUI-Upscaler-Tensorrt**（非商用许可，红线）—— 单独执行、单独记录"
     - "2nd: **§3 的 sageattention 卸载 + CPU 模式复测**（可修好一个节点，收益最大）"
-    - "3rd: F 档 4 个视频节点 + G 档另 3 个无许可节点"
-    - "4th: E 档 3 个已损坏节点"
-    - "5th: H 档 9 个逐条实测后决定"
+    - "3rd: **8 个「与 V1 无关 / 无独有能力 / 无许可声明」节点**（视频 4 个 + 无许可 3 个 + 其它），零风险、收益直接"
+    - "4th: **收敛转 disable 的 8 个**（Easy-Use / Inspire-Pack / ollama / Dev-Utils / tinyterraNodes / PowerNoiseSuite / Coziness / was-node-suite）—— 见 §2.2 的收敛记录"
+    - "5th: E 档 3 个已损坏节点（nunchaku / TeaCache / smZNodes）"
+    - "6th: ⚠️ **`efficiency-nodes-comfyui` 与误伤面最大的项留到最后** —— 它还有 1 个未定的触发条件（P3-04），且它 `dirty=2`，先查明改动内容再决定"
+
+# ============================================================
+# 2.2 review 档收敛记录（2026-09-16，切有卡前的定案）
+# ============================================================
+# 收敛判据（team-lead 指定两条）：**可注入性** + **是否 V1 关键路径**
+# 结果：review 10 → 2
+convergence_record:
+  before: {keep: 11, review: 10, disable: 11}
+  after:  {keep: 11, review: 2,  disable: 19}
+  total: 32
+  rule_applied: |
+    ① 先看「是否 V1 关键路径」：review 档 10 个**全部** v1_path=false → 没有一个有 V1 硬需求。
+    ② 再看「可注入性」与「有无独有能力/具名近期用途」：
+       · 无独有能力证据、或功能与已保留包重叠 → **disable**（8 个）
+       · **有明确、已具名的保留理由** → 留下 review（2 个）
+    ③ 全程遵守「**禁用不删除**」：所有 disable 都是一条 `mv` 可回退，回退成本 ≈ 0。
+  to_disable_8:
+    convergent_criteria:
+      - "ComfyUI-Easy-Use：封装隐藏真实节点结构 → 与 contracts §3.3 冲突；与 efficiency-nodes 重叠（择一）"
+      - "ComfyUI-Inspire-Pack：与已保留的 KJNodes(198 类) / essentials(85 类) 大幅重叠，无独有能力证据"
+      - "comfyui-ollama：PRD M1–M9 无 LLM 需求（服务 V2 E4）；且**显存竞争**与 NFR-2 冲突"
+      - "ComfyUI-Dev-Utils：节点开发者工具，本项目**不自研节点**"
+      - "ComfyUI_tinyterraNodes：与 KJNodes / essentials 重叠，无独有能力证据"
+      - "PowerNoiseSuite：全部可注入但**无任何实测收益证据** → 按「无证据不启用」"
+      - "ComfyUI-Coziness：把 LoRA 参数**藏进提示词文本** → 绕过后端校验，与 contracts §3.3/§3.4 冲突"
+      - "was-node-suite-comfyui：221 类 + 多个 `git+` 依赖，**依赖面最广 = 单点故障概率最高**；与已保留包重叠"
+    note: "全部为**技术性裁剪**（许可均无问题：GPL-3.0 6 个 / MIT 2 个），不是合规下线 —— 因此回升成本极低"
+  remaining_2:
+    - node: ComfyUI_ADV_CLIP_emb
+      type: "**有计划的保留**（不是待定）"
+      why: "它是 **klein 权重支持的唯一备选方案**（`BNK_*` 自己解析权重并生成加权 embedding，不依赖 `KleinTokenizer` 的 `disable_weights`）；禁用会为规则一致性丢掉真备选方案 + 多一次改名-改回开销"
+      trigger: "G7 待验证 ③ 通过（换 `BNK_CLIPTextEncodeAdvanced` 后权重恢复）→ 回 keep 并接线；否则维持现状"
+    - node: efficiency-nodes-comfyui
+      type: "**待 P3-04 定型**"
+      why: "可注入性 40/40 无问题、许可无问题，唯一变量是 P3-04（WF-UPSCALE）是否需要它的高效采样/高清修复封装"
+      trigger: "**P3-04 定型时（归属 B 流）二选一**：核心 KSampler 够用 → disable；确需其封装 → keep。<br>⚠️ 原 `v1_refs` 里的 `P5-03` **不再作为保留理由**（LoRA 扫描改走平台批量引擎 FR-3.4，不用 UI 型 XY 图）"
+  impact_on_l4:
+    - "✅ **L4 不受影响**：keep 档 11 个覆盖全部 V1 关键路径（控制体系 4 个包 + 基础工具 + LoRA/UI）"
+    - "✅ **禁用后需重跑**：`23_cpu_mode_node_audit.sh`（确认无 IMPORT FAILED 新增）+ `26_validate_workflow.py`（两条工作流仍 PASS）"
+    - "⚠️ 禁用后节点类总数将从 **2530** 下降，需实测回填 `summary.node_class_delta`"
 
 # ============================================================
 # 6. 证据缺口
@@ -770,4 +851,3 @@ license_cross_validation:
       how: "`for d in */; do git -C $d remote get-url origin; done`（只读）"
       owner: C 流
       when: "下次服务器可达时，与 dirty 文件的 `git diff` 一并取"
-    convergence: "**收敛判定 → disable**（判据同上）。① 不在 V1 关键路径 ② **221 个类、8 个 `required` 为空**，是 32 个节点里体量最大者之一，且自带多个 `git+` 依赖（`cstr` / `ffmpy` / `img2texture`）→ **依赖面最广 = 单点故障概率最高** ③ 与 KJNodes / essentials 大量重叠，**无独有能力证据** ④ MIT 许可无问题，纯技术裁剪。<br>**它是「太多太脆」的最典型代表**，禁用收益最高。**禁用不删除**；若某条工作流将来确实依赖它的独有节点，再按具体节点类恢复"
