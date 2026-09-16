@@ -157,13 +157,34 @@ class KleinTokenizer(sd1_clip.SD1Tokenizer):
 | 提示词库现状 | 配方里**目前没有** `(word:1.2)` 写法（已用正则扫过），所以此刻没有正在受损的内容，属"先查清再上" |
 | 工作流本身 | klein 图**不改**。若要让 klein 支持权重，见待验证 ③ |
 
-**待验证（全部需 GPU，并入 P4）**
+**待验证（全部需 GPU，并入 P4）· 已备好可执行探针**
+
+```bash
+# 离线预检（不需要 GPU）：三种模式都能构造 + 通过 L3
+PYTHONPATH=. python -m engine.tools.probe_g7_weight --mode all --dry-run
+
+# GPU 上真跑（固定 seed；产物落在 g7_probe_out/，供并排看图）
+PYTHONPATH=. python -m engine.tools.probe_g7_weight --mode all --seed 20260916
+```
+
+⚠️ **探针只给一个客观信号：同一 seed 下「带权重 vs 不带权重」的产物像素（IDAT）是否逐字节一致。**
+
+| 结果 | 能得出的结论 |
+|---|---|
+| **相同** | 提示词改动对模型**完全没有影响**（**决定性**：权重既没生效、也没污染）|
+| **不同** | 提示词改动**确实进了模型**，但**不能推出"权重按预期生效"** —— 被当字面文本同样会改变结果。**必须人工看图**区分「主体更突出/更弱」还是「画面出现括号文字感/构图崩坏」|
+
+**把"像素不同"说成"权重生效"，就是本节已经犯过两次的那类机制推断。** 探针脚本刻意不打印"生效/无效"这种结论。
 
 | # | 内容 | 目的 |
 |---|---|---|
-| ① | klein 上把 `(mug:1.5)` **原样**送进去，与干净提示词对比 | 量化"主动破坏"的程度（是否显著劣化） |
-| ② | SDXL 上「带权重 vs 去权重」对照 | 验证机制（对照组，预期有差异） |
-| ③ | 把 klein 的文本编码节点**从核心 `CLIPTextEncode` 换成 `BNK_CLIPTextEncodeAdvanced`**（注意：不是"接在它之前" —— `BNK_*` 自己就是文本编码节点，入参是 `clip`+`text`、输出 CONDITIONING，没有 conditioning 输入），看权重是否恢复生效 | 若能生效，klein 就能支持权重语法 |
+| ① | `klein-core` 模式：把 `(mug:1.5)` **原样**送进核心 `CLIPTextEncode` | 量化"主动破坏"的程度（是否显著劣化） |
+| ② | `sdxl` 模式：SDXL 上「带权重 vs 去权重」对照 | 验证机制（对照组，预期有差异） |
+| ③ | `klein-bnk` 模式：把 klein 的文本编码节点**从核心 `CLIPTextEncode` 换成 `BNK_CLIPTextEncodeAdvanced`**（注意：不是"接在它之前" —— `BNK_*` 自己就是文本编码节点，入参是 `clip`+`text`、输出 CONDITIONING，没有 conditioning 输入），看权重是否恢复生效 | 若能生效，klein 就能支持权重语法 |
+
+> 探针的 `klein-bnk` 变体在**运行时**由注册表里那份 klein 工作流派生（只替换提示词编码节点，
+> 连线与其余节点逐字节不动），**不落单独的 JSON** —— 否则注册表一改，探针副本就悄悄过期，
+> 实验结论会建立在过期的图上。变体构造另有单测保证"只改了该改的那个节点"。
 
 ⚠️ **对 ③ 的预期要克制 —— 不要重犯本节 ③ 那条错。**
 先前的写法是「这条路改的是 embedding、不依赖 CFG，`cfg=1` 下**应该有效**」。这又是一次
@@ -385,3 +406,4 @@ C 流指出：`rgthree-comfy` 里除了那个不能用的 `Power Lora Loader`，
 | 2026-09-16 | v1.1 | **L3 解锁**（`object_info.v0.36.0.json` 入库）→ 更新 §0.1，新增 §0.2「L3 的两种用法」（对模板 / 对**渲染后的图**）。新增 **G7**（提示词权重在 klein 链路的跨流风险，由 C 流提出、team-lead 转办）、**G8**（`Power Lora Loader` 不可注入，已用真实校验器 A/B 证明）。新增 **§2.4**：说明两条工作流为何 `status: disabled`（`render_path_l4` 未通过），并给出 4 步验证清单 |
 | 2026-09-16 | v1.2 | **G7 改写为源码级定论**（team-lead 读 `/root/ComfyUI` 源码）：`KleinTokenizer` 显式传 `disable_weights=True` → klein 上权重**不被解析**，且 `(word:1.2)` 的**字面字符会进入分词（主动污染提示词）**，不是「空转」；**我原先的 cfg 推断（权重靠正负向相减）机制错误**，已在 G7 内明确标注并纠正；新增待验证 ③（换用 `BNK_CLIPTextEncodeAdvanced` 是否恢复权重）。同时**合并了并发编辑产生的重复 G7 标题** |
 | 2026-09-16 | v1.3 | 新增 **G8.1**：同一 rgthree 包里的 `Lora Loader Stack (rgthree)` **是可注入的**（10 个声明式入参）。用真实校验器做 A/B，证明「同包、类名高度相似的两个节点，注入结果完全相反」—— P4-04 多 LoRA 建议改用它（单节点、槽位固定 4 → **Schema 不随模板变**），不再需要核心 `LoraLoader` 串链；并记录前置依赖「服务器上目前一个 LoRA 权重都没有」。新增 **§2.4 的可执行工具** `engine/tools/verify_render_path.py`（含离线 `--dry-run`）。收敛 G7 待验证 ③ 的表述（去掉「应该有效」这类夹带预期结论的写法） |
+| 2026-09-16 | v1.4 | G7 三项待验证**已备可执行探针** `engine/tools/probe_g7_weight.py`（三种模式：`klein-core` / `klein-bnk` / `sdxl`），并明确「探针只给**客观信号**（同 seed 像素是否逐字节相同），**语义判断必须人工看图**」—— 避免把"像素不同"读成"权重生效"。探针的 BNK 变体**运行时由注册表派**（不落第二份 JSON，防双真相），且定位提示词节点用的是**注册表 Schema 的 `targets`** 而非硬编码 ID。修复 `verify_render_path.py` 多 target 检查的一个**假通过**缺陷：原实现用字段 key 当入参名取值，遇 `seed`→`noise_seed` 这类不同名会取到 `None`，使"一致性检查"退化为"两个 None 相等" |

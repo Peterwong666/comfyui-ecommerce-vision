@@ -1119,6 +1119,166 @@ class TestDefinitionPathResolution:
         assert registry.definition_path(entry).exists()
 
 
+class TestVerifyRenderPathDryRun:
+    """`render_path_l4` 验证工具的离线部分（真实出图那半属于 L4）。"""
+
+    def _entry(self, workflow_id: str = "flux2_klein_t2i_v1"):
+        return Registry.load().require(workflow_id)
+
+    def test_multi_target_fields_carry_input_names(self):
+        """⭐ 回归：多 target 检查必须带**每个 target 自己的入参名**。
+
+        曾经的写法是用字段 key 当入参名去取值。对 klein 的 `width` 恰好蒙对
+        （key == input），但对 `seed`→`noise_seed` 这类就会取到 `None`，
+        于是"一致性检查"退化成"两个 None 相等"的**假通过**。
+        """
+        from engine.tools.verify_render_path import _multi_target_fields
+
+        fields = _multi_target_fields(self._entry())
+        assert set(fields) == {"width", "height"}
+        for key, targets in fields.items():
+            for node_id, input_name, _tf in targets:
+                assert isinstance(node_id, str)
+                assert input_name == key  # klein 的 width/height 恰好同名
+        # 结构化验证：必须是 3 元组（含入参名），不能只是节点 ID
+        assert all(len(t) == 3 for t in fields["width"])
+
+    def test_multi_target_check_detects_inconsistency(self):
+        """真正的不一致必须被检出（否则这条检查形同虚设）。"""
+        from engine.render import load_definition
+        from engine.tools.verify_render_path import _multi_target_fields
+
+        registry = Registry.load()
+        entry = registry.require("flux2_klein_t2i_v1")
+        result = render(load_definition(registry.definition_path(entry)), entry.schema)
+        # 人为破坏一个节点，使 width 在 6 与 7 上不一致
+        result.workflow["7"]["inputs"]["width"] = 768
+        values = {
+            f"{nid}.{inp}": result.workflow[nid]["inputs"].get(inp)
+            for nid, inp, _tf in _multi_target_fields(entry)["width"]
+        }
+        assert len(set(values.values())) == 2, "破坏后应当不一致"
+        assert values == {"6.width": 1024, "7.width": 768}
+
+    def test_idat_digest_ignores_non_pixel_chunks(self):
+        """确定性判据只比像素：追加元数据不得改变 IDAT 摘要。"""
+        from engine.tools.verify_render_path import idat_digest
+
+        raw = make_png(16, 16)
+        assert idat_digest(raw) == idat_digest(raw)
+
+    def test_dry_run_passes_for_both_registered_workflows(self, capsys):
+        from engine.tools.verify_render_path import main as verify_main
+
+        for wf_id in ("t2i_v1", "flux2_klein_t2i_v1"):
+            assert verify_main(["--workflow", wf_id, "--dry-run"]) == 0, wf_id
+        assert "DRY-RUN 通过" in capsys.readouterr().out
+
+
+class TestG7WeightProbe:
+    """G7 探针：变体构造必须**离线可验**，否则 GPU 机时会被浪费在拼图错误上。"""
+
+    _ENTRY_FOR_MODE = {
+        "klein-core": "flux2_klein_t2i_v1",
+        "klein-bnk": "flux2_klein_t2i_v1",
+        "sdxl": "t2i_v1",
+    }
+
+    def _entry_definition(self, workflow_id: str):
+        from engine.render import load_definition
+
+        registry = Registry.load()
+        entry = registry.require(workflow_id)
+        return entry, load_definition(registry.definition_path(entry))
+
+    def test_prompt_node_comes_from_registry_schema(self):
+        """探针必须从注册表 `targets` 定位提示词节点，不能硬编码 ID。"""
+        from engine.tools.probe_g7_weight import _prompt_target_node
+
+        for wf_id, expected in (("flux2_klein_t2i_v1", "4"), ("t2i_v1", "6")):
+            entry, _d = self._entry_definition(wf_id)
+            assert _prompt_target_node(entry) == expected, wf_id
+
+    def test_bnk_variant_swaps_encoder_only(self):
+        """只换文本编码节点，**连线与其余节点完全不动**（否则比对引入额外变量）。"""
+        from engine.tools.probe_g7_weight import BNK_DEFAULTS, _build_bnk_variant
+
+        entry, original = self._entry_definition("flux2_klein_t2i_v1")
+        variant = _build_bnk_variant(original, "a mug", "4")
+        a = {k: v for k, v in original.items() if k != "_meta"}
+        b = {k: v for k, v in variant.items() if k != "_meta"}
+        assert set(a) == set(b), "节点集合不能变"
+
+        changed = [nid for nid in a if a[nid] != b[nid]]
+        assert changed == ["4"], f"只应改动节点 4，实际: {changed}"
+        assert b["4"]["class_type"] == "BNK_CLIPTextEncodeAdvanced"
+        for k, v in BNK_DEFAULTS.items():
+            assert b["4"]["inputs"][k] == v
+        # 连线必须原样继承
+        assert b["4"]["inputs"]["clip"] == a["4"]["inputs"]["clip"]
+
+    def test_bnk_variant_rejects_non_encoder_node(self):
+        from engine.tools.probe_g7_weight import _build_bnk_variant
+
+        _entry, original = self._entry_definition("flux2_klein_t2i_v1")
+        with pytest.raises(RenderError, match="CLIPTextEncode"):
+            _build_bnk_variant(original, "x", "1")  # 节点 1 是 UNETLoader
+
+    def test_bnk_variant_is_l3_valid(self):
+        """BNK 变体必须通过 L3（入参名/枚举取值对得上真实 object_info）。"""
+        from engine.tools.probe_g7_weight import BNK_DEFAULTS, _build_bnk_variant
+        from engine.validate import _load_object_info, check_object_info
+
+        info_path = pathlib.Path("deploy/schemas/object_info.v0.36.0.json")
+        if not info_path.exists():
+            pytest.skip("object_info 缓存不在仓库里（L3 不可用）")
+        info = _load_object_info(str(info_path))
+        _entry, original = self._entry_definition("flux2_klein_t2i_v1")
+        variant = _build_bnk_variant(original, "a mug", "4")
+        graph = {k: v for k, v in variant.items() if k != "_meta"}
+        errors = [f for f in check_object_info(graph, info, scope="bnk") if f.level == "error"]
+        assert errors == [], "\n".join(str(e) for e in errors)
+        # 顺带确认我们用的枚举值确实在允许集合内
+        spec = info["BNK_CLIPTextEncodeAdvanced"]["input"]["required"]
+        assert BNK_DEFAULTS["weight_interpretation"] in spec["weight_interpretation"][0]
+        assert BNK_DEFAULTS["token_normalization"] in spec["token_normalization"][0]
+
+    def test_all_modes_build_offline(self):
+        from engine.tools.probe_g7_weight import BASELINE_PROMPT, MODES, _variant
+
+        for mode in MODES:
+            entry, definition = self._entry_definition(self._ENTRY_FOR_MODE[mode])
+            graph = _variant(mode, BASELINE_PROMPT, definition, entry)
+            assert graph, mode
+            assert "_meta" in graph, mode
+            assert len(graph) == len(definition), mode
+
+    def test_weighted_prompt_differs_from_baseline(self):
+        """探针的两个提示词必须真的不同，否则比对无从谈起。"""
+        from engine.tools.probe_g7_weight import BASELINE_PROMPT, WEIGHTED_PROMPT
+
+        assert BASELINE_PROMPT != WEIGHTED_PROMPT
+        assert "(white ceramic coffee mug:1.5)" in WEIGHTED_PROMPT
+
+    def test_sdxl_variant_leaves_negative_untouched(self):
+        """SDXL 对照组：只改正向节点 6，负向保持模板原样。"""
+        from engine.tools.probe_g7_weight import _sdxl_variant
+
+        entry, original = self._entry_definition("t2i_v1")
+        variant = _sdxl_variant(original, "PROBE", "6")
+        assert variant["6"]["inputs"]["text"] == "PROBE"
+        assert variant["7"]["inputs"]["text"] == original["7"]["inputs"]["text"]
+
+    def test_probe_dry_run_passes(self, capsys):
+        from engine.tools.probe_g7_weight import main as probe_main
+
+        assert probe_main(["--mode", "all", "--dry-run"]) == 0
+        out = capsys.readouterr().out
+        # 必须明确声明它不给语义结论
+        assert "语义判断必须人工看图" in out
+        assert "全部变体通过 L3" in out
+
+
 def _fake_path():
     import pathlib
 

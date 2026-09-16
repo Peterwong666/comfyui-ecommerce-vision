@@ -190,10 +190,20 @@ def _seed_field_key(entry: Any) -> str | None:
     return None
 
 
-def _multi_target_fields(entry: Any) -> dict[str, list[str]]:
-    """找出「一个参数映射到多个节点」的字段 → {key: [节点ID...]}。"""
-    return {f.key: sorted(t.node_id for t in f.targets)
-            for f in entry.schema if len(f.targets) > 1}
+def _multi_target_fields(entry: Any) -> dict[str, list[tuple[str, str, str | None]]]:
+    """找出「一个参数映射到多个节点」的字段。
+
+    返回 `{字段key: [(节点ID, 入参名, transform), ...]}`。
+
+    ⚠️ **必须带上每个 target 自己的入参名，不能用字段 key 代替** ——
+    字段 key 与入参名经常不同（`seed` → `noise_seed`、`prompt` → `text`），
+    用 key 去取值会得到 `None`，于是"一致性检查"变成"两个 None 相等"的**假通过**。
+    """
+    return {
+        f.key: [(t.node_id, t.input, t.transform) for t in f.targets]
+        for f in entry.schema
+        if len(f.targets) > 1
+    }
 
 
 # ============================================================ 主流程
@@ -259,13 +269,30 @@ def run(args: argparse.Namespace) -> int:
         f"实际值: {[result.workflow[t.node_id]['inputs'].get(t.input) for t in seed_targets]}",
     )
 
-    for key, nodes in _multi_target_fields(entry).items():
-        values = {n: result.workflow[n]["inputs"].get(key) for n in nodes}
-        consistent = len(set(map(str, values.values()))) == 1
+    for key, targets in _multi_target_fields(entry).items():
+        transforms = {t[2] for t in targets}
+        values = {
+            f"{nid}.{inp}": result.workflow.get(nid, {}).get("inputs", {}).get(inp)
+            for nid, inp, _tf in targets
+        }
+        if len(transforms) > 1:
+            # 各 target 用了不同 transform（如一个原样、一个 join_lines），
+            # 写进去的值本来就该不同 —— 强行要求相等会产生假失败。
+            rep.add(
+                f"多 target 参数 '{key}' 一致性",
+                None,
+                f"各 target 的 transform 不同 {sorted(t for t in transforms if t)}，"
+                f"取值本就可能不同，跳过比对。实际: {values}",
+            )
+            continue
+        consistent = len(set(map(str, values.values()))) == 1 and all(
+            v is not None for v in values.values()
+        )
         rep.add(
-            f"多 target 参数 '{key}' 在 {nodes} 上取值一致",
+            f"多 target 参数 '{key}' 在 {sorted(values)} 上取值一致",
             consistent,
-            f"实际: {values}（不一致会导致例如潜空间尺寸与 sigmas 不匹配）",
+            f"实际: {values}"
+            + ("" if consistent else "（不一致会导致例如潜空间尺寸与 sigmas 不匹配）"),
         )
 
     # ---------- 3. 提交与出图 ----------
@@ -379,7 +406,7 @@ def _summary(rep: Reporter, *, dry_run: bool = False) -> None:
         print("   → 去掉 --dry-run 在 GPU 上跑真实的 L4。")
     else:
         print("✅ 全部通过 —— 可以：")
-        print(f"   ① 在 workflows/registry.yaml 里把 {'' if True else ''}`render_path_l4` 置 true")
+        print("   ① 在 workflows/registry.yaml 里把 `render_path_l4` 置 true")
         print("   ② 把 `status` 改为 enabled（两者必须同时满足，registry 会强制校验）")
         print("   ③ 在 changelog 记一条，并对**两个模型**各跑一遍（修 SDXL 不能拿 klein 当代价）")
     print()
