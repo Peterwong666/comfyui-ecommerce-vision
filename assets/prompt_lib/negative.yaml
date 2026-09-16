@@ -1,0 +1,364 @@
+# ============================================================
+# 提示词库 · 反向基础词（P5-08）
+#
+# ⚠️ 重要前提（务必先读，否则会白费功夫）：
+#   反向提示词**只在 CFG > 1 时生效**。数学上 CFG=1 时
+#   去噪结果 = 纯条件分支，反向分支权重为零。
+#   · SDXL 链路（cfg 7~8）→ 反向词**有效**，本文件是主力手段
+#   · FLUX.2 klein **蒸馏版**（4 步 / cfg=1）→ 反向词**无效果**，
+#     官方模板对应的是 ConditioningZeroOut
+#   → klein 链路的「反向」诉求必须改用：① 正向增强词 ② 局部重绘 ③ 人工筛选
+#   依据：项目进展.md #16 验证 3（官方模板展开结论）＋ docs/sop/contracts.md §3.5
+# ============================================================
+schema_version: 1
+pack_id: negative
+name: 反向基础词
+updated: 2026-09-16
+# 字段同 positive.yaml；额外：
+#   severity  hit=出现即判废（人工质检直接淘汰）
+#             warn=影响观感，可重跑（默认）
+#             soft=轻微瑕疵，可接受
+#   works_on  cfg_gt_1=仅 SDXL 等 CFG>1 链路生效  cfg_1=在 CFG=1 链路仍建议保留（无害占位）
+#             all=与 CFG 无关（如尺寸/水印类由后处理负责）
+
+entries:
+  # ---------- 画质类 ----------
+  - id: neg-001
+    text: "低分辨率，模糊"
+    text_en: "low resolution, blurry"
+    tags: [画质, 清晰度]
+    scenes: [全部]
+    priority: 1
+    severity: hit
+    works_on: cfg_gt_1
+  - id: neg-002
+    text: "失焦，跑焦"
+    text_en: "out of focus, missed focus"
+    tags: [画质, 清晰度]
+    scenes: [全部]
+    priority: 1
+    severity: hit
+    works_on: cfg_gt_1
+  - id: neg-003
+    text: "噪点，颗粒"
+    text_en: "noise, grainy"
+    tags: [画质, 噪点]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+    severity: warn
+    works_on: cfg_gt_1
+  - id: neg-004
+    text: "JPEG 压缩伪影"
+    text_en: "JPEG compression artifacts"
+    tags: [画质, 伪影]
+    scenes: [全部]
+    priority: 2
+    severity: warn
+    works_on: cfg_gt_1
+  - id: neg-005
+    text: "过度锐化，边缘白边"
+    text_en: "oversharpened, halos"
+    tags: [画质, 锐化]
+    scenes: [全部]
+    priority: 2
+    severity: warn
+    works_on: cfg_gt_1
+  - id: neg-006
+    text: "过度磨皮，塑料感"
+    text_en: "over-smoothed, plastic look"
+    tags: [画质, 质感]
+    scenes: [材质特写, 模特图]
+    priority: 1
+    severity: hit
+    works_on: cfg_gt_1
+    note: "皮具/纺织品类最常见失败模式"
+  - id: neg-007
+    text: "暗部死黑，高光溢出"
+    text_en: "clipped shadows, blown highlights"
+    tags: [画质, 曝光]
+    scenes: [全部]
+    priority: 2
+    severity: warn
+    works_on: cfg_gt_1
+  - id: neg-008
+    text: "色调偏黄，白平衡错误"
+    text_en: "yellowish cast, wrong white balance"
+    tags: [画质, 色彩]
+    scenes: [白底主图, 场景图]
+    priority: 1
+    severity: hit
+    works_on: cfg_gt_1
+  - id: neg-009
+    text: "过饱和，色彩失真"
+    text_en: "oversaturated, color distortion"
+    tags: [画质, 色彩]
+    scenes: [全部]
+    priority: 2
+    severity: warn
+    works_on: cfg_gt_1
+  - id: neg-010
+    text: "色带断层，渐变生硬"
+    text_en: "color banding, harsh gradient"
+    tags: [画质, 色彩]
+    scenes: [白底主图, 氛围图]
+    priority: 3
+    severity: soft
+    works_on: cfg_gt_1
+
+  # ---------- 形态与结构（商品保真的核心对手） ----------
+  - id: neg-011
+    text: "结构变形，轮廓畸变"
+    text_en: "deformed structure, distorted outline"
+    tags: [形态, 变形]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+    severity: hit
+    works_on: cfg_gt_1
+    note: "商品保真专项（FR-8.1）的必配词"
+  - id: neg-012
+    text: "比例失调"
+    text_en: "wrong proportions"
+    tags: [形态, 比例]
+    scenes: [全部]
+    priority: 1
+    severity: hit
+    works_on: cfg_gt_1
+  - id: neg-013
+    text: "多出零件，重复结构"
+    text_en: "extra parts, duplicated structure"
+    tags: [形态, 多余结构]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+    severity: hit
+    works_on: cfg_gt_1
+    note: "⚠️ 3C 与五金件最高发 —— 多一个按键、多一个接口"
+  - id: neg-014
+    text: "缺少部件，残缺"
+    text_en: "missing parts, incomplete"
+    tags: [形态, 残缺]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+    severity: hit
+    works_on: cfg_gt_1
+  - id: neg-015
+    text: "边缘融化，粘连"
+    text_en: "melted edges, fused boundaries"
+    tags: [形态, 边缘]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+    severity: hit
+    works_on: cfg_gt_1
+  - id: neg-016
+    text: "透视错误，轴对齐混乱"
+    text_en: "wrong perspective, inconsistent vanishing point"
+    tags: [形态, 透视]
+    scenes: [白底主图, 场景图]
+    priority: 2
+    severity: warn
+    works_on: cfg_gt_1
+  - id: neg-017
+    text: "对称失衡"
+    text_en: "asymmetrical where symmetry is expected"
+    tags: [形态, 对称]
+    scenes: [白底主图]
+    priority: 2
+    severity: warn
+    works_on: cfg_gt_1
+  - id: neg-018
+    text: "悬浮无支撑，漂浮感"
+    text_en: "floating without support"
+    tags: [形态, 阴影]
+    scenes: [白底主图]
+    priority: 2
+    severity: warn
+    works_on: cfg_gt_1
+    note: "与「接触阴影」正向词配对使用"
+
+  # ---------- 材质与光影错误 ----------
+  - id: neg-019
+    text: "材质错误，金属变塑料"
+    text_en: "wrong material, metal looking like plastic"
+    tags: [材质, 失真]
+    scenes: [材质特写, 白底主图]
+    priority: 1
+    severity: hit
+    works_on: cfg_gt_1
+  - id: neg-020
+    text: "纹理重复，明显平铺"
+    text_en: "repeating tile pattern, obvious tiling"
+    tags: [材质, 重复]
+    scenes: [材质特写, 场景图]
+    priority: 2
+    severity: warn
+    works_on: cfg_gt_1
+  - id: neg-021
+    text: "反射不真实，镜像错误"
+    text_en: "unrealistic reflection, wrong mirroring"
+    tags: [光影, 反射]
+    scenes: [材质特写, 场景图]
+    priority: 2
+    severity: warn
+    works_on: cfg_gt_1
+  - id: neg-022
+    text: "投影方向不一致"
+    text_en: "inconsistent shadow directions"
+    tags: [光影, 阴影]
+    scenes: [场景图, 白底主图]
+    priority: 2
+    severity: warn
+    works_on: cfg_gt_1
+  - id: neg-023
+    text: "多重光源冲突"
+    text_en: "conflicting multiple light sources"
+    tags: [光影, 布光]
+    scenes: [场景图, 氛围图]
+    priority: 2
+    severity: warn
+    works_on: cfg_gt_1
+  - id: neg-024
+    text: "全局光溢出，灰蒙蒙"
+    text_en: "global light bloom, hazy wash"
+    tags: [光影, 通透度]
+    scenes: [全部]
+    priority: 2
+    severity: warn
+    works_on: cfg_gt_1
+
+  # ---------- 电商合规类（本类与 CFG 无关，部分需后处理兜底） ----------
+  - id: neg-025
+    text: "水印，logo 叠加"
+    text_en: "watermark, overlaid logo"
+    tags: [合规, 水印]
+    scenes: [全部]
+    priority: 1
+    severity: hit
+    works_on: all
+    note: "⚠️ 反向词不足以保证去水印，交付前需人工/后处理核查"
+  - id: neg-026
+    text: "画面中出现文字"
+    text_en: "text in image"
+    tags: [合规, 文字]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+    severity: hit
+    works_on: all
+    note: "中文渲染错误率极高 —— 文案一律后期叠加，不进模型"
+  - id: neg-027
+    text: "伪造品牌标识"
+    text_en: "fake brand logo, counterfeit markings"
+    tags: [合规, 商标]
+    scenes: [全部]
+    priority: 1
+    severity: hit
+    works_on: all
+    note: "法律红线，见 license_matrix.md §6"
+  - id: neg-028
+    text: "多手多指，肢体畸变"
+    text_en: "extra fingers, deformed hands, extra limbs"
+    tags: [结构, 人体]
+    scenes: [模特图, 场景图]
+    priority: 1
+    severity: hit
+    works_on: cfg_gt_1
+  - id: neg-029
+    text: "脸部畸变，五官错位"
+    text_en: "deformed face, misplaced features"
+    tags: [结构, 人像]
+    scenes: [模特图]
+    priority: 1
+    severity: hit
+    works_on: cfg_gt_1
+  - id: neg-030
+    text: "不雅暴露，性暗示"
+    text_en: "nsfw, suggestive content"
+    tags: [合规, NSFW]
+    scenes: [全部]
+    priority: 1
+    severity: hit
+    works_on: all
+    note: "合规要求（FR-9.4）；仅为兜底，仍须部署独立 NSFW 过滤器"
+  - id: neg-031
+    text: "暴力血腥"
+    text_en: "violence, gore"
+    tags: [合规, 内容安全]
+    scenes: [全部]
+    priority: 1
+    severity: hit
+    works_on: all
+  - id: neg-032
+    text: "儿童形象被商业化使用"
+    text_en: "minor depicted in commercial context"
+    tags: [合规, 儿童]
+    scenes: [模特图]
+    priority: 1
+    severity: hit
+    works_on: all
+    note: "法律与平台双重红线"
+
+  # ---------- 通用质量兜底 ----------
+  - id: neg-033
+    text: "低质量，粗糙"
+    text_en: "low quality, rough"
+    tags: [画质, 通用]
+    scenes: [全部]
+    priority: 1
+    severity: warn
+    works_on: cfg_gt_1
+  - id: neg-034
+    text: "最差质量"
+    text_en: "worst quality"
+    tags: [画质, 通用]
+    scenes: [全部]
+    priority: 1
+    severity: warn
+    works_on: cfg_gt_1
+    note: "与 neg-033 同用时占位较多，建议二选一"
+  - id: neg-035
+    text: "杂乱背景，多余物体"
+    text_en: "cluttered background, extraneous objects"
+    tags: [构图, 背景]
+    scenes: [白底主图]
+    priority: 1
+    severity: hit
+    works_on: cfg_gt_1
+  - id: neg-036
+    text: "边框，相框"
+    text_en: "border, picture frame"
+    tags: [构图, 边框]
+    scenes: [白底主图]
+    priority: 3
+    severity: soft
+    works_on: cfg_gt_1
+  - id: neg-037
+    text: "裁切主体，出画"
+    text_en: "cropped subject, cut off at edge"
+    tags: [构图, 裁切]
+    scenes: [白底主图, 材质特写]
+    priority: 2
+    severity: warn
+    works_on: cfg_gt_1
+  - id: neg-038
+    text: "非目标品类元素"
+    text_en: "elements of unrelated product category"
+    tags: [构图, 串味]
+    scenes: [全部]
+    priority: 2
+    severity: warn
+    works_on: cfg_gt_1
+  - id: neg-039
+    text: "人物入镜（不需要时）"
+    text_en: "person in frame when not intended"
+    tags: [构图, 人物]
+    scenes: [白底主图, 材质特写]
+    priority: 2
+    severity: warn
+    works_on: cfg_gt_1
+  - id: neg-040
+    text: "过曝白底，产品边缘丢失"
+    text_en: "blown-out white background eating product edges"
+    tags: [画质, 白底]
+    scenes: [白底主图]
+    priority: 1
+    severity: hit
+    works_on: cfg_gt_1
+    note: "白底主图特有失败模式：产品浅色边缘被背景吞掉"

@@ -1,0 +1,240 @@
+# ============================================================
+# 提示词库 · 光影（P5-08）
+# 用途：决定画面「高级感」的最大变量；也是良品率波动的主因之一
+# 纪律：同一批次/同一 SKU 的多张图必须复用同一套光影词，否则风格会漂
+# ============================================================
+schema_version: 1
+pack_id: light
+name: 光影词包
+updated: 2026-09-16
+
+entries:
+  # ---------- 影棚布光 ----------
+  - id: lig-001
+    text: "三点布光，主光加辅光加轮廓光"
+    text_en: "three-point lighting: key, fill, rim"
+    tags: [光影, 布光, 影棚]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+    note: "V1 白底主图的默认布光，最可控"
+  - id: lig-002
+    text: "柔光箱大面积主光"
+    text_en: "large softbox key light"
+    tags: [光影, 布光, 柔光]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+  - id: lig-003
+    text: "顶光加底板反射补光"
+    text_en: "top light with bounce fill from below"
+    tags: [光影, 布光, 反光板]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+    note: "最适合白底主图，能消掉下缘黑边"
+  - id: lig-004
+    text: "双柔光箱对夹布光"
+    text_en: "two softboxes at 45 degrees"
+    tags: [光影, 布光, 柔光]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+  - id: lig-005
+    text: "环形光正面直射"
+    text_en: "ring light, frontal"
+    tags: [光影, 布光, 环形光]
+    scenes: [白底主图, 模特图]
+    priority: 2
+  - id: lig-006
+    text: "硬光聚光，边缘锐利"
+    text_en: "hard spot light with crisp terminator"
+    tags: [光影, 布光, 硬光]
+    scenes: [材质特写, 氛围图]
+    priority: 2
+  - id: lig-007
+    text: "束光筒局部打亮"
+    text_en: "snoot light for localized highlight"
+    tags: [光影, 布光, 束光]
+    scenes: [材质特写, 氛围图]
+    priority: 3
+  - id: lig-008
+    text: "渐变背景光斑"
+    text_en: "gradient spot on backdrop"
+    tags: [光影, 布光, 背景]
+    scenes: [场景图, 氛围图]
+    priority: 2
+  - id: lig-009
+    text: "背部逆光勾勒轮廓"
+    text_en: "backlight rim outlining silhouette"
+    tags: [光影, 布光, 逆光]
+    scenes: [氛围图, 材质特写, 白底主图]
+    priority: 2
+    note: "透明/半透明产品（玻璃、亚克力）必配"
+  - id: lig-010
+    text: "无影棚布光，真实接触阴影"
+    text_en: "shadowless studio light with realistic contact shadow"
+    tags: [光影, 布光, 无影]
+    scenes: [白底主图]
+    priority: 1
+    note: "⚠️ 完全无阴影会让产品像贴纸，务必保留接触阴影"
+
+  # ---------- 自然光 ----------
+  - id: lig-011
+    text: "晨曦柔和自然光"
+    text_en: "soft morning daylight"
+    tags: [光影, 自然光, 晨]
+    scenes: [场景图, 氛围图]
+    priority: 2
+  - id: lig-012
+    text: "正午强日光，硬阴影"
+    text_en: "harsh midday sunlight with hard shadows"
+    tags: [光影, 自然光, 正午]
+    scenes: [场景图, 氛围图]
+    priority: 3
+  - id: lig-013
+    text: "黄昏金光侧照"
+    text_en: "golden hour side light"
+    tags: [光影, 自然光, 黄昏]
+    scenes: [氛围图, 场景图]
+    priority: 2
+  - id: lig-014
+    text: "窗光斜射，窗棂投影"
+    text_en: "window light with pane shadows"
+    tags: [光影, 自然光, 窗光]
+    scenes: [场景图, 氛围图]
+    priority: 2
+  - id: lig-015
+    text: "阴天漫射光，无硬阴影"
+    text_en: "overcast diffuse light, no hard shadows"
+    tags: [光影, 自然光, 漫射]
+    scenes: [场景图, 模特图]
+    priority: 2
+  - id: lig-016
+    text: "树影斑驳光斑"
+    text_en: "dappled light through foliage"
+    tags: [光影, 自然光, 光斑]
+    scenes: [氛围图, 场景图]
+    priority: 3
+    note: "⚠️ 光斑落在产品上会破坏材质判读，谨慎使用"
+
+  # ---------- 光位与光比 ----------
+  - id: lig-017
+    text: "侧光 45 度，塑造体积"
+    text_en: "45-degree side light shaping volume"
+    tags: [光影, 光位, 侧光]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+  - id: lig-018
+    text: "侧逆光，高光边缘"
+    text_en: "side-back light with rim highlight"
+    tags: [光影, 光位, 侧逆光]
+    scenes: [材质特写, 氛围图]
+    priority: 2
+  - id: lig-019
+    text: "正上方顶光"
+    text_en: "top-down lighting"
+    tags: [光影, 光位, 顶光]
+    scenes: [白底主图]
+    priority: 2
+  - id: lig-020
+    text: "底光上照"
+    text_en: "uplight from below"
+    tags: [光影, 光位, 底光]
+    scenes: [氛围图]
+    priority: 3
+    note: "⚠️ 底光造成「恐怖感」，电商场景基本不用"
+  - id: lig-021
+    text: "低光比，明暗过渡柔和"
+    text_en: "low contrast ratio, soft tonal transition"
+    tags: [光影, 光比, 柔和]
+    scenes: [白底主图, 场景图, 模特图]
+    priority: 1
+  - id: lig-022
+    text: "高光比，明暗分明"
+    text_en: "high contrast ratio, dramatic chiaroscuro"
+    tags: [光影, 光比, 强烈]
+    scenes: [氛围图, 材质特写]
+    priority: 2
+
+  # ---------- 色温与环境 ----------
+  - id: lig-023
+    text: "5600K 标准日光色温"
+    text_en: "5600K standard daylight white balance"
+    tags: [光影, 色温, 标准]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+    note: "白底主图的色温锚点，保证跨批次颜色一致"
+  - id: lig-024
+    text: "暖色调，3000K 氛围灯"
+    text_en: "warm 3000K ambient light"
+    tags: [光影, 色温, 暖]
+    scenes: [氛围图, 场景图]
+    priority: 2
+  - id: lig-025
+    text: "冷色调，6500K 偏蓝"
+    text_en: "cool 6500K bluish light"
+    tags: [光影, 色温, 冷]
+    scenes: [氛围图, 场景图]
+    priority: 2
+  - id: lig-026
+    text: "冷暖对撞，双色温布光"
+    text_en: "dual color temperature lighting, warm vs cool"
+    tags: [光影, 色温, 双色温]
+    scenes: [氛围图]
+    priority: 3
+  - id: lig-027
+    text: "霓虹色光，多彩反射"
+    text_en: "neon colored lights with colorful reflections"
+    tags: [光影, 色温, 霓虹]
+    scenes: [氛围图]
+    priority: 3
+  - id: lig-028
+    text: "明亮通透，无杂光"
+    text_en: "bright and clean, no stray light"
+    tags: [光影, 环境, 干净]
+    scenes: [白底主图, 场景图]
+    priority: 1
+
+  # ---------- 阴影控制 ----------
+  - id: lig-029
+    text: "柔和接触阴影，紧贴底面"
+    text_en: "soft contact shadow hugging the base"
+    tags: [光影, 阴影, 接触阴影]
+    scenes: [白底主图]
+    priority: 1
+    note: "白底主图「像真产品」的关键，缺了会显假"
+  - id: lig-030
+    text: "自然投影，方向一致"
+    text_en: "natural cast shadow with consistent direction"
+    tags: [光影, 阴影, 投影]
+    scenes: [场景图, 白底主图]
+    priority: 1
+  - id: lig-031
+    text: "长投影，拉伸氛围"
+    text_en: "long stretched shadow"
+    tags: [光影, 阴影, 长影]
+    scenes: [氛围图, 场景图]
+    priority: 3
+  - id: lig-032
+    text: "环境光遮蔽自然"
+    text_en: "natural ambient occlusion in crevices"
+    tags: [光影, 阴影, AO]
+    scenes: [白底主图, 材质特写]
+    priority: 2
+  - id: lig-033
+    text: "倒影映面，水面反射"
+    text_en: "reflection on water surface"
+    tags: [光影, 反射, 倒影]
+    scenes: [氛围图, 场景图]
+    priority: 3
+    note: "⚠️ 反射内容易与产品冲突，需强约束"
+  - id: lig-034
+    text: "体积光，丁达尔效应"
+    text_en: "volumetric light with Tyndall effect"
+    tags: [光影, 特效, 体积光]
+    scenes: [氛围图]
+    priority: 3
+  - id: lig-035
+    text: "均匀无渐变布光，最大可读性"
+    text_en: "even flat lighting for maximum legibility"
+    tags: [光影, 布光, 均匀]
+    scenes: [白底主图]
+    priority: 1
+    note: "平台主图审核偏好，细节最不易丢失"

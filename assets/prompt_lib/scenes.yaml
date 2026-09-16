@@ -1,0 +1,274 @@
+# ============================================================
+# 提示词库 · 电商场景配方（P5-08）
+# 定位：把「原子词条」组装成可直接投产的完整配方。
+#       P3-10 参数模板库（assets/prompt_lib/templates/）将按本文件落地为工作流预设。
+# 结构：每个配方 = 槽位（引用原子词条 id）+ 拼装模板 + 建议参数 + 踩坑提示
+# ============================================================
+schema_version: 1
+pack_id: scenes
+name: 电商场景配方
+updated: 2026-09-16
+
+# ---------- 槽位约定（所有配方共用） ----------
+#   subject      主体词（必填，1 条）        → positive.yaml  priority=1
+#   attribute    属性/形态词（1-2 条）        → positive.yaml  priority=2
+#   material     材质词（0-2 条，特写场景必填）→ material.yaml
+#   light        光影词（1-3 条）             → light.yaml
+#   composition  构图词（1-2 条）             → composition.yaml
+#   style        风格词（1-2 条）             → style.yaml
+#   negative     反面词包（1 个）             → negative_packs.yaml
+#
+# 拼装顺序（重量级从左到右递减，靠前权重更高）：
+#   subject → material → style → light → composition → 画质兜底词
+# ⚠️ 全场景固定保留 pos-055 / pos-061 两条画质兜底词在末尾
+slots_contract:
+  order: [subject, material, style, light, composition, quality_tail]
+  quality_tail: [pos-055, pos-061]
+  max_terms: 12
+  note: "超过 12 条基础词条后边际收益急剧下降，且会稀释主体词权重（P5-09 模板引擎将据此做截断）"
+
+# ---------- 建议工作流与参数 ----------
+# ⚠️ `workflow` 取值必须是 `workflows/registry.yaml` 里**已定义**的 id，本文件不自造名字。
+#    当前可引用（2026-09-16 与 B 流对账）：
+#      · t2i_v1               SDXL 1.0 文生图（cfg>1 → **反向词有效**）
+#      · flux2_klein_t2i_v1   FLUX.2 klein 4B 蒸馏版（4 步 / cfg=1 → **反向词无效**）
+#    另有 5 条在 registry 的 `planned` 段（i2i_v1 / upscale_v1 / inpaint_v1 /
+#    style_transfer_v1 / batch_v1）**尚未编写定义文件，暂不可引用** ——
+#    待它们落地后再为本文件补对应的配方。
+#
+# flux2_klein  = FLUX.2 klein 4B 蒸馏版：4 步 / cfg=1（反向词无效）
+# t2i_v1       = SDXL 1.0：25-30 步 / cfg 7-8（反向词有效）
+recipes:
+  - id: rc-001
+    name: 白底主图 · 标准
+    desc: 平台主图，主体占比大、无背景、带接触阴影
+    workflow: flux2_klein_t2i_v1
+    canvas: {width: 1024, height: 1024, ratio: "1:1"}
+    params: {steps: 4, cfg: 1.0}
+    slots:
+      subject: [pos-001]
+      attribute: [pos-048, pos-051]
+      light: [lig-001, lig-003, lig-029]
+      composition: [cmp-001, cmp-013]
+      style: [sty-001]
+      negative: npk-001
+    template: "{subject}，{attribute}，{light}，{composition}，{style}，产品摄影级画质，商业可用的干净画面"
+    notes: "V1 默认配方。同一 SKU 放量时固定 seed 与光影词，只改 subject 完成换品"
+  - id: rc-002
+    name: 白底主图 · 浅灰渐变
+    desc: 比纯白更有质感，仍属「类白底」，适合家居/美妆
+    workflow: flux2_klein_t2i_v1
+    canvas: {width: 1024, height: 1024, ratio: "1:1"}
+    params: {steps: 4, cfg: 1.0}
+    slots:
+      subject: [pos-009]
+      attribute: [pos-052, pos-047]
+      material: [mat-016]
+      light: [lig-004, lig-029]
+      composition: [cmp-001, cmp-030]
+      style: [sty-002, sty-006]
+      negative: npk-001
+    template: "{subject}，{material}，{attribute}，{style}，{light}，{composition}，产品摄影级画质"
+    notes: "渐变背景要注意 neg-010 色带断层"
+  - id: rc-003
+    name: 白底主图 · 正视图尺寸版
+    desc: 无透视变形，便于后期叠加尺寸标注
+    workflow: flux2_klein_t2i_v1
+    canvas: {width: 1024, height: 1024, ratio: "1:1"}
+    params: {steps: 4, cfg: 1.0}
+    slots:
+      subject: [pos-002]
+      attribute: [pos-048, pos-051]
+      light: [lig-035, lig-003]
+      composition: [cmp-013, cmp-001]
+      style: [sty-001]
+      negative: npk-014
+    template: "{subject}，{attribute}，无透视变形的正视图，{light}，{composition}，产品摄影级画质"
+    notes: "⚠️ 实拍尺寸图合规性更高；AI 出图标注尺寸前必须人工核对比例"
+
+  - id: rc-004
+    name: 场景图 · 家居生活方式
+    desc: 放置于真实使用环境，营造代入感
+    workflow: flux2_klein_t2i_v1
+    canvas: {width: 1024, height: 1024, ratio: "1:1"}
+    params: {steps: 4, cfg: 1.0}
+    slots:
+      subject: [pos-009]
+      material: [mat-016, mat-019]
+      style: [sty-008, sty-029]
+      light: [lig-014, lig-021]
+      composition: [cmp-006, cmp-022]
+      negative: npk-003
+    template: "{subject}，{material}，{style}，{light}，{composition}，产品摄影级画质，结构准确比例真实"
+    notes: "栈板/托盘类道具最稳；避免放入与品类冲突的道具（neg-038）"
+  - id: rc-005
+    name: 场景图 · 办公桌面
+    desc: 3C / 文具 / 办公用品
+    workflow: flux2_klein_t2i_v1
+    canvas: {width: 1024, height: 1024, ratio: "1:1"}
+    params: {steps: 4, cfg: 1.0}
+    slots:
+      subject: [pos-004]
+      material: [mat-007]
+      style: [sty-012, sty-031]
+      light: [lig-014, lig-021]
+      composition: [cmp-006, cmp-030]
+      negative: npk-011
+    template: "{subject}，{material}，{style}，{light}，{composition}，产品摄影级画质"
+    notes: "3C 场景务必用 npk-011（结构谎言是主要失败模式）"
+  - id: rc-006
+    name: 场景图 · 餐饮桌面
+    desc: 食品饮品 / 餐具
+    workflow: flux2_klein_t2i_v1
+    canvas: {width: 1024, height: 1024, ratio: "1:1"}
+    params: {steps: 4, cfg: 1.0}
+    slots:
+      subject: [pos-033]
+      material: [mat-013, mat-019]
+      style: [sty-013, sty-029]
+      light: [lig-011, lig-021]
+      composition: [cmp-006, cmp-025]
+      negative: npk-010
+    template: "{subject}，{material}，{style}，{light}，{composition}，产品摄影级画质"
+    notes: "食品类「食欲感」优先，热度词（热气、水珠）慎加 —— 形状易失控"
+
+  - id: rc-007
+    name: 氛围图 · 节令（春 / 夏 / 秋 / 冬）
+    desc: 营销节点氛围，用于详情页与投放素材
+    workflow: flux2_klein_t2i_v1
+    canvas: {width: 1024, height: 1024, ratio: "1:1"}
+    params: {steps: 4, cfg: 1.0}
+    slots:
+      subject: [pos-025]
+      style: [sty-016, sty-004]
+      light: [lig-013, lig-022]
+      composition: [cmp-006, cmp-022]
+      negative: npk-004
+    notes: "四季切换只需换 style 与 light 两条 —— 这是「同一主体多套调性」的最小改动集"
+  - id: rc-008
+    name: 氛围图 · 新春红金
+    desc: 春节节点，红色为主色
+    workflow: flux2_klein_t2i_v1
+    canvas: {width: 1024, height: 1024, ratio: "1:1"}
+    params: {steps: 4, cfg: 1.0}
+    slots:
+      subject: [pos-035]
+      style: [sty-020]
+      light: [lig-024, lig-008]
+      composition: [cmp-006, cmp-022]
+      negative: npk-004
+    notes: "⚠️ 红金易糊，参考 sty-020 的形变风险提示；建议先小批量试再放量"
+  - id: rc-009
+    name: 氛围图 · 礼赠季
+    desc: 情人节 / 母亲节 / 圣诞 / 年货礼盒
+    workflow: flux2_klein_t2i_v1
+    canvas: {width: 1024, height: 1024, ratio: "1:1"}
+    params: {steps: 4, cfg: 1.0}
+    slots:
+      subject: [pos-028]
+      style: [sty-022, sty-010]
+      light: [lig-009, lig-022]
+      composition: [cmp-006, cmp-029]
+      negative: npk-006
+    notes: "礼盒与产品同框时，包装上的字一律后期加"
+
+  - id: rc-010
+    name: 材质特写 · 标准
+    desc: 微距展现实材质感，详情页第二屏主力
+    workflow: flux2_klein_t2i_v1
+    canvas: {width: 1024, height: 1024, ratio: "1:1"}
+    params: {steps: 4, cfg: 1.0}
+    slots:
+      subject: [pos-020]
+      material: [mat-029]
+      style: [sty-030, sty-005]
+      light: [lig-017, lig-018, lig-023]
+      composition: [cmp-003, cmp-028]
+      negative: npk-002
+    notes: "核心纪律：材质词必须与产品真实材质一致，否则等于伪造商品"
+  - id: rc-011
+    name: 材质特写 · 透明 / 玻璃
+    desc: 玻璃、亚克力、水剂类
+    workflow: flux2_klein_t2i_v1
+    canvas: {width: 1024, height: 1024, ratio: "1:1"}
+    params: {steps: 4, cfg: 1.0}
+    slots:
+      subject: [pos-010]
+      material: [mat-013, mat-015]
+      style: [sty-030, sty-004]
+      light: [lig-009, lig-017]
+      composition: [cmp-003, cmp-016]
+      negative: npk-013
+    notes: "⚠️ 必须配 npk-013：透明件内部易凭空长出结构"
+  - id: rc-012
+    name: 材质特写 · 纺织皮具
+    desc: 面料、皮革、针织
+    workflow: flux2_klein_t2i_v1
+    canvas: {width: 1024, height: 1024, ratio: "1:1"}
+    params: {steps: 4, cfg: 1.0}
+    slots:
+      subject: [pos-018]
+      material: [mat-032, mat-028]
+      style: [sty-030, sty-006]
+      light: [lig-017, lig-032]
+      composition: [cmp-003]
+      negative: npk-002
+    notes: "neg-006（过度磨皮）是本配方成败关键 —— 纺织品类最怕「塑料化」"
+
+  - id: rc-013
+    name: 细节图 · 工艺展示
+    desc: 缝线、接口、五金、按键等局部
+    workflow: flux2_klein_t2i_v1
+    canvas: {width: 1024, height: 1024, ratio: "1:1"}
+    params: {steps: 4, cfg: 1.0}
+    slots:
+      subject: [pos-021]
+      material: [mat-029, mat-040]
+      style: [sty-030, sty-005]
+      light: [lig-010, lig-018]
+      composition: [cmp-003, cmp-028]
+      negative: npk-008
+    notes: "细节图是「证明做工」的素材，形变容忍度最低 —— 建议逐张人工确认"
+  - id: rc-014
+    name: 多色同款 · 逐张生成（推荐）
+    desc: 一次只出一个颜色，保证颜色准确，后期拼版
+    workflow: flux2_klein_t2i_v1
+    canvas: {width: 1024, height: 1024, ratio: "1:1"}
+    params: {steps: 4, cfg: 1.0}
+    slots:
+      subject: [pos-017]
+      material: [mat-025]
+      attribute: [pos-048, pos-051]
+      light: [lig-001, lig-003, lig-029]
+      composition: [cmp-001]
+      style: [sty-001]
+      negative: npk-007
+    notes: "⚠️ 不要在同一次生成里要求「四个颜色并排」（cmp-027）—— 串色率极高。逐张生成 + 后期拼版是唯一可靠路径"
+
+  - id: rc-015
+    name: 模特上身图（V1 谨慎）
+    desc: 服装鞋帽上身效果
+    workflow: t2i_v1
+    canvas: {width: 832, height: 1216, ratio: "3:4"}
+    params: {steps: 28, cfg: 7.5}
+    slots:
+      subject: [pos-024]
+      material: [mat-027]
+      style: [sty-029, sty-010]
+      light: [lig-015, lig-021]
+      composition: [cmp-006, cmp-025]
+      negative: npk-005
+    notes: "⚠️ V1 定为「谨慎放量」：人体结构形变率高、肖像权与儿童形象合规风险高（license_matrix §6）。建议先用 SDXL（反向词有效）并人工全检"
+  - id: rc-016
+    name: 包装图 · 产品与包装同框
+    desc: 礼盒、套装、开箱场景
+    workflow: flux2_klein_t2i_v1
+    canvas: {width: 1024, height: 1024, ratio: "1:1"}
+    params: {steps: 4, cfg: 1.0}
+    slots:
+      subject: [pos-013]
+      style: [sty-010, sty-035]
+      light: [lig-006, lig-022]
+      composition: [cmp-029, cmp-024]
+      negative: npk-006
+    notes: "包装结构必须与实物一致；模型容易「设计」出不存在的盒型 —— 需人工核对"

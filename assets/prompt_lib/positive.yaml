@@ -1,0 +1,416 @@
+# ============================================================
+# 提示词库 · 正向主体与属性（P5-08）
+# 场景定位：电商商品视觉量产
+# 权威用法见 docs/sop/prompt_guide.md
+# ============================================================
+schema_version: 1
+pack_id: positive
+name: 正向提示词 · 主体与属性
+updated: 2026-09-16
+
+# 字段说明
+#   id        唯一编号（pack 前缀 + 三位序号，删除后编号不复用）
+#   text      中文提示词（进入正向前 1/3 的主体区）
+#   text_en   英文对照（SDXL 类底模对英文更敏感，可按底模切换）
+#   tags      标签数组，用于检索与组合，标签体系见 README.md
+#   scenes    适用场景（白底主图 / 场景图 / 氛围图 / 材质特写 / 模特图 / 包装图）
+#   priority  1=主体必填  2=增强项  3=可选修饰
+#   note      使用提醒（权重建议、易冲突项、踩坑提示）
+
+entries:
+  # ---------- 主体词 · 3C 数码 ----------
+  - id: pos-001
+    text: "无线蓝牙耳机，充电盒"
+    text_en: "wireless bluetooth earbuds with charging case"
+    tags: [主体, 3C数码, 音频]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+    note: "耳机类结构细节多，建议配 材质特写 词包强化耳塞与触点"
+  - id: pos-002
+    text: "智能手机，正面直立"
+    text_en: "smartphone standing upright, front view"
+    tags: [主体, 3C数码, 通讯]
+    scenes: [白底主图, 场景图]
+    priority: 1
+  - id: pos-003
+    text: "笔记本电脑，掀开约 100 度"
+    text_en: "laptop opened at about 100 degrees"
+    tags: [主体, 3C数码, 电脑]
+    scenes: [白底主图, 场景图, 氛围图]
+    priority: 1
+    note: "开合角度写死可显著提升结构一致性"
+  - id: pos-004
+    text: "机械键盘，键帽特写"
+    text_en: "mechanical keyboard, keycap close-up"
+    tags: [主体, 3C数码, 外设]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+  - id: pos-005
+    text: "便携充电宝，磨砂外壳"
+    text_en: "portable power bank with matte shell"
+    tags: [主体, 3C数码, 配件]
+    scenes: [白底主图, 场景图]
+    priority: 1
+  - id: pos-006
+    text: "智能手表，表带扣合"
+    text_en: "smartwatch with fastened strap"
+    tags: [主体, 3C数码, 穿戴]
+    scenes: [白底主图, 模特图, 材质特写]
+    priority: 1
+  - id: pos-007
+    text: "桌面显示器，支架底座"
+    text_en: "desktop monitor with stand base"
+    tags: [主体, 3C数码, 显示]
+    scenes: [白底主图, 场景图]
+    priority: 1
+  - id: pos-008
+    text: "USB-C 数据线，盘绕成环"
+    text_en: "USB-C cable coiled into a loop"
+    tags: [主体, 3C数码, 配件]
+    scenes: [白底主图]
+    priority: 1
+
+  # ---------- 主体词 · 家居生活 ----------
+  - id: pos-009
+    text: "白色陶瓷咖啡杯"
+    text_en: "white ceramic coffee cup"
+    tags: [主体, 家居, 饮品器具]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+  - id: pos-010
+    text: "玻璃冷萃壶，细颈"
+    text_en: "glass cold brew carafe with slim neck"
+    tags: [主体, 家居, 饮品器具]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+  - id: pos-011
+    text: "亚麻抱枕，方形"
+    text_en: "square linen throw pillow"
+    tags: [主体, 家居, 布艺]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+  - id: pos-012
+    text: "实木托盘，圆角"
+    text_en: "solid wood tray with rounded corners"
+    tags: [主体, 家居, 木质]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+  - id: pos-013
+    text: "香薰蜡烛，玻璃罐装"
+    text_en: "scented candle in glass jar"
+    tags: [主体, 家居, 香氛]
+    scenes: [白底主图, 氛围图, 材质特写]
+    priority: 1
+  - id: pos-014
+    text: "不锈钢保温杯，直筒"
+    text_en: "straight stainless steel thermos"
+    tags: [主体, 家居, 饮水]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+  - id: pos-015
+    text: "陶瓷餐盘一组，白釉"
+    text_en: "set of white glazed ceramic plates"
+    tags: [主体, 家居, 餐厨]
+    scenes: [白底主图, 场景图]
+    priority: 1
+  - id: pos-016
+    text: "藤编收纳篮，带把手"
+    text_en: "woven rattan storage basket with handles"
+    tags: [主体, 家居, 收纳]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+
+  # ---------- 主体词 · 服饰鞋包 ----------
+  - id: pos-017
+    text: "纯棉圆领 T 恤，平铺"
+    text_en: "cotton crew-neck t-shirt, flat lay"
+    tags: [主体, 服饰, 上装]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+    note: "平铺 vs 挂拍的结构差异很大，同一批次务必固定其一"
+  - id: pos-018
+    text: "针织开衫，衣架挂拍"
+    text_en: "knit cardigan on a hanger"
+    tags: [主体, 服饰, 针织]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+  - id: pos-019
+    text: "直筒牛仔裤，正面站立"
+    text_en: "straight-leg jeans, front standing"
+    tags: [主体, 服饰, 下装]
+    scenes: [白底主图, 模特图]
+    priority: 1
+  - id: pos-020
+    text: "真皮单肩包，斜放"
+    text_en: "genuine leather shoulder bag, angled"
+    tags: [主体, 鞋包, 皮具]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+  - id: pos-021
+    text: "运动跑鞋，外侧 45 度"
+    text_en: "running shoes, 45-degree outer side view"
+    tags: [主体, 鞋包, 运动]
+    scenes: [白底主图, 模特图, 材质特写]
+    priority: 1
+    note: "电商鞋类主图惯例为外侧 45 度，写进提示词可稳定视角"
+  - id: pos-022
+    text: "羊毛围巾，自然垂坠"
+    text_en: "wool scarf draping naturally"
+    tags: [主体, 服饰, 配饰]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+  - id: pos-023
+    text: "棒球帽，正面视觉"
+    text_en: "baseball cap, front view"
+    tags: [主体, 服饰, 配饰]
+    scenes: [白底主图, 模特图]
+    priority: 1
+  - id: pos-024
+    text: "丝质连衣裙，模特穿着"
+    text_en: "silk dress worn by model"
+    tags: [主体, 服饰, 裙装]
+    scenes: [模特图, 氛围图]
+    priority: 1
+
+  # ---------- 主体词 · 美妆个护 ----------
+  - id: pos-025
+    text: "精华液玻璃滴管瓶"
+    text_en: "serum glass dropper bottle"
+    tags: [主体, 美妆, 护肤]
+    scenes: [白底主图, 氛围图, 材质特写]
+    priority: 1
+  - id: pos-026
+    text: "哑光口红，膏体旋出"
+    text_en: "matte lipstick with bullet twisted out"
+    tags: [主体, 美妆, 彩妆]
+    scenes: [白底主图, 材质特写, 氛围图]
+    priority: 1
+  - id: pos-027
+    text: "洗发水按压瓶，白色瓶身"
+    text_en: "white shampoo pump bottle"
+    tags: [主体, 个护, 洗护]
+    scenes: [白底主图, 场景图]
+    priority: 1
+  - id: pos-028
+    text: "香水方形玻璃瓶，金属盖"
+    text_en: "square glass perfume bottle with metal cap"
+    tags: [主体, 美妆, 香水]
+    scenes: [白底主图, 氛围图, 材质特写]
+    priority: 1
+  - id: pos-029
+    text: "粉饼盒，镜面外壳"
+    text_en: "powder compact with mirror-finish case"
+    tags: [主体, 美妆, 彩妆]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+  - id: pos-030
+    text: "电动牙刷，机身直立"
+    text_en: "electric toothbrush standing upright"
+    tags: [主体, 个护, 口腔]
+    scenes: [白底主图, 场景图]
+    priority: 1
+
+  # ---------- 主体词 · 食品与饮品 ----------
+  - id: pos-031
+    text: "咖啡豆散落，浅烘"
+    text_en: "scattered light-roast coffee beans"
+    tags: [主体, 食品, 咖啡]
+    scenes: [场景图, 材质特写, 氛围图]
+    priority: 2
+  - id: pos-032
+    text: "曲奇饼干堆叠"
+    text_en: "stacked butter cookies"
+    tags: [主体, 食品, 烘焙]
+    scenes: [场景图, 白底主图]
+    priority: 1
+  - id: pos-033
+    text: "红茶茶汤，透明杯盛装"
+    text_en: "black tea in a clear glass cup"
+    tags: [主体, 食品, 茶饮]
+    scenes: [场景图, 氛围图]
+    priority: 1
+  - id: pos-034
+    text: "坚果混合，散落于原木面"
+    text_en: "mixed nuts scattered on natural wood"
+    tags: [主体, 食品, 零食]
+    scenes: [场景图, 材质特写]
+    priority: 1
+  - id: pos-035
+    text: "蜂蜜玻璃罐，木勺"
+    text_en: "honey jar with wooden dipper"
+    tags: [主体, 食品, 调味]
+    scenes: [场景图, 氛围图]
+    priority: 1
+  - id: pos-036
+    text: "柑橘鲜果，带叶"
+    text_en: "fresh citrus with leaves"
+    tags: [主体, 食品, 生鲜]
+    scenes: [场景图, 白底主图]
+    priority: 1
+
+  # ---------- 主体词 · 母婴宠物 ----------
+  - id: pos-037
+    text: "婴儿连体衣，平铺"
+    text_en: "baby onesie, flat lay"
+    tags: [主体, 母婴, 服饰]
+    scenes: [白底主图, 场景图]
+    priority: 1
+  - id: pos-038
+    text: "硅胶奶瓶，宽口径"
+    text_en: "wide-neck silicone baby bottle"
+    tags: [主体, 母婴, 喂养]
+    scenes: [白底主图, 场景图]
+    priority: 1
+  - id: pos-039
+    text: "宠物牵引绳，卷曲"
+    text_en: "coiled pet leash"
+    tags: [主体, 宠物, 出行]
+    scenes: [白底主图, 场景图]
+    priority: 1
+  - id: pos-040
+    text: "猫爬架，剑麻柱"
+    text_en: "cat tree with sisal posts"
+    tags: [主体, 宠物, 家具]
+    scenes: [场景图, 白底主图]
+    priority: 1
+
+  # ---------- 主体词 · 运动户外与珠宝 ----------
+  - id: pos-041
+    text: "瑜伽垫卷起，绑带固定"
+    text_en: "rolled yoga mat with strap"
+    tags: [主体, 运动户外, 健身]
+    scenes: [白底主图, 场景图]
+    priority: 1
+  - id: pos-042
+    text: "不锈钢运动水壶"
+    text_en: "stainless steel sports bottle"
+    tags: [主体, 运动户外, 饮水]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+  - id: pos-043
+    text: "露营折叠椅，展开状态"
+    text_en: "foldable camping chair, unfolded"
+    tags: [主体, 运动户外, 露营]
+    scenes: [白底主图, 场景图]
+    priority: 1
+  - id: pos-044
+    text: "细链项链，平铺"
+    text_en: "fine chain necklace, flat lay"
+    tags: [主体, 珠宝, 首饰]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+  - id: pos-045
+    text: "银质戒指，立姿"
+    text_en: "silver ring standing upright"
+    tags: [主体, 珠宝, 首饰]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+  - id: pos-046
+    text: "珍珠耳钉一对"
+    text_en: "pair of pearl stud earrings"
+    tags: [主体, 珠宝, 首饰]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+
+  # ---------- 主体属性（形态 / 颜色 / 状态） ----------
+  - id: pos-047
+    text: "悬浮于画面中央"
+    text_en: "floating at the center of frame"
+    tags: [属性, 形态, 呈现方式]
+    scenes: [白底主图, 氛围图]
+    priority: 2
+  - id: pos-048
+    text: "正直立，居中"
+    text_en: "perfectly upright, centered"
+    tags: [属性, 形态, 呈现方式]
+    scenes: [白底主图]
+    priority: 2
+  - id: pos-049
+    text: "倾斜 30 度摆放"
+    text_en: "tilted 30 degrees"
+    tags: [属性, 形态, 呈现方式]
+    scenes: [白底主图, 场景图]
+    priority: 2
+  - id: pos-050
+    text: "带倒影的镜面台面"
+    text_en: "mirror surface with reflection"
+    tags: [属性, 场景元素, 台面]
+    scenes: [白底主图, 场景图]
+    priority: 3
+  - id: pos-051
+    text: "纯白背景，无杂物"
+    text_en: "pure white background, no clutter"
+    tags: [属性, 背景, 白底]
+    scenes: [白底主图]
+    priority: 2
+  - id: pos-052
+    text: "浅灰渐变背景"
+    text_en: "light gray gradient background"
+    tags: [属性, 背景, 影棚]
+    scenes: [白底主图, 场景图]
+    priority: 3
+  - id: pos-053
+    text: "低饱和莫兰迪色调"
+    text_en: "desaturated Morandi color palette"
+    tags: [属性, 色彩, 调性]
+    scenes: [场景图, 氛围图]
+    priority: 3
+  - id: pos-054
+    text: "高对比度冷色调"
+    text_en: "high-contrast cool tones"
+    tags: [属性, 色彩, 调性]
+    scenes: [氛围图, 场景图]
+    priority: 3
+
+  # ---------- 画质与保真诉求（电商通用） ----------
+  - id: pos-055
+    text: "产品摄影级画质"
+    text_en: "commercial product photography quality"
+    tags: [画质, 保真]
+    scenes: [白底主图, 场景图, 氛围图, 材质特写, 模特图]
+    priority: 2
+    note: "全场景通用兜底词，建议固定加入正向尾部"
+  - id: pos-056
+    text: "结构准确，比例真实"
+    text_en: "accurate structure, realistic proportions"
+    tags: [画质, 保真, 结构]
+    scenes: [白底主图, 材质特写]
+    priority: 2
+    note: "商品保真专项（FR-8.1）的对冲词，与 negative 的 变形词 同用"
+  - id: pos-057
+    text: "细节清晰，纹理可辨"
+    text_en: "sharp details, discernible texture"
+    tags: [画质, 细节]
+    scenes: [材质特写, 白底主图]
+    priority: 2
+  - id: pos-058
+    text: "边缘干净，无锯齿"
+    text_en: "clean edges, no jaggies"
+    tags: [画质, 细节]
+    scenes: [白底主图, 材质特写]
+    priority: 3
+  - id: pos-059
+    text: "真实材质反射"
+    text_en: "physically plausible material reflection"
+    tags: [画质, 材质, 保真]
+    scenes: [材质特写, 场景图]
+    priority: 2
+  - id: pos-060
+    text: "统一色温，无偏色"
+    text_en: "consistent color temperature, no color cast"
+    tags: [画质, 色彩]
+    scenes: [白底主图, 场景图, 模特图]
+    priority: 2
+  - id: pos-061
+    text: "商业可用的干净画面"
+    text_en: "clean commercial-ready composition"
+    tags: [画质, 交付]
+    scenes: [白底主图, 场景图, 氛围图, 材质特写, 模特图, 包装图]
+    priority: 2
+  - id: pos-062
+    text: "构图留白，便于加文案"
+    text_en: "negative space for copy overlay"
+    tags: [构图, 交付, 电商]
+    scenes: [场景图, 氛围图]
+    priority: 2
+    note: "主图常需叠加促销文案，留白是硬需求"

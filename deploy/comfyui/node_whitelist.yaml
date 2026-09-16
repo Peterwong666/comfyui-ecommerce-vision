@@ -1,0 +1,713 @@
+# ============================================================
+# ComfyUI 自定义节点白名单（P2-05）
+#
+# 背景：现环境有 32 个自定义节点，「太多太脆，需要裁剪」（todolist.md P2-05）。
+#       升级到 v0.36.0 后已暴露 3 个节点的 import 级失效（项目进展.md #18）。
+#       节点越多 → 依赖冲突面越大 → 升级破坏面越大 → 环境越不可复现（R2）。
+#
+# 本文件是**唯一事实来源**：禁用动作、重装流程、依赖处置都以此为准。
+#
+# 环境：ComfyUI v0.36.0（HEAD ee71d5c4）· torch 2.13.0+cu130 · RTX 4090
+# 证据：deploy/comfyui/evidence/（2026-09-16 无卡模式只读采集，见该目录 README.md）
+# 最后更新：2026-09-16
+# ============================================================
+schema_version: 1
+updated: 2026-09-16
+
+# ============================================================
+# 0. 判定口径
+# ============================================================
+policy:
+  decisions:
+    keep: 保留 —— 在 V1 关键路径上，或为开发/运维必需，**且许可已核实为可商用**
+    disable: 禁用 —— 已损坏 / 与 V1 无关 / **许可不可商用或未知**
+    review: 待评估 —— 有潜在价值但当前无必需证据；**先禁用不删除**，待实测后决定
+
+  # status 只描述「技术状态」，与 v1_path（业务相关性）解耦
+  statuses:
+    ok: 可用 —— **有 import 级实证**（审计日志 Import times 段列出且未标 IMPORT FAILED）
+    broken: 损坏 —— **有 import 级失败实证**（审计日志含 traceback + IMPORT FAILED）
+    unverified: 未验证 —— 无证据
+  # ⚠️ 口径说明：ok 的强度是「**能 import**」，**不等于「功能正确」**。
+  #    功能正确性需要出图级验证（属 P3 各工作流的 DoD），本文件不代为实现。
+  #    32 个节点的 import 结果来源：deploy/comfyui/evidence/comfyui_cpu_audit.log
+
+  # ⚠️ 裁剪原则：**禁用而不删除**
+  #  理由：① 删除后无法快速回退（升级破坏面已证明存在，见 项目进展.md #16）
+  #        ② 磁盘不是当前瓶颈（系统盘剩 11G / 数据盘剩 23G）
+  #        ③ 禁用可逆、可审计；删除不可逆
+  disable_mechanism:
+    how: "把节点目录重命名为 <name>.disabled（ComfyUI 加载时跳过该目录）"
+    verify: "⚠️ 待验证：需在 v0.36.0 上确认跳过规则（ComfyUI 跳过以 . 开头或以 .disabled 结尾的目录）"
+    fallback: "若该规则不成立，改为在节点目录内放置 .disabled 文件（ComfyUI-Manager 约定）"
+    must_check: "禁用后必须重启并确认 ① 目标节点类从 /object_info 消失 ② 节点类总数下降 ③ V1 关键节点仍在（基线口径：台账 #16 验证 2 记 2530，但**无文件证据**；已取回的 2102 是 v0.3.75 旧基线）"
+
+  dependency_rules:
+    - "禁用节点**默认不卸载其 pip 依赖** —— 共享依赖（opencv / onnxruntime / pyyaml 等）被其它节点引用，卸载会连带破坏"
+    - "**例外（且已有判例）**：C++ 扩展类依赖若 ABI 失配，其坏 .so 会毒化整条导入链 → **应卸载**。#16 处置 10 卸载 flash-attn 是首个判例；本文件 §3 的 sageattention 是同类漏网项"
+    - "任何 pip 变更后必须重跑 deploy/autodl/23_cpu_mode_node_audit.sh（CPU 模式，不耗 GPU）+ 26_validate_workflow.py"
+
+  license_rules:
+    - "**可通过**：MIT / Apache-2.0 / BSD —— 可保留"
+    - "**GPL-3.0**：技术上可保留（ComfyUI 本体即 GPL-3.0），但**构成商业模式约束**，见 §4"
+    - "**非商用（NC）**：一律禁用，无论技术状态如何"
+    - "**仓库内无 LICENSE 文件**：按「未知即不用」处理 → 禁用，待上游仓库页面核实后方可回落"
+    - "许可来源：节点仓库内 LICENSE* 文件首行（原始输出见 evidence/custom_nodes_licenses.txt）"
+
+# ============================================================
+# 1. 节点清单（32 个，与 deploy/versions.lock [custom_nodes] 一一对应）
+# ============================================================
+#   name      节点目录名（与 versions.lock 逐字一致）
+#   commit    versions.lock 锁定的 commit；已实测与服务器实际 HEAD **零漂移**
+#   dirty     ⚠️ 工作区未提交改动文件数（>0 = 「锁的是 commit，跑的是 commit+改动」）
+#   status    技术状态：ok / broken
+#   decision  keep / disable / review
+#   license   实测许可（来自节点仓库 LICENSE 文件首行）
+
+nodes:
+  # ==========================================================
+  # A. 保留 · 控制体系（FR-8.x，V1 关键路径）
+  # ==========================================================
+  - name: comfyui_controlnet_aux
+    commit: 12f35647f0d5
+    dirty: 0
+    purpose: "ControlNet 预处理器集合（canny / depth / lineart / softedge / normal / openpose）"
+    v1_path: true
+    v1_refs: [FR-8.4, P4-01]
+    status: ok
+    decision: keep
+    license: Apache-2.0
+    evidence: "evidence/comfyui_cpu_audit.log Import times 段（1.3s，无 IMPORT FAILED）；evidence/custom_nodes_licenses.txt；用途对应 FR-8.4"
+    risk: "低。⚠️ 副作用：其依赖 pycairo 安装失败（evidence/custom_nodes_install_errors.log:1044 `Dependency \"cairo\" not found`），但**运行期不受影响** → **不要为此装系统级 cairo**，会占系统盘（仅剩 11G）"
+    note: "⚠️ 预处理器会各自下载辅助权重（如 DWPose 姿态权重仅研究用途）→ 许可随 P5-04 一并核实，见 license_matrix §7 #7"
+
+  - name: ComfyUI-Advanced-ControlNet
+    commit: 2bde95a468ce
+    dirty: 0
+    purpose: "ControlNet 高级控制（timestep 区间、权重调度、多 CN 叠加）"
+    v1_path: true
+    v1_refs: [FR-8.4, P4-07]
+    status: ok
+    decision: keep
+    license: GPL-3.0
+    evidence: "evidence/comfyui_cpu_audit.log（0.1s）；evidence/custom_nodes_licenses.txt"
+    risk: "低（技术）／见 §4（GPL 约束）。**与内置 ControlNetApplyAdvanced 功能重叠** → P4 实测后只保留一个，避免两套控制语义并存"
+    note: "若 P4-07（多 CN 叠加）最终不做，可降为 review"
+
+  - name: ComfyUI_IPAdapter_plus
+    commit: a0f451a5113c
+    dirty: 0
+    purpose: "IP-Adapter 参考图控制（FR-8.3 保真的主力手段）"
+    v1_path: true
+    v1_refs: [FR-8.3, P4-03]
+    status: ok
+    decision: keep
+    license: GPL-3.0
+    evidence: "evidence/comfyui_cpu_audit.log（0.0s）；evidence/custom_nodes_licenses.txt"
+    risk: "**高（合规）** —— ① 节点本身 GPL-3.0（见 §4）② **它加载的 IP-Adapter 权重与 CLIP Vision 编码器许可需单独核实**（license_matrix §7 #8）。**P4-03 接入前必须核实完毕**"
+
+  # ==========================================================
+  # B. 保留 · 抠图 / 遮罩 / 重绘（FR-8.6 / FR-6.2）
+  # ==========================================================
+  - name: ComfyUI-Impact-Pack
+    commit: 61bd8397a18e
+    dirty: 0
+    purpose: "检测器 + SAM 分割 + 自动遮罩 + 脸部细节修复（含 UltralyticsDetectorProvider）"
+    v1_path: true
+    v1_refs: [FR-8.6, FR-6.2, P4-05]
+    status: ok
+    decision: keep
+    license: GPL-3.0
+    evidence: "evidence/comfyui_cpu_audit.log（0.3s）；evidence/custom_nodes_licenses.txt"
+    risk: "中（合规）—— ① GPL-3.0（§4）② 它引入 `ultralytics`（**AGPL-3.0** ⚠️）与检测器权重。AGPL 传染性更强，需单独评估（仅进程内调用、不以库形式分发通常不触发，但**必须记录判断**）"
+    findings:
+      - "⚠️ 审计日志行 102：`custom_wildcards path not found: /root/autodl-tmp/ComfyUI/custom_nodes/...` —— **陈旧路径**，指向 ComfyUI 曾经的旧布局。当前在 /root/ComfyUI，故通配词目录失效（自动回落，不报错）→ 建议下次维护时修正"
+      - "环境已有 `models/ultralytics/face_yolov8n.pt`（6.2MB）+ `bbox/` `segm/`，说明检测器链路曾被使用"
+
+  - name: masquerade-nodes-comfyui
+    commit: 432cb4d146a3
+    dirty: 0
+    purpose: "蒙版创建与运算（mask 布尔运算、蒙版描边、批量蒙版）"
+    v1_path: true
+    v1_refs: [FR-6.2, P3-06]
+    status: ok
+    decision: keep
+    license: MIT
+    evidence: "evidence/comfyui_cpu_audit.log（0.0s）；evidence/custom_nodes_licenses.txt"
+    risk: "低"
+
+  - name: ComfyUI_BiRefNet_ll
+    commit: 5443a2aa16cf
+    dirty: 0
+    purpose: "BiRefNet 高质量抠图/分割"
+    v1_path: true
+    v1_refs: [FR-8.6]
+    status: ok
+    decision: keep
+    license: MIT
+    evidence: "evidence/comfyui_cpu_audit.log（1.6s，第二慢）；evidence/custom_nodes_licenses.txt（MIT, Copyright (c) 2024 lldacing）"
+    risk: "**已从「许可未知」降为低风险** —— 本轮采集核实为 MIT（回写 license_matrix §7 #11）"
+    note: "⚠️ 节点许可已核 ≠ 权重许可已核 —— `models/BiRefNet/` 目前为空，其权重许可需随 P4-05 单独核实"
+
+  # ==========================================================
+  # C. 保留 · 提示词与 LoRA 能力（FR-8.5 / 提示词工程）
+  # ==========================================================
+  - name: ComfyUI_ADV_CLIP_emb
+    commit: 63984deefb00
+    dirty: 1
+    purpose: "高级 CLIP 文本编码（权重解释方式：A1111 / compel / 平均等）"
+    v1_path: true
+    v1_refs: [FR-8.2, P5-09]
+    status: ok
+    decision: keep
+    license: GPL-3.0
+    evidence: "evidence/comfyui_cpu_audit.log（0.0s）；evidence/custom_nodes_licenses.txt"
+    risk: "⚠️ 两个待办 —— ① **dirty=1**（工作区有未提交改动）② 提示词权重语法 `(word:1.2)` 依赖它，但 **cfg=1 的 klein 链路上权重是否生效未实测**（docs/sop/prompt_guide.md §1）。若在 klein 上无效，提示词库的 weight 语义就是空转 → 需 B 流在 P3 验证"
+    findings: ["🔧 待办：查明 dirty 改动内容并记录；若为本地补丁需落入部署流程，否则环境不可复现"]
+
+  - name: rgthree-comfy
+    commit: 42e73c3c48e8
+    dirty: 0
+    purpose: "工作流增强（Context 管理、Power Lora Loader、seed 控制、快速静音）"
+    v1_path: true
+    v1_refs: [FR-8.5, P4-04]
+    status: ok
+    decision: keep
+    license: MIT
+    evidence: "evidence/comfyui_cpu_audit.log（0.0s）；evidence/custom_nodes_licenses.txt"
+    risk: "中 —— 它给工作流引入**非标准节点**，降低与官方生态的可移植性。若 P4-04 的多 LoRA 需求可用核心 LoraLoader 满足，可降为 review"
+    findings:
+      - "⚠️ **重要（新发现）**：第二次 CPU 审计（17:01）中 rgthree-comfy 自述与 ComfyUI 新的 **Node 2.0 渲染不兼容** —— 原文：*\"ComfyUI's new Node 2.0 rendering may be incompatible with some rgthree-comfy nodes and features, breaking some rendering as well as losing the ability to access a node's properties... It also appears to run MUCH more slowly spiking CPU usage and causing jankiness and unresponsiveness, especially with large workflows.\"*（见 evidence/comfyui_cpu_startup.log，非 [WARNING] 前缀的裸输出）"
+      - "**为何重要**：我们保留它的理由是 Power Lora Loader（P4-04）。若「节点属性不可访问」成立，**参数可能无法从外部注入** → 直接破坏 contracts.md §3.3 的 targets 注入契约"
+      - "🔧 **处置**：P4-04 接入时必须**实测 Power Lora Loader 能否被参数注入**；若不能 → 改用核心 LoraLoader 并把本节点降为 review"
+
+  - name: ComfyUI-KJNodes
+    commit: f37df472dfb3
+    dirty: 0
+    purpose: "综合工具集（大量图像/文本/条件/模型工具节点）"
+    v1_path: true
+    v1_refs: [P3-01~P3-08]
+    status: ok
+    decision: keep
+    license: GPL-3.0
+    evidence: "evidence/comfyui_cpu_audit.log（0.1s）；evidence/custom_nodes_licenses.txt"
+    risk: "低（技术）—— **生态依赖面最广的工具集**（官方模板与社区工作流大量引用），移除风险高于保留风险。合规侧见 §4"
+
+  - name: ComfyUI_essentials
+    commit: 9d9f4bedfc9f
+    dirty: 0
+    purpose: "常用图像/SDXL 工具节点（图像尺寸、遮罩处理、SDXL 分辨率预设）"
+    v1_path: true
+    v1_refs: [P3-01, WF-UPSCALE]
+    status: ok
+    decision: keep
+    license: MIT
+    evidence: "evidence/comfyui_cpu_audit.log（0.0s）；evidence/custom_nodes_licenses.txt"
+    risk: "低。**它曾在 #16 处置 10 中因 flash-attn ABI 失配而 import 失败，卸载 flash-attn 后恢复** —— 是本项目「坏 .so 毒化导入链」的首个判例，也是 §3 判据的来源"
+
+  # ==========================================================
+  # D. 保留 · 运维与开发必需
+  # ==========================================================
+  - name: ComfyUI-Manager
+    commit: 06496d07b3c3
+    dirty: 0
+    purpose: "节点安装/更新/依赖管理、模型下载"
+    v1_path: true
+    v1_refs: [P2-05, P2-06]
+    status: ok
+    decision: keep
+    license: GPL-3.0
+    evidence: "evidence/comfyui_cpu_audit.log（0.8s）；evidence/custom_nodes_licenses.txt"
+    risk: "⚠️ **中高（安全）** —— 能执行任意 pip/git 操作。生产实例 `--listen 127.0.0.1` 下风险可控（不暴露公网）；**V1 环境冻结后建议改为 disable**，需要时临时启用"
+    note: "它同时是 evidence/custom_nodes_install_errors.log 的产出者 —— 该日志记录了依赖安装期失败（P2-05 的有用副产物）"
+
+  - name: ComfyUI-Custom-Scripts
+    commit: f2838ed5e59d
+    dirty: 0
+    purpose: "前端增强（pysssss 系：自动补全、工作流侧栏、图像查看器）"
+    v1_path: false
+    v1_refs: []
+    status: ok
+    decision: keep
+    license: MIT
+    evidence: "evidence/comfyui_cpu_audit.log（0.0s）；evidence/custom_nodes_licenses.txt"
+    risk: "低。纯 UI 增强、无出图/API 依赖 → **最小化生产环境时的首批裁剪候选**"
+
+  # ==========================================================
+  # E. 禁用 · import 级已损坏（有 traceback 实证）
+  # ==========================================================
+  - name: ComfyUI-nunchaku
+    commit: dbfd194294b7
+    dirty: 1
+    purpose: "4-bit 量化推理加速（SVDQuant）"
+    v1_path: false
+    v1_refs: []
+    status: broken
+    decision: disable
+    license: Apache-2.0
+    evidence: "**evidence/comfyui_cpu_audit.log:111-191 / 290-292 / 473**，**并在第二次审计 evidence/comfyui_cpu_startup.log:474 独立复现**（IMPORT FAILED，3.5s→5.8s）—— `ImportError: nunchaku/_C.cpython-312-x86_64-linux-gnu.so: undefined symbol: _ZN3c106detail23torchInternalAssertFailEPKcS2_jS2_RKSs`；叠加 diffusers 导入失败（§3）。另：`versions.lock [pip]` 装的是 `nunchaku-1.0.1+torch2.5-cp312...whl`（torch 2.5 编译版）vs 当前 torch 2.13.0 → 必然不兼容。台账 #18 同结论"
+    risk: "低（禁用后）。**不在 V1 关键路径**：量化加速对 4090/24G 无必要（双底模常驻仅 13.1G，#18）"
+    findings:
+      - "**dirty=1** —— 工作区有未提交改动"
+      - "🔧 次级待办：卸载坏掉的 sageattention 后（§3），nunchaku 的**第一层**报错会消失，但其 `_C.so` 仍 ABI 失配 → 仍需按 torch 2.13 重装才可能可用"
+    how_to_reenable: "需取 torch 2.13 对应的 wheel 并复测；**V1 不做**（无收益）"
+
+  - name: ComfyUI-TeaCache
+    commit: 91dff8e31684
+    dirty: 0
+    purpose: "扩散模型缓存加速（跨步复用特征）"
+    v1_path: false
+    v1_refs: []
+    status: broken
+    decision: disable
+    license: Apache-2.0
+    evidence: "**evidence/comfyui_cpu_audit.log:309-320 / 450**，**并在第二次审计 evidence/comfyui_cpu_startup.log:447 独立复现**（IMPORT FAILED，0.0s）—— `ImportError: cannot import name 'precompute_freqs_cis' from 'comfy.ldm.lightricks.model'`。台账 #18 同结论"
+    risk: "低（禁用后）。**不在 V1 关键路径**：klein 蒸馏版本身已 4 步（min 1.52s），缓存加速无收益；SDXL 侧收益不足以承担兼容风险"
+    how_to_reenable: "需查上游是否已适配 torch 2.13 / 新版 comfy（`precompute_freqs_cis` 已从 lightricks.model 移除）；**V1 不做**"
+
+  - name: ComfyUI_smZNodes
+    commit: 9562d76c3cf2
+    dirty: 0
+    purpose: "采样参数精细控制（schedule、CFG 调度、提示词权重调整）"
+    v1_path: false
+    v1_refs: []
+    status: broken
+    decision: disable
+    license: GPL-3.0
+    evidence: "**evidence/comfyui_cpu_audit.log:325-429 / 458**，**并在第二次审计 evidence/comfyui_cpu_startup.log:461 独立复现**（IMPORT FAILED，0.0s）—— 经 `diffusers.pipelines.flux.pipeline_flux` 间接失败，**根因是 sageattention 的 ABI 失配（§3），不是 diffusers 自身**。台账 #18 记作「smZNodes（diffusers）」是表象"
+    risk: "低（禁用后）。功能与已保留的 ComfyUI_ADV_CLIP_emb 部分重叠 → 非必需"
+    findings:
+      - "⚠️ **本节点损坏的原因是可修的** —— 卸载 sageattention 后 diffusers 导入链恢复，smZNodes 很可能随之恢复（§3）。但**即便恢复，功能评估仍判其非必需** → 先禁用；若要恢复须先在 CPU 模式复测"
+
+  # ==========================================================
+  # F. 禁用 · 与 V1（电商静态图）无关
+  # ==========================================================
+  - name: ComfyUI-VideoHelperSuite
+    commit: 537f3a02269e
+    dirty: 0
+    purpose: "视频加载/合成/导出工具"
+    v1_path: false
+    v1_refs: []
+    status: ok
+    decision: disable
+    license: GPL-3.0
+    evidence: "审计日志（0.2s，**import 正常**）；**PRD_v1 §3.1 的 M1–M9 无视频相关功能** —— 禁用依据是业务相关性，不是技术状态"
+    risk: "低。保留价值：V2 若做视频素材可回归（禁用不删除）"
+
+  - name: ComfyUI-WanVideoWrapper
+    commit: 772642b4f132
+    dirty: 0
+    purpose: "Wan 视频生成模型套件"
+    v1_path: false
+    v1_refs: []
+    status: ok
+    decision: disable
+    license: Apache-2.0
+    evidence: "审计日志（0.3s，import 正常）；同上一一理由（V1 无视频需求）"
+    risk: "低。⚠️ **它是 32 个节点里依赖最重、与 V1 最无关的一个** → 裁剪收益最高"
+
+  - name: ComfyUI-Frame-Interpolation
+    commit: a969c01dbccd
+    dirty: 0
+    purpose: "视频补帧（RIFE / FILM 等）"
+    v1_path: false
+    v1_refs: []
+    status: ok
+    decision: disable
+    license: MIT
+    evidence: "审计日志（0.0s，import 正常）；V1 无视频需求"
+    risk: "低。它自带多套插帧权重，**为省磁盘可另删权重**（按「禁用不删除」原则先禁用）"
+
+  - name: ComfyUI_FizzNodes
+    commit: 7d6ea60c55eb
+    dirty: 0
+    purpose: "动画/提示词调度（batched prompt schedule、waveform）"
+    v1_path: false
+    v1_refs: []
+    status: ok
+    decision: disable
+    license: MIT
+    evidence: "审计日志（0.0s，import 正常）；功能面向**动画序列**（跨帧提示词插值），V1 静态图用不到"
+    risk: "低。若 V2 做视频可回归"
+
+  # ==========================================================
+  # G. 禁用 · 许可不可商用或未知（红线）
+  # ==========================================================
+  - name: ComfyUI-Upscaler-Tensorrt
+    commit: 461c73e1cb34
+    dirty: 0
+    purpose: "TensorRT 加速的放大器（更快的 ESRGAN 系推理）"
+    v1_path: false
+    v1_refs: [FR-6.2, P5-05]
+    status: ok
+    decision: disable
+    license: "CC BY-NC-SA 4.0（**非商用**）"
+    evidence: "**evidence/custom_nodes_licenses.txt** —— LICENSE 首行即 `Attribution-NonCommercial-ShareAlike 4.0 International`。**本轮采集最重要的合规发现**：本节点**当前装在环境里**，按红线纪律必须禁用"
+    risk: "**高（法律）** —— 非商用许可。**即使技术可用、对 P5-05 有帮助，也不得用于交付链路**"
+    findings:
+      - "功能替代：常规放大器（`upscale_models/` + 内置 UpscaleModelLoader）或 ComfyUI-Impact-Pack 的放大链路"
+      - "环境已装 `tensorrt==10.12.0.36`（versions.lock [pip]）—— **依赖本身许可无问题**，问题在该节点的许可；禁用节点后该 pip 包可保留（无副作用）"
+      - "附加考虑：TRT 需为每个分辨率/批大小编译 engine，**构建耗时且占系统盘**（仅剩 11G）→ 即便许可允许也不推荐"
+
+  - name: Derfuu_ComfyUI_ModdedNodes
+    commit: d0905bed3124
+    dirty: 0
+    purpose: "数学/文本/字符串处理节点（变量运算、条件分支）"
+    v1_path: false
+    v1_refs: []
+    status: ok
+    decision: disable
+    license: "**仓库内无 LICENSE 文件** → 未知"
+    evidence: "**evidence/custom_nodes_licenses.txt** → `NO_LICENSE_FILE`。按「未知即不用」处理。另：参数运算**由后端（A 流）完成比在工作流里做运算更可控**，与架构分工重叠"
+    risk: "中（合规，unknown）"
+    how_to_reenable: "到上游仓库页面核实许可；若为 MIT/Apache/BSD 可回落到 review。**核实前不得启用**"
+
+  - name: comfyui-browser
+    commit: 95fd55d663f4
+    dirty: 0
+    purpose: "工作流/图片浏览器（本地资产检索）"
+    v1_path: false
+    v1_refs: []
+    status: ok
+    decision: disable
+    license: "**仓库内无 LICENSE 文件** → 未知"
+    evidence: "**evidence/custom_nodes_licenses.txt** → `NO_LICENSE_FILE`；功能与 ComfyUI-Manager / Custom-Scripts 重叠"
+    risk: "中（合规，unknown）"
+    how_to_reenable: "核实上游许可；许可明确可回落到 review（开发期有用、生产无价值）"
+
+  - name: comfyui-supersave
+    commit: 59f6e0538b4e
+    dirty: 1
+    purpose: "图像保存增强（更优的 PNG 元数据/压缩）"
+    v1_path: false
+    v1_refs: [P3-11]
+    status: ok
+    decision: disable
+    license: "**仓库内无 LICENSE 文件** → 未知"
+    evidence: "**evidence/custom_nodes_licenses.txt** → `NO_LICENSE_FILE`。另：P3-11 要求产物带完整元数据，**但元数据是交付契约的一部分（FR-5.4 可复现性），不应由不可控的第三方节点决定** → 应走自研工具（可测试、可版本化）"
+    risk: "中（合规，unknown）"
+    findings: ["**dirty=1** —— 工作区有未提交改动"]
+    how_to_reenable: "核实上游许可；且即便许可允许，元数据写入仍建议自研"
+
+  # ==========================================================
+  # H. 待评估 · 先禁用不删除（无必需证据）
+  # ==========================================================
+  - name: ComfyUI-Easy-Use
+    commit: 9947b8be70e1
+    dirty: 0
+    purpose: "节点聚合简化层（把多节点封装成少数「一键」节点）"
+    v1_path: false
+    v1_refs: []
+    status: ok
+    decision: review
+    license: GPL-3.0
+    evidence: "审计日志（0.5s，import 正常）。**与 efficiency-nodes-comfyui 功能高度重叠**，两者择一；且聚合层会**隐藏实际节点结构**，与「参数 Schema 的 targets 必须指向真实节点」契约（contracts.md §3.3）冲突"
+    risk: "⚠️ 中 —— 聚合节点不利于参数注入的可解释性"
+    lean: disable
+
+  - name: efficiency-nodes-comfyui
+    commit: f0971b5553ea
+    dirty: 2
+    purpose: "效率节点（Ksampler 组合、高清修复流程、XY 图、LoRA 堆叠）"
+    v1_path: false
+    v1_refs: [P3-04, P5-03]
+    status: ok
+    decision: review
+    license: GPL-3.0
+    evidence: "审计日志（0.2s，import 正常）。高清修复流程（P3-04）与 **XY 图参数扫描**（P5-03 权重甜区实验）有实用价值"
+    risk: "中 —— 聚合节点会封装结构（同 Easy-Use）。**XY 图对评测阶段价值高** → 建议 P5-03 期间临时启用，评测完成后复评"
+    findings: ["**dirty=2** —— 有 2 处未提交改动，需查明并记录（否则环境不可复现）"]
+    lean: 按阶段启用
+
+  - name: ComfyUI-Inspire-Pack
+    commit: d23db9aa544d
+    dirty: 0
+    purpose: "综合工具集（随机提示词、图像批处理、缓存节点）"
+    v1_path: false
+    v1_refs: [P5-03]
+    status: ok
+    decision: review
+    license: GPL-3.0
+    evidence: "审计日志（0.2s，import 正常）。随机提示词/批处理对评测扫描有用；但与 KJNodes / essentials 有重叠"
+    risk: "低（依赖轻）。待 P5-03 评测流程定型后再定"
+    lean: keep
+
+  - name: comfyui-ollama
+    commit: 6db7560576e5
+    dirty: 0
+    purpose: "Ollama LLM 集成（提示词生成/翻译）"
+    v1_path: false
+    v1_refs: [E4（V2）]
+    status: ok
+    decision: review
+    license: Apache-2.0
+    evidence: "审计日志（0.5s，import 正常）。V2 的 LLM 提示词助手（E4）会用到；**V1 的 FR 清单里没有 LLM 需求**"
+    risk: "⚠️ 中 —— 它会拉起本地 LLM 服务，**挤占 4090 显存**（双底模已常驻 13.1G/24G；NFR-2 要求并发=1 且模型常驻）"
+    lean: disable（V1 期间）
+
+  - name: ComfyUI-Dev-Utils
+    commit: 38852e78803a
+    dirty: 0
+    purpose: "节点开发调试工具"
+    v1_path: false
+    v1_refs: []
+    status: ok
+    decision: review
+    license: MIT
+    evidence: "审计日志（0.0s，import 正常）。仅节点开发者在写自定义节点时需要；**本项目不自研节点**"
+    risk: "低"
+    lean: disable
+
+  - name: ComfyUI_tinyterraNodes
+    commit: 1a90e4348056
+    dirty: 0
+    purpose: "综合工具集（管道节点、图像处理）"
+    v1_path: false
+    v1_refs: []
+    status: ok
+    decision: review
+    license: GPL-3.0
+    evidence: "审计日志（0.2s，import 正常）。与 KJNodes / Essentials 重叠度高，无独有必需能力证据"
+    risk: "低"
+    lean: disable
+
+  - name: PowerNoiseSuite
+    commit: 581c164114dc
+    dirty: 0
+    purpose: "噪声控制（细节增强、噪声注入）"
+    v1_path: false
+    v1_refs: []
+    status: ok
+    decision: review
+    license: GPL-3.0
+    evidence: "审计日志（0.0s，import 正常）。理论上有助于细节质感（P5-03 材质/质感评测），但**无实测证据**"
+    risk: "低。若 P5-03 证明对材质特写有帮助可回归"
+    lean: 待评测
+
+  - name: ComfyUI-Coziness
+    commit: d841eaea9a56
+    dirty: 0
+    purpose: "**LoRA 文本加载**：MultiLora Loader（用一段文本描述加载多个 LoRA）+ Lora Text Extractor（从提示词中抽出 LoRA 描述，过滤后的文本接给 CLIP Text Encode）"
+    v1_path: false
+    v1_refs: [FR-8.5, P4-04]
+    status: ok
+    decision: review
+    license: MIT
+    evidence: "**用途已由本轮采集澄清**（读其 README）：作用域是 LoRA 加载（FR-8.5，Should 级，P4-04）。审计日志（0.0s，import 正常）。上游 skfoo/ComfyUI-Coziness，最后更新 2024-05-27（v1.0.2）"
+    risk: "低（技术/合规双低）—— **功能与 rgthree-comfy 的 Power Lora Loader 重叠**。差异化价值是「**提示词驱动的 LoRA 加载**」，若 P4-04 采用该交互方式则可保留"
+    findings: ["⏳ 维护状态较旧（最后更新 2024-05），需在 P4-04 复测与新 ComfyUI 的兼容性"]
+    lean: "若 P4-04 用提示词驱动 LoRA → keep；否则 disable"
+
+  - name: was-node-suite-comfyui
+    commit: ea935d1044ae
+    dirty: 0
+    purpose: "大型综合节点套件（数百个图像/文本/逻辑节点）"
+    v1_path: false
+    v1_refs: []
+    status: ok
+    decision: review
+    license: MIT
+    evidence: "审计日志（**3.7s —— 全部节点中最慢**，无 IMPORT FAILED）。**依赖最重的综合套件之一**（自带 cstr / ffmpy / img2texture 等 git+ 依赖，见 versions.lock [pip]），功能面广但与 KJNodes/Essentials 大量重叠"
+    risk: "⚠️ **中高 —— 它是「太多太脆」的典型代表**：依赖面最广、加载最慢、与其它套件重叠。**倾向禁用**；若某条工作流确实依赖它的独有节点，则保留并**记录具体是哪个节点**"
+    lean: disable（除非有独有依赖）
+
+# ============================================================
+# 2. 汇总（全部为实证数字，非估计）
+# ============================================================
+summary:
+  total: 32
+  by_decision:
+    keep: 12
+    disable: 11
+    review: 9
+  by_status:
+    ok: 29                 # 审计日志 Import times 段列出且未标 IMPORT FAILED
+    broken: 3              # nunchaku / TeaCache / smZNodes
+    unverified: 0          # ✅ 全部节点已有 import 级实证
+  evidence_strength:
+    audits: 2              # 两次 CPU 模式审计（10:01 / 17:01），相隔 7 小时
+    consistency: "✅ 两次运行给出**完全相同的 3 个失败节点** → 稳定复现，非偶发"
+    self_check: "两次日志的 Import times 段均为 33 行 = 32 个节点 + websocket_image_save.py（ComfyUI 自带单文件节点）→ 采集期间无节点增删，两份日志可比"
+  by_v1_path:
+    critical: 12
+    not_critical: 20
+  by_license:
+    MIT: 10                # Coziness / Custom-Scripts / Dev-Utils / Frame-Interpolation / BiRefNet_ll / FizzNodes / essentials / masquerade / rgthree / was-node-suite
+    Apache-2.0: 5          # TeaCache / WanVideoWrapper / nunchaku / ollama / comfyui_controlnet_aux
+    GPL-3.0: 13            # 见 §4
+    "CC BY-NC-SA 4.0（非商用）": 1   # ComfyUI-Upscaler-Tensorrt → 必须禁用
+    "未知（无 LICENSE 文件）": 3     # Derfuu / comfyui-browser / comfyui-supersave → 必须禁用
+  version_lock_integrity:
+    result: "✅ **32/32 零漂移** —— 服务器实际 HEAD 与 deploy/versions.lock [custom_nodes] 逐条完全一致"
+    caveat: "⚠️ 4 个节点工作区有未提交改动（nunchaku=1 / ADV_CLIP_emb=1 / supersave=1 / efficiency-nodes=2）→ 「锁的是 commit，跑的是 commit+改动」，需查明并记录"
+  node_class_delta:
+    baseline_old: 2102     # evidence/object_info_v0.3.75_baseline.json（**v0.3.75 旧版本**，2025-09-15）
+    current: null          # ⚠️ 未采集：需启动 v0.36.0 后 curl /object_info（台账 #16 记 2530，但无文件证据）
+    todo: "执行禁用后需采集：① 禁用前节点类数 ② 禁用后节点类数 ③ 确认 V1 关键节点全部仍在"
+
+# ============================================================
+# 3. ⚠️ 环境级缺陷：sageattention（非节点，但导致节点失效）
+# ============================================================
+environment_defects:
+  - id: ENV-01
+    title: "sageattention==2.2.0 的坏 .so 毒化整条 diffusers 导入链"
+    severity: 中（导致 1 个节点失效 + 1 个节点叠加报错，并掩盖了真实根因）
+    status: 待处置
+    evidence:
+      - "evidence/comfyui_cpu_audit.log:192-260 —— 完整调用链：diffusers/models/transformers/transformer_flux.py:29 → attention_dispatch.py:72 → from sageattention import ... → sageattention/quant.py:20 → from . import _fused → ImportError: ..._fused.cpython-312-x86_64-linux-gnu.so: undefined symbol: _ZN3c106detail14torchCheckFailEPKcS2_jRKSs"
+      - "evidence/comfyui_cpu_audit.log:430 —— `Could not load sageattention: ... undefined symbol`（ComfyUI 侧也已放弃它）"
+      - "deploy/versions.lock [pip] 段仍含 `sageattention==2.2.0` 与 `spas_sage_attn==0.1.0` → **它没有被卸载**"
+    analysis: |
+      sageattention 是针对 **torch 2.5.1** 编译的 C++ 扩展，torch 升到 2.13.0 后 libtorch ABI 已变
+      （同类报错在 flash-attn 上出现过）。而 diffusers 的 attention_dispatch 在**模块级无条件 import 它**
+      → 只要它装着且损坏，**任何 import diffusers 的节点都会失败**
+      （当前受害者：ComfyUI_smZNodes、ComfyUI-nunchaku 的第一层报错）。
+    hypothesis: "**卸载 sageattention 后，ComfyUI_smZNodes 很可能恢复**（diffusers 导入链不再被毒化）"
+    precedent: "项目进展.md #16 处置 10：卸载 flash-attn（同类 ABI 失配）后 4 个模块恢复。**sageattention 是同一类问题的漏网项** —— 当时只「回退使用」而未卸载"
+    proposed_action:
+      - "① 先**备份** `pip freeze` 与 sageattention 的 wheel 路径（便于回滚）"
+      - "② `pip uninstall sageattention spas_sage_attn`"
+      - "③ 在 **CPU 模式**重跑 23_cpu_mode_node_audit.sh，确认：diffusers 导入恢复、smZNodes 是否恢复、其余节点无回退"
+      - "④ 复测 26_validate_workflow.py（两条工作流必须仍 PASS）"
+      - "⑤ 更新 deploy/versions.lock（sageattention 从 [pip] 消失属**预期变更**，需记录原因）"
+    risk: "低 —— 它当前**已被 ComfyUI 放弃**（日志明示 load 失败），且性能侧从未启用（#17 已证明注意力后端自始至终是 `Using pytorch attention`）→ 卸载是纯收益"
+    owner: "C 流（环境）／需 GPU 侧复测时通知团队负责人"
+
+# ============================================================
+# 4. ⚠️ GPL-3.0 节点的商业约束（涉及 13 个节点）
+# ============================================================
+gpl_constraint:
+  count: 13
+  nodes: [ComfyUI-Advanced-ControlNet, ComfyUI-Easy-Use, ComfyUI-Impact-Pack, ComfyUI-Inspire-Pack, ComfyUI-KJNodes, ComfyUI-Manager, ComfyUI-VideoHelperSuite, ComfyUI_ADV_CLIP_emb, ComfyUI_IPAdapter_plus, ComfyUI_smZNodes, ComfyUI_tinyterraNodes, PowerNoiseSuite, efficiency-nodes-comfyui]
+  analysis:
+    - "**ComfyUI 本体即 GPL-3.0**，因此 GPL 节点在**进程内组合**不产生额外约束（同许可兼容）"
+    - "**关键分界线是「是否分发（distribution）」**："
+    - "　· **SaaS / 仅以 API 提供服务**（本项目 V1 形态，ADR-001）→ 不构成分发 → **一般无 GPL 义务**"
+    - "　· **交付 docker 镜像 / 本地化部署给客户** → 构成分发 → **须履行 GPL-3.0 义务**（提供完整对应源码、保留许可声明）"
+  implication: "⚠️ **这直接约束 ADR-001 的交付形态**：若未来从 SaaS 转为「镜像交付」，GPL 合规工作量会显著上升（需打包全部节点源码 + 许可声明）。**该结论需同步给 P11-11 与产品决策**"
+  action: "已在 license_matrix §1 登记该结论；V1 保持 SaaS/API 形态 → 当前无需处理"
+
+# ============================================================
+# 5. 执行流程（禁用动作）
+# ============================================================
+execution_plan:
+  steps:
+    - "① 备份现状：`ls -1 custom_nodes/ > /root/autodl-tmp/nodes_before.txt`；`curl -s 127.0.0.1:8188/object_info > /root/autodl-tmp/object_info_before.json` 并记录节点类总数"
+    - "② 对 disable 档（11 个）执行重命名：`mv <name> <name>.disabled`（**不删除**）"
+    - "③ 重启 ComfyUI —— 用 deploy/autodl/31_restart_prod.sh，**不要内联 pkill**（项目进展.md #19）"
+    - "④ 验证：23_cpu_mode_node_audit.sh + 26_validate_workflow.py 均须通过；V1 关键路径的 12 个节点必须仍在"
+    - "⑤ 采集禁用后的 /object_info，回填 §2 的 node_class_delta"
+  rollback:
+    how: "反向重命名 `<name>.disabled` → `<name>`，重启即可"
+    risk: "极低（未删任何文件、未改任何 pip 包）"
+  recommended_order:
+    - "1st: **ComfyUI-Upscaler-Tensorrt**（非商用许可，红线）—— 单独执行、单独记录"
+    - "2nd: **§3 的 sageattention 卸载 + CPU 模式复测**（可修好一个节点，收益最大）"
+    - "3rd: F 档 4 个视频节点 + G 档另 3 个无许可节点"
+    - "4th: E 档 3 个已损坏节点"
+    - "5th: H 档 9 个逐条实测后决定"
+
+# ============================================================
+# 6. 证据缺口
+# ============================================================
+evidence_gaps:
+  remaining:
+    - gap: "**当前版本（v0.36.0）的 /object_info 节点类清单**"
+      what: "启动 ComfyUI 后 `curl 127.0.0.1:8188/object_info`，统计节点类总数"
+      why: "① 量化裁剪收益 ② 台账 #16 记的 2530 **无文件证据**（手上的 2102 是升级前基线）"
+      owner: C 流
+      when: "下次实例可达且能起服务时（CPU 模式即可）"
+    - gap: "**4 个 dirty 节点的未提交改动内容**"
+      what: "`git -C <node> diff` 的内容摘要"
+      why: "「锁的是 commit，跑的是 commit+改动」→ 环境不可复现（R2）"
+      owner: C 流
+      when: "下次服务器可达时"
+    - gap: "**禁用动作的前后对比**"
+      what: "禁用前后的节点类总数与 V1 关键节点在位情况"
+      why: "白名单执行的验收判据"
+      owner: C 流
+      when: "执行白名单时"
+    - gap: "**BiRefNet / ControlNet / IP-Adapter 的权重许可**"
+      what: "各预处理器与权重文件的上游许可"
+      why: "节点许可已核 ≠ 权重许可已核"
+      owner: C 流（P5-04 / P5-05）
+      when: "P4/P5 模型集建立时"
+  resolved_this_round:
+    - "节点清单、.git 状态与 commit → evidence/custom_nodes_git_status.txt（32/32 零漂移）"
+    - "import 级故障清单 → evidence/comfyui_cpu_audit.log（29 ok / 3 broken）"
+    - "节点许可逐个登记 → evidence/custom_nodes_licenses.txt（含 1 个 NC、3 个无许可文件）"
+    - "ComfyUI-Coziness 用途澄清 → 读其 README：MultiLora Loader + Lora Text Extractor（MIT）"
+  note: "⚠️ 服务器操作**一律只读**：不修改任何文件、不启停服务、不使用 pkill（项目进展.md #19 的教训）。本轮采集全部为 ls / git rev-parse / git status / cat / scp 下行。"
+
+# ============================================================
+# 7. 许可分类的独立第二来源交叉验证（C 流，2026-09-16）
+# ============================================================
+# 动机：§2 的许可统计来自「服务器读各仓库 LICENSE* 原文」这一个来源。
+#       单一来源若读错（例如 grep 到 README 里的许可提及、或读到上游而非仓库自身），
+#       整张表都会错 —— 而它直接决定白名单的禁用档，代价是法律风险。
+#       故用 GitHub License API（/repos/{owner}/{repo}/license，读 GitHub 的检测结果）
+#       独立跑一遍 32 个节点，两个来源互不依赖。
+license_cross_validation:
+  method:
+    primary: "服务器端读取各节点目录内 LICENSE* 文件首行（evidence/custom_nodes_licenses.txt）"
+    secondary: "GitHub License API → license.spdx_id（C 流本地执行，不连服务器）"
+  result:
+    MIT: {primary: 10, secondary: 9, agree: "✅ 差 1 项为 ComfyUI_BiRefNet_ll（API 报 NOASSERTION，原文为 MIT）"}
+    Apache-2.0: {primary: 5, secondary: 5, agree: "✅ 完全一致"}
+    GPL-3.0: {primary: 13, secondary: 13, agree: "✅ 完全一致（含 IPAdapter_plus / Impact-Pack / KJNodes 等 keep 档节点）"}
+    无LICENSE文件: {primary: 3, secondary: 3, agree: "✅ **指名逐条一致**：Derfuu / comfyui-browser / comfyui-supersave"}
+    NC许可: {primary: "1（Upscaler-Tensorrt = CC BY-NC-SA 4.0）", secondary: "1 报 NOASSERTION", agree: "✅ 可对上（NOASSERTION 正说明是非标准/自定义条款）"}
+    total: {primary: 32, secondary: 32, agree: "✅ 无遗漏、无多出"}
+  conclusion: "两个独立来源**逐条吻合** → §2 的许可统计可以采信，禁用档的判定依据成立。"
+  methodology:
+    - "⭐ **API 适合「批量筛查 + 交叉验证」，原文才行「判定」** —— 二者不可互相替代。"
+    - "⚠️ **`NOASSERTION` 里藏着红线**：`ComfyUI-Upscaler-Tensorrt` 的 CC BY-NC-SA 4.0 在 API 侧只表现为 `NOASSERTION`。**只信 API 就会漏掉这个非商用节点**。API 报 NOASSERTION/空 → 必须回落读原文。"
+    - "这与本项目「未知即不用」是同一逻辑：**没读到原文就等于未知**。"
+    - "副产品：`ComfyUI_BiRefNet_ll` 反向印证了该纪律 —— API 报 NOASSERTION，原文是标准 MIT，**只信 API 会把它误判为「需进一步核实」而白耗时间**。"
+
+  # ---------- 节点目录名 → GitHub 仓库 slug（32/32）----------
+  # 用途：① license_matrix §8 登记流程的 source.repo 字段 ② 未来复查许可时可直接按 slug 重查
+  # ⚠️ 这些 slug 是 C 流按仓库名检索 + 许可页确认得出的**候选值**，
+  #    **尚未与服务器上各节点的 `git remote get-url origin` 逐条核对**（需一次只读采集）。
+  #    使用时请标注来源，不要当作已核实的上游地址。
+  repo_slugs:
+    备注: "候选值，待与 git remote 对账"
+    ComfyUI-Advanced-ControlNet: Kosinkadink/ComfyUI-Advanced-ControlNet
+    ComfyUI-Coziness: skfoo/ComfyUI-Coziness
+    ComfyUI-Custom-Scripts: pythongosssss/ComfyUI-Custom-Scripts
+    ComfyUI-Dev-Utils: ty0x2333/ComfyUI-Dev-Utils
+    ComfyUI-Easy-Use: yolain/ComfyUI-Easy-Use
+    ComfyUI-Frame-Interpolation: Fannovel16/ComfyUI-Frame-Interpolation
+    ComfyUI-Impact-Pack: ltdrdata/ComfyUI-Impact-Pack
+    ComfyUI-Inspire-Pack: ltdrdata/ComfyUI-Inspire-Pack
+    ComfyUI-KJNodes: kijai/ComfyUI-KJNodes
+    ComfyUI-Manager: Comfy-Org/ComfyUI-Manager
+    ComfyUI-TeaCache: welltop-cn/ComfyUI-TeaCache
+    ComfyUI-Upscaler-Tensorrt: yuvraj108c/ComfyUI-Upscaler-Tensorrt
+    ComfyUI-VideoHelperSuite: Kosinkadink/ComfyUI-VideoHelperSuite
+    ComfyUI-WanVideoWrapper: kijai/ComfyUI-WanVideoWrapper
+    ComfyUI-nunchaku: nunchaku-tech/ComfyUI-nunchaku
+    ComfyUI_ADV_CLIP_emb: BlenderNeko/ComfyUI_ADV_CLIP_emb
+    ComfyUI_BiRefNet_ll: lldacing/ComfyUI_BiRefNet_ll
+    ComfyUI_FizzNodes: FizzleDorf/ComfyUI_FizzNodes
+    ComfyUI_IPAdapter_plus: cubiq/ComfyUI_IPAdapter_plus
+    ComfyUI_essentials: cubiq/ComfyUI_essentials
+    ComfyUI_smZNodes: shiimizu/ComfyUI_smZNodes
+    ComfyUI_tinyterraNodes: tinyterra/ComfyUI_tinyterraNodes
+    Derfuu_ComfyUI_ModdedNodes: Derfuu/Derfuu_ComfyUI_ModdedNodes
+    PowerNoiseSuite: WASasquatch/PowerNoiseSuite
+    comfyui-browser: talesofai/comfyui-browser
+    comfyui-ollama: stavsap/comfyui-ollama
+    comfyui-supersave: talesofai/comfyui-supersave
+    comfyui_controlnet_aux: Fannovel16/comfyui_controlnet_aux
+    efficiency-nodes-comfyui: jags111/efficiency-nodes-comfyui
+    masquerade-nodes-comfyui: BadCafeCode/masquerade-nodes-comfyui
+    rgthree-comfy: rgthree/rgthree-comfy
+    was-node-suite-comfyui: WASasquatch/was-node-suite-comfyui
+
+  new_gap_identified:
+    - gap: "**32 个节点的 `git remote get-url origin` 未采集**"
+      why: "① 上表 slug 是候选值，需对账 ② 若某节点的实际 remote 与预期仓库不符（如装了 fork / 本地改过），则**它的许可判定对象就错了** —— 这是比「没读许可证」更隐蔽的风险"
+      how: "`for d in */; do git -C $d remote get-url origin; done`（只读）"
+      owner: C 流
+      when: "下次服务器可达时，与 dirty 文件的 `git diff` 一并取"

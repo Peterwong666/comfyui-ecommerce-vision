@@ -1,0 +1,210 @@
+# ============================================================
+# 提示词库 · 构图（P5-08）
+# 用途：控制主体在画面中的位置与占比；直接影响主图合规与文案留白
+# ============================================================
+schema_version: 1
+pack_id: composition
+name: 构图词包
+updated: 2026-09-16
+
+entries:
+  # ---------- 主体占比（主图合规的硬约束） ----------
+  - id: cmp-001
+    text: "主体占画面 70%，居中"
+    text_en: "subject filling about 70% of frame, centered"
+    tags: [构图, 占比, 居中]
+    scenes: [白底主图]
+    priority: 1
+    note: "主流电商平台主图要求主体占比较大，建议 65%-80%"
+  - id: cmp-002
+    text: "主体占画面 50%，四周留白"
+    text_en: "subject about 50% of frame with even margin"
+    tags: [构图, 占比, 留白]
+    scenes: [白底主图, 场景图]
+    priority: 2
+  - id: cmp-003
+    text: "主体贴近画面，特写占比"
+    text_en: "tight crop, subject filling the frame"
+    tags: [构图, 占比, 特写]
+    scenes: [材质特写, 白底主图]
+    priority: 2
+  - id: cmp-004
+    text: "主体偏小，环境为主"
+    text_en: "small subject in a wide environment"
+    tags: [构图, 占比, 远景]
+    scenes: [氛围图, 场景图]
+    priority: 3
+    note: "⚠️ 不适合主图 —— 主体过小会降低点击率"
+
+  # ---------- 经典构图法则 ----------
+  - id: cmp-005
+    text: "居中对称构图"
+    text_en: "centered symmetrical composition"
+    tags: [构图, 法则, 对称]
+    scenes: [白底主图, 场景图]
+    priority: 1
+    note: "对结构规整的产品（瓶罐、包装）最稳"
+  - id: cmp-006
+    text: "三分法构图"
+    text_en: "rule of thirds"
+    tags: [构图, 法则, 三分法]
+    scenes: [场景图, 氛围图, 模特图]
+    priority: 1
+  - id: cmp-007
+    text: "黄金分割点放置主体"
+    text_en: "golden ratio placement"
+    tags: [构图, 法则, 黄金比]
+    scenes: [场景图, 氛围图]
+    priority: 2
+  - id: cmp-008
+    text: "对角线构图，延展感"
+    text_en: "diagonal composition with extension"
+    tags: [构图, 法则, 对角线]
+    scenes: [场景图, 氛围图]
+    priority: 2
+  - id: cmp-009
+    text: "三角形构图，稳定感"
+    text_en: "triangular composition for stability"
+    tags: [构图, 法则, 三角]
+    scenes: [场景图, 白底主图]
+    priority: 2
+  - id: cmp-010
+    text: "引导线指向主体"
+    text_en: "leading lines pointing to the subject"
+    tags: [构图, 法则, 引导线]
+    scenes: [场景图, 氛围图]
+    priority: 2
+  - id: cmp-011
+    text: "框架式构图，前景包围"
+    text_en: "framing composition with foreground elements"
+    tags: [构图, 法则, 框架]
+    scenes: [场景图, 氛围图]
+    priority: 3
+  - id: cmp-012
+    text: "重复韵律，阵列排布"
+    text_en: "repetitive rhythm, arranged array"
+    tags: [构图, 法则, 阵列]
+    scenes: [场景图, 白底主图]
+    priority: 2
+    note: "多件装（一盒多支）场景的有效手法"
+
+  # ---------- 视角与画幅 ----------
+  - id: cmp-013
+    text: "正视图，无透视变形"
+    text_en: "orthographic front view, no perspective distortion"
+    tags: [构图, 视角, 正视]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+    note: "尺寸标注类主图必须正视 + 齐焦"
+  - id: cmp-014
+    text: "45 度斜侧视"
+    text_en: "45-degree three-quarter view"
+    tags: [构图, 视角, 斜视]
+    scenes: [白底主图, 场景图]
+    priority: 1
+  - id: cmp-015
+    text: "俯视图，垂直向下"
+    text_en: "overhead top view, straight down"
+    tags: [构图, 视角, 俯视]
+    scenes: [白底主图, 场景图]
+    priority: 1
+  - id: cmp-016
+    text: "侧视图，轮廓清晰"
+    text_en: "side profile view with clear silhouette"
+    tags: [构图, 视角, 侧视]
+    scenes: [白底主图, 材质特写]
+    priority: 2
+  - id: cmp-017
+    text: "背视图，展示结构"
+    text_en: "rear view showing structure"
+    tags: [构图, 视角, 背视]
+    scenes: [白底主图]
+    priority: 2
+    note: "鞋服类常需正/侧/背三视图成套"
+  - id: cmp-018
+    text: "低角度仰视，显高"
+    text_en: "low angle view, making subject look tall"
+    tags: [构图, 视角, 仰视]
+    scenes: [场景图, 氛围图]
+    priority: 3
+  - id: cmp-019
+    text: "方形 1:1 画幅"
+    text_en: "square 1:1 aspect ratio"
+    tags: [构图, 画幅, 方形]
+    scenes: [白底主图]
+    priority: 1
+    note: "多数平台主图为 1:1"
+  - id: cmp-020
+    text: "竖版 3:4 画幅"
+    text_en: "portrait 3:4 aspect ratio"
+    tags: [构图, 画幅, 竖版]
+    scenes: [场景图, 模特图]
+    priority: 2
+  - id: cmp-021
+    text: "横版 16:9 画幅"
+    text_en: "landscape 16:9 aspect ratio"
+    tags: [构图, 画幅, 横版]
+    scenes: [场景图, 氛围图]
+    priority: 2
+    note: "详情页 banner 用"
+
+  # ---------- 电商专用构图策略 ----------
+  - id: cmp-022
+    text: "上部大片留白，下部放主体"
+    text_en: "generous top negative space, subject placed lower"
+    tags: [构图, 电商, 文案位]
+    scenes: [场景图, 氛围图]
+    priority: 2
+    note: "为促销标题预留位置，详情页首图常用"
+  - id: cmp-023
+    text: "左侧留白，主体偏右"
+    text_en: "left negative space, subject on the right"
+    tags: [构图, 电商, 文案位]
+    scenes: [场景图, 氛围图]
+    priority: 2
+  - id: cmp-024
+    text: "成套排列，主次分明"
+    text_en: "product set arranged with clear hierarchy"
+    tags: [构图, 电商, 套装]
+    scenes: [白底主图, 场景图]
+    priority: 2
+    note: "赠品/套装场景，避免每件均等导致视觉混乱"
+  - id: cmp-025
+    text: "使用中状态，人物局部入镜"
+    text_en: "in-use shot with partial model in frame"
+    tags: [构图, 电商, 使用场景]
+    scenes: [场景图, 模特图]
+    priority: 2
+    note: "手部入镜可显著提升「真实使用感」；但手部是形变高发区"
+  - id: cmp-026
+    text: "尺寸对比参照物"
+    text_en: "scale reference object in frame"
+    tags: [构图, 电商, 尺寸感]
+    scenes: [场景图, 白底主图]
+    priority: 3
+  - id: cmp-027
+    text: "同款多色并排展示"
+    text_en: "multiple colorways side by side"
+    tags: [构图, 电商, 多色]
+    scenes: [白底主图, 场景图]
+    priority: 2
+    note: "⚠️ 多色并排极易出现串色，建议单色逐张生成再拼版"
+  - id: cmp-028
+    text: "细节局部放大，同框并列"
+    text_en: "detail insets shown alongside full product"
+    tags: [构图, 电商, 细节图]
+    scenes: [材质特写, 场景图]
+    priority: 2
+  - id: cmp-029
+    text: "包装与产品同框"
+    text_en: "packaging shown together with the product"
+    tags: [构图, 电商, 包装]
+    scenes: [包装图, 场景图]
+    priority: 2
+  - id: cmp-030
+    text: "拆解结构展示，零件摊开"
+    text_en: "exploded view with parts laid out"
+    tags: [构图, 电商, 结构]
+    scenes: [场景图]
+    priority: 3
+    note: "⚠️ 结构不明确的产品不要用 —— 模型会编造不存在的零件"

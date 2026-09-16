@@ -1,0 +1,266 @@
+# ============================================================
+# 提示词库 · 材质（P5-08）
+# 用途：材质特写场景的核心；也是「商品保真」的关键约束词
+# 注意：材质词写得太强会覆盖产品真实材质 —— 只在确认品类后使用
+# ============================================================
+schema_version: 1
+pack_id: material
+name: 材质词包
+updated: 2026-09-16
+
+entries:
+  # ---------- 金属 ----------
+  - id: mat-001
+    text: "拉丝不锈钢，细腻横向纹理"
+    text_en: "brushed stainless steel with fine horizontal grain"
+    tags: [材质, 金属, 不锈钢]
+    scenes: [材质特写, 白底主图, 场景图]
+    priority: 1
+    note: "金属反射方向必须写清，否则高光位置随机"
+  - id: mat-002
+    text: "镜面抛光金属，清晰反射"
+    text_en: "mirror-polished metal with sharp reflections"
+    tags: [材质, 金属, 抛光]
+    scenes: [材质特写, 白底主图]
+    priority: 1
+    note: "镜面金属对背景极敏感，白底场景需同时限定环境"
+  - id: mat-003
+    text: "喷砂哑光铝合金"
+    text_en: "sandblasted matte aluminum"
+    tags: [材质, 金属, 阳极氧化]
+    scenes: [材质特写, 白底主图]
+    priority: 1
+  - id: mat-004
+    text: "香槟金电镀表面"
+    text_en: "champagne gold electroplated surface"
+    tags: [材质, 金属, 电镀]
+    scenes: [材质特写, 氛围图]
+    priority: 2
+  - id: mat-005
+    text: "氧化做旧铜面"
+    text_en: "oxidized aged copper patina"
+    tags: [材质, 金属, 铜]
+    scenes: [材质特写, 氛围图]
+    priority: 3
+  - id: mat-006
+    text: "铸造铸铁，粗糙颗粒"
+    text_en: "cast iron with rough grain"
+    tags: [材质, 金属, 铸铁]
+    scenes: [材质特写]
+    priority: 3
+
+  # ---------- 塑料与树脂 ----------
+  - id: mat-007
+    text: "高光 ABS 塑料，圆润转面"
+    text_en: "glossy ABS plastic with smooth fillets"
+    tags: [材质, 塑料, 高光]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+  - id: mat-008
+    text: "磨砂 PC 外壳，细腻哑面"
+    text_en: "matte PC shell with fine satin finish"
+    tags: [材质, 塑料, 磨砂]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+  - id: mat-009
+    text: "半透明亚克力，边缘透光"
+    text_en: "translucent acrylic with lit edges"
+    tags: [材质, 塑料, 亚克力, 透明]
+    scenes: [材质特写, 氛围图]
+    priority: 2
+    note: "透明材质需配 —strong 的轮廓光，否则形状会糊"
+  - id: mat-010
+    text: "医用级硅胶，柔软哑光"
+    text_en: "medical-grade silicone, soft matte"
+    tags: [材质, 硅胶, 软质]
+    scenes: [材质特写, 白底主图]
+    priority: 2
+  - id: mat-011
+    text: "透明滴胶，内部气泡"
+    text_en: "clear resin with internal bubbles"
+    tags: [材质, 树脂, 透明]
+    scenes: [材质特写]
+    priority: 3
+  - id: mat-012
+    text: "碳纤维编织纹理"
+    text_en: "carbon fiber woven texture"
+    tags: [材质, 碳纤维, 纹理]
+    scenes: [材质特写, 氛围图]
+    priority: 3
+
+  # ---------- 玻璃与陶瓷 ----------
+  - id: mat-013
+    text: "清澈透明玻璃，无杂质"
+    text_en: "crystal clear glass, free of inclusions"
+    tags: [材质, 玻璃, 透明]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+  - id: mat-014
+    text: "磨砂玻璃，均匀雾面"
+    text_en: "frosted glass with even haze"
+    tags: [材质, 玻璃, 磨砂]
+    scenes: [材质特写, 氛围图]
+    priority: 2
+  - id: mat-015
+    text: "厚胎玻璃，瓶底折射"
+    text_en: "thick-walled glass with base refraction"
+    tags: [材质, 玻璃, 折射]
+    scenes: [材质特写]
+    priority: 2
+  - id: mat-016
+    text: "白釉陶瓷，温润光泽"
+    text_en: "white glazed ceramic with soft sheen"
+    tags: [材质, 陶瓷, 釉面]
+    scenes: [白底主图, 材质特写]
+    priority: 1
+  - id: mat-017
+    text: "哑光陶土，原始粗粝"
+    text_en: "matte terracotta, raw and coarse"
+    tags: [材质, 陶瓷, 陶土]
+    scenes: [材质特写, 场景图]
+    priority: 2
+  - id: mat-018
+    text: "骨瓷，薄胎透光"
+    text_en: "bone china, thin and translucent"
+    tags: [材质, 陶瓷, 骨瓷]
+    scenes: [白底主图, 材质特写]
+    priority: 2
+
+  # ---------- 木与天然材料 ----------
+  - id: mat-019
+    text: "白橡木，清晰锯切纹理"
+    text_en: "white oak with clear sawn grain"
+    tags: [材质, 木质, 橡木]
+    scenes: [材质特写, 场景图]
+    priority: 1
+  - id: mat-020
+    text: "胡桃木，深色山形纹"
+    text_en: "walnut with dark cathedral grain"
+    tags: [材质, 木质, 胡桃木]
+    scenes: [材质特写, 场景图]
+    priority: 2
+  - id: mat-021
+    text: "竹材，细密纵向纤维"
+    text_en: "bamboo with dense vertical fibers"
+    tags: [材质, 竹木, 环保]
+    scenes: [材质特写, 场景图]
+    priority: 2
+  - id: mat-022
+    text: "软木颗粒压制面"
+    text_en: "pressed cork granule surface"
+    tags: [材质, 软木, 环保]
+    scenes: [材质特写]
+    priority: 3
+  - id: mat-023
+    text: "天然大理石，灰白脉络"
+    text_en: "natural marble with gray-white veining"
+    tags: [材质, 石材, 大理石]
+    scenes: [材质特写, 场景图]
+    priority: 2
+  - id: mat-024
+    text: "水磨石，彩色骨料"
+    text_en: "terrazzo with colorful aggregates"
+    tags: [材质, 石材, 水磨石]
+    scenes: [场景图, 材质特写]
+    priority: 2
+
+  # ---------- 纺织与皮具 ----------
+  - id: mat-025
+    text: "长绒棉，细密平纹"
+    text_en: "long-staple cotton, dense plain weave"
+    tags: [材质, 纺织, 棉]
+    scenes: [材质特写, 白底主图]
+    priority: 1
+  - id: mat-026
+    text: "亚麻粗织，天然结节"
+    text_en: "coarse linen weave with natural slubs"
+    tags: [材质, 纺织, 亚麻]
+    scenes: [材质特写, 场景图]
+    priority: 1
+  - id: mat-027
+    text: "真丝，柔和垂坠光泽"
+    text_en: "silk with soft draping luster"
+    tags: [材质, 纺织, 真丝]
+    scenes: [材质特写, 模特图]
+    priority: 1
+  - id: mat-028
+    text: "羊绒，蓬松绒面"
+    text_en: "cashmere with fluffy nap"
+    tags: [材质, 纺织, 羊绒]
+    scenes: [材质特写, 场景图]
+    priority: 1
+  - id: mat-029
+    text: "头层牛皮，自然毛孔"
+    text_en: "full-grain leather with natural pores"
+    tags: [材质, 皮具, 牛皮]
+    scenes: [材质特写, 白底主图]
+    priority: 1
+    note: "皮革品类务必加 自然毛孔 类词，否则易出「塑料感」"
+  - id: mat-030
+    text: "麂皮绒面，短绒毛"
+    text_en: "suede with short nap"
+    tags: [材质, 皮具, 麂皮]
+    scenes: [材质特写]
+    priority: 2
+  - id: mat-031
+    text: "尼龙编织，加密纹路"
+    text_en: "dense woven nylon"
+    tags: [材质, 纺织, 尼龙]
+    scenes: [材质特写, 白底主图]
+    priority: 2
+  - id: mat-032
+    text: "羊毛针织，线圈清晰"
+    text_en: "wool knit with visible loops"
+    tags: [材质, 纺织, 针织]
+    scenes: [材质特写, 白底主图]
+    priority: 1
+  - id: mat-033
+    text: "丝绒，方向性光泽"
+    text_en: "velvet with directional sheen"
+    tags: [材质, 纺织, 丝绒]
+    scenes: [材质特写, 氛围图]
+    priority: 2
+  - id: mat-034
+    text: "网眼透气织物"
+    text_en: "breathable mesh fabric"
+    tags: [材质, 纺织, 网眼]
+    scenes: [材质特写]
+    priority: 2
+
+  # ---------- 表面工艺 ----------
+  - id: mat-035
+    text: "UV 彩印表面，色彩饱和"
+    text_en: "UV-printed surface, saturated color"
+    tags: [材质, 工艺, 印刷]
+    scenes: [材质特写, 白底主图]
+    priority: 2
+  - id: mat-036
+    text: "激光雕刻细纹"
+    text_en: "laser-engraved fine lines"
+    tags: [材质, 工艺, 雕刻]
+    scenes: [材质特写]
+    priority: 3
+  - id: mat-037
+    text: "哑光喷涂，无光泽"
+    text_en: "matte spray coating, non-reflective"
+    tags: [材质, 工艺, 喷涂]
+    scenes: [材质特写, 白底主图]
+    priority: 2
+  - id: mat-038
+    text: "珠光幻彩表面，角度变色"
+    text_en: "pearlescent surface with angle-dependent shift"
+    tags: [材质, 工艺, 珠光]
+    scenes: [材质特写, 氛围图]
+    priority: 3
+  - id: mat-039
+    text: "绒面植绒，细密短绒"
+    text_en: "flocked surface with dense short fibers"
+    tags: [材质, 工艺, 植绒]
+    scenes: [材质特写]
+    priority: 3
+  - id: mat-040
+    text: "拉丝纹理金属按键"
+    text_en: "brushed metal buttons"
+    tags: [材质, 工艺, 金属]
+    scenes: [材质特写]
+    priority: 3

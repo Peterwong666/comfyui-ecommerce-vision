@@ -1,0 +1,333 @@
+# ============================================================
+# 提示词库 · 风格（P5-08）
+# 用途：给「同一主体、不同调性」批量出图时切换姿态；也是模板库的骨架
+# ============================================================
+schema_version: 1
+pack_id: style
+name: 风格词包
+updated: 2026-09-16
+# 字段同 positive.yaml；额外：
+#   budget    算力开销提示 low/medium/high（影响步数与是否需 LoRA）
+#   morph_risk 形变风险 low/medium/high —— 高风险风格需搭配结构保真词与 ControlNet
+
+entries:
+  # ---------- 摄影棚系（V1 主力，最稳） ----------
+  - id: sty-001
+    text: "纯白电商影棚布光风格"
+    text_en: "clean e-commerce studio shot, white seamless background"
+    tags: [风格, 摄影棚, 白底]
+    scenes: [白底主图]
+    priority: 1
+    morph_risk: low
+    budget: low
+    note: "V1 白底主图的默认风格，良品率最高"
+  - id: sty-002
+    text: "浅灰渐变影棚风格"
+    text_en: "light gray gradient studio backdrop"
+    tags: [风格, 摄影棚, 灰底]
+    scenes: [白底主图, 场景图]
+    priority: 1
+    morph_risk: low
+    budget: low
+  - id: sty-003
+    text: "高调摄影，明亮通透"
+    text_en: "high-key photography, bright and airy"
+    tags: [风格, 摄影棚, 高明度]
+    scenes: [白底主图, 场景图, 氛围图]
+    priority: 2
+    morph_risk: low
+    budget: low
+  - id: sty-004
+    text: "低调摄影，暗部厚重"
+    text_en: "low-key photography with deep shadows"
+    tags: [风格, 摄影棚, 低明度]
+    scenes: [氛围图, 材质特写]
+    priority: 2
+    morph_risk: medium
+    budget: medium
+    note: "低调用硬光会放大产品瑕疵，建议先跑 golden set 再放量"
+  - id: sty-005
+    text: "硬光直射，锐利投影"
+    text_en: "hard light, crisp shadow"
+    tags: [风格, 布光, 硬光]
+    scenes: [材质特写, 白底主图]
+    priority: 2
+    morph_risk: medium
+    budget: medium
+  - id: sty-006
+    text: "柔光箱大面积布光"
+    text_en: "large softbox lighting"
+    tags: [风格, 布光, 柔光]
+    scenes: [白底主图, 场景图, 材质特写]
+    priority: 1
+    morph_risk: low
+    budget: low
+  - id: sty-007
+    text: "环形光，眼部高光"
+    text_en: "ring light with circular catchlight"
+    tags: [风格, 布光, 环形光]
+    scenes: [模特图, 材质特写]
+    priority: 2
+    morph_risk: medium
+    budget: medium
+
+  # ---------- 场景与生活方式 ----------
+  - id: sty-008
+    text: "北欧极简家居场景"
+    text_en: "Nordic minimalist home interior"
+    tags: [风格, 生活方式, 家居]
+    scenes: [场景图, 氛围图]
+    priority: 1
+    morph_risk: low
+    budget: medium
+  - id: sty-009
+    text: "日式侘寂，原木与留白"
+    text_en: "Japanese wabi-sabi, natural wood and negative space"
+    tags: [风格, 生活方式, 侘寂]
+    scenes: [场景图, 氛围图]
+    priority: 2
+    morph_risk: medium
+    budget: medium
+  - id: sty-010
+    text: "现代轻奢，大理石与金属"
+    text_en: "modern light luxury, marble and metal"
+    tags: [风格, 生活方式, 轻奢]
+    scenes: [场景图, 氛围图]
+    priority: 1
+    morph_risk: medium
+    budget: medium
+  - id: sty-011
+    text: "户外自然光生活场景"
+    text_en: "outdoor lifestyle scene with natural daylight"
+    tags: [风格, 生活方式, 户外]
+    scenes: [场景图, 氛围图, 模特图]
+    priority: 2
+    morph_risk: medium
+    budget: medium
+  - id: sty-012
+    text: "办公室工作台场景"
+    text_en: "office desk workspace scene"
+    tags: [风格, 生活方式, 办公]
+    scenes: [场景图, 氛围图]
+    priority: 2
+    morph_risk: low
+    budget: medium
+  - id: sty-013
+    text: "咖啡馆桌面场景"
+    text_en: "cafe tabletop scene"
+    tags: [风格, 生活方式, 餐饮]
+    scenes: [场景图, 氛围图]
+    priority: 2
+    morph_risk: medium
+    budget: medium
+  - id: sty-014
+    text: "厨房料理台场景"
+    text_en: "kitchen countertop scene"
+    tags: [风格, 生活方式, 厨房]
+    scenes: [场景图, 氛围图]
+    priority: 2
+    morph_risk: medium
+    budget: medium
+  - id: sty-015
+    text: "浴室洗漱台场景"
+    text_en: "bathroom vanity scene"
+    tags: [风格, 生活方式, 卫浴]
+    scenes: [场景图, 氛围图]
+    priority: 2
+    morph_risk: medium
+    budget: medium
+
+  # ---------- 氛围与节令（营销节点） ----------
+  - id: sty-016
+    text: "春日清新氛围，浅绿点缀"
+    text_en: "fresh spring mood with pale green accents"
+    tags: [风格, 氛围, 节令, 春]
+    scenes: [氛围图, 场景图]
+    priority: 2
+    morph_risk: low
+    budget: medium
+  - id: sty-017
+    text: "夏日清爽，水感与亮色"
+    text_en: "refreshing summer mood, watery and bright"
+    tags: [风格, 氛围, 节令, 夏]
+    scenes: [氛围图, 场景图]
+    priority: 2
+    morph_risk: medium
+    budget: medium
+  - id: sty-018
+    text: "秋日暖调，暖棕与麦色"
+    text_en: "autumn warm tones, warm brown and wheat"
+    tags: [风格, 氛围, 节令, 秋]
+    scenes: [氛围图, 场景图]
+    priority: 2
+    morph_risk: low
+    budget: medium
+  - id: sty-019
+    text: "冬日暖光，毛绒与暖白"
+    text_en: "cozy winter mood, fleece and warm white"
+    tags: [风格, 氛围, 节令, 冬]
+    scenes: [氛围图, 场景图]
+    priority: 2
+    morph_risk: medium
+    budget: medium
+  - id: sty-020
+    text: "新春红金配色，喜庆而不俗"
+    text_en: "Chinese New Year red and gold, festive yet tasteful"
+    tags: [风格, 氛围, 节令, 新春]
+    scenes: [氛围图]
+    priority: 2
+    morph_risk: high
+    budget: high
+    note: "红金配色易过饱和糊成一团，建议降低饱和度关键词权重"
+  - id: sty-021
+    text: "618 / 双十一促销氛围，简洁不俗"
+    text_en: "simple promotional mood, vibrant but clean"
+    tags: [风格, 氛围, 节令, 大促]
+    scenes: [氛围图]
+    priority: 3
+    morph_risk: medium
+    budget: medium
+  - id: sty-022
+    text: "礼品季氛围，礼盒与缎带"
+    text_en: "gift season mood with box and ribbon"
+    tags: [风格, 氛围, 节令, 礼赠]
+    scenes: [氛围图, 包装图]
+    priority: 2
+    morph_risk: medium
+    budget: medium
+
+  # ---------- 艺术化风格（需警惕形变） ----------
+  - id: sty-023
+    text: "3D 渲染风，C4D 质感"
+    text_en: "3D render style, C4D look"
+    tags: [风格, 艺术化, 3D]
+    scenes: [氛围图, 场景图]
+    priority: 2
+    morph_risk: high
+    budget: high
+    note: "⚠️ 形变风险高：材质与结构易被「渲染化」，商品保真场景慎用"
+  - id: sty-024
+    text: "黏土软陶质感"
+    text_en: "clay / plasticine texture"
+    tags: [风格, 艺术化, 黏土]
+    scenes: [氛围图]
+    priority: 3
+    morph_risk: high
+    budget: high
+    note: "⚠️ 不适合要求真实材质的品类（珠宝 / 皮具）"
+  - id: sty-025
+    text: "扁平插画风"
+    text_en: "flat illustration style"
+    tags: [风格, 艺术化, 插画]
+    scenes: [氛围图]
+    priority: 3
+    morph_risk: high
+    budget: medium
+  - id: sty-026
+    text: "水彩手绘质感"
+    text_en: "watercolor hand-painted texture"
+    tags: [风格, 艺术化, 水彩]
+    scenes: [氛围图]
+    priority: 3
+    morph_risk: high
+    budget: medium
+  - id: sty-027
+    text: "复古胶片颗粒"
+    text_en: "vintage film grain"
+    tags: [风格, 艺术化, 胶片]
+    scenes: [氛围图, 场景图]
+    priority: 3
+    morph_risk: medium
+    budget: medium
+  - id: sty-028
+    text: "赛博霓虹夜色"
+    text_en: "cyberpunk neon night"
+    tags: [风格, 艺术化, 赛博]
+    scenes: [氛围图]
+    priority: 3
+    morph_risk: high
+    budget: high
+
+  # ---------- 拍摄器材与画幅语言 ----------
+  - id: sty-029
+    text: "85mm 定焦，浅景深"
+    text_en: "85mm prime lens, shallow depth of field"
+    tags: [风格, 器材, 镜头]
+    scenes: [场景图, 氛围图, 模特图]
+    priority: 2
+    morph_risk: low
+    budget: low
+  - id: sty-030
+    text: "100mm 微距，产品细节"
+    text_en: "100mm macro lens, product detail"
+    tags: [风格, 器材, 镜头, 微距]
+    scenes: [材质特写]
+    priority: 1
+    morph_risk: low
+    budget: low
+    note: "材质特写场景的默认镜头语言"
+  - id: sty-031
+    text: "50mm 标准视角，平视"
+    text_en: "50mm standard lens, eye level"
+    tags: [风格, 器材, 镜头]
+    scenes: [白底主图, 场景图]
+    priority: 2
+    morph_risk: low
+    budget: low
+  - id: sty-032
+    text: "俯拍平铺"
+    text_en: "top-down flat lay"
+    tags: [风格, 视角, 俯拍]
+    scenes: [白底主图, 场景图]
+    priority: 1
+    morph_risk: low
+    budget: low
+  - id: sty-033
+    text: "鸟瞰 45 度俯视"
+    text_en: "45-degree high angle view"
+    tags: [风格, 视角, 俯视]
+    scenes: [白底主图, 场景图]
+    priority: 2
+    morph_risk: low
+    budget: low
+  - id: sty-034
+    text: "低角度仰拍，显体量"
+    text_en: "low angle shot emphasizing volume"
+    tags: [风格, 视角, 仰拍]
+    scenes: [氛围图, 场景图]
+    priority: 3
+    morph_risk: medium
+    budget: low
+  - id: sty-035
+    text: "等距视角，主体居中"
+    text_en: "eye-level view, subject centered"
+    tags: [风格, 视角, 平视]
+    scenes: [白底主图, 场景图, 模特图]
+    priority: 2
+    morph_risk: low
+    budget: low
+  - id: sty-036
+    text: "留白构图，极简背景"
+    text_en: "minimalist composition with generous negative space"
+    tags: [风格, 构图, 留白]
+    scenes: [白底主图, 氛围图]
+    priority: 2
+    morph_risk: low
+    budget: low
+  - id: sty-037
+    text: "无缝投影棚，影子渐变"
+    text_en: "seamless backdrop with soft gradient shadow"
+    tags: [风格, 摄影棚, 投影]
+    scenes: [白底主图]
+    priority: 2
+    morph_risk: low
+    budget: low
+  - id: sty-038
+    text: "悬浮动感，微距水花"
+    text_en: "dynamic floating with micro splash"
+    tags: [风格, 动感, 特效]
+    scenes: [氛围图, 材质特写]
+    priority: 3
+    morph_risk: high
+    budget: high
+    note: "⚠️ 水花类特效极易污染产品本体，须配 mask / inpaint 补救"
