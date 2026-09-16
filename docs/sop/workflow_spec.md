@@ -369,12 +369,26 @@ API 格式里也带 `mode` 字段。但 V1 **不使用**该机制，原因：
 
 | 规则 | 说明 |
 |---|---|
-| 摘要 = `sha256(salt ‖ prompt)` | 盐从**配置**读（如 `settings.prompt_hash_salt`），**不写死在代码里** |
-| 摘要自带 `salted` 标志 | `{"sha256": ..., "length": ..., "salted": true}` —— 否则"加盐摘要"与"未加盐摘要"混在一起比对，会得出**"提示词不同"的错误结论** |
+| 摘要 = **`HMAC-SHA256(salt, prompt)`** | 盐从**配置**读（如 `settings.prompt_hash_salt`），**不写死在代码里**。<br>⚠️ **不用 `sha256(salt ‖ prompt)`** —— 那个构造对**长度扩展攻击**脆弱：已知 `sha256(salt‖P)` 的人能算出 `sha256(salt‖P‖padding‖X)`，即**为另一个提示词伪造出合法摘要**。威胁不高，但 HMAC 是零成本的标准解（2026-09-16 team-lead 批准切换；当时无生产数据，成本为零） |
+| 摘要自带 `salted` 与 `alg` 标志 | `{"sha256": ..., "length": ..., "salted": true, "alg": "hmac-sha256"}` —— 否则「加盐/未加盐」、「新旧算法」的摘要混在一起比对，会得出**「提示词不同」的错误结论** |
 | 跨系统比对须同盐 | 产物元数据的摘要要与服务端事件摘要对上，两侧必须同一个盐 |
 | 换盐 = 有意识的迁移 | 换盐会作废全部历史摘要，必须当作一次数据迁移来计划，不能顺手改 |
 
 > 实现见 `engine.metadata._prompt_digest()`，`length` 不受盐影响（它是统计口径）。
+
+#### 7.2.3 提示词**内容层面的语法约束**是「按工作流不同」的
+
+`prompt` 这个字段名在两条工作流上一样，但**能写什么语法不一样** ——
+这是一条容易被漏掉的"同名不同义"：
+
+| 工作流 | `(word:1.2)` 权重语法 | 原因 |
+|---|---|---|
+| `t2i_v1`（SDXL） | ✅ 正常解析 | 走 SD1 tokenizer，未禁用权重 |
+| `flux2_klein_t2i_v1` | ❌ **严禁使用** | `KleinTokenizer` 显式传 `disable_weights=True`，括号/冒号/数字会**原样进入分词**，属污染提示词 |
+
+> 完整依据（含源码位置与待验证项）见 `docs/sop/debug_log.md` **G7**。
+> 处置：**前端提示文案与提示词库（`prompt_guide.md`）必须按工作流分别说明**，
+> 不能给一条通用的"权重语法可用"提示 —— 那会让 klein 用户在毫不知情的情况下污染提示词。
 
 ⚠️ **`salted: false` 不等于安全 —— 它只是"可区分"。**
 `engine.metadata` 在未传 `hash_salt` 时**仍会输出摘要并标注 `salted: false`**，
@@ -400,47 +414,70 @@ API 格式里也带 `mode` 字段。但 V1 **不使用**该机制，原因：
 | **L3 节点合法性** | `class_type` 存在 · 必填入参齐备 · 入参名被接受 · 连线序号不越界 · 枚举取值合法 | `engine/validate.py`（对**渲染后**的图）<br>`deploy/autodl/26_validate_workflow.py --object-info FILE`（对**模板原文件**） | ❌ 不需要 |
 | **L4 真实出图** | 提交 → 出图 → 检查产物与元数据 | `deploy/autodl/07_bench_workflow.py`（模板）<br>生产路径 / `engine/render`（渲染） | ✅ **需要** |
 
-### 8.1 ✅ L3 已可执行
+### 8.1 ✅ L3 已可执行，且**两条工作流已实测通过**
 
-`object_info` 缓存已入库：**`deploy/schemas/object_info.v0.36.0.json`**（v0.36.0，2530 个节点类）。
+`object_info` 缓存已入库：**`deploy/schemas/object_info.v0.36.0.json`**（v0.36.0，2530 个节点类，与升级后审计数字一致）。
 `engine.validate` 会自动读取它，**无需额外参数**。
+
+**当前结果（2026-09-16）**：
+
+| 对象 | L1 | L2 | L3 |
+|---|---|---|---|
+| `workflows/t2i_v1.json` | ✅ | ✅ | ✅ **PASS** |
+| `workflows/flux2_klein_t2i_v1.json` | ✅ | ✅ | ✅ **PASS** |
+
+（L3 对"模板原文件"与"渲染后的图"两种对象都跑过，均 PASS。L4 仍未做 —— 见 §8.3.1。）
 
 ⭐ **L3 有两种用法，两种都要做**（它们抓的不是同一类错）：
 
 | 方式 | 校验对象 | 能抓到 |
 |---|---|---|
-| `engine.validate` | **渲染后**的图 | 全部，**外加 `targets` 注入的错误**（节点 ID 漂移、注入的入参名/枚举值非法） |
+| `python -m engine` | **渲染后**的图 | 全部，**外加 `targets` 注入的错误**（节点 ID 漂移、注入的入参名/枚举值非法） |
 | `python deploy/autodl/26_validate_workflow.py <file> --object-info deploy/schemas/object_info.v0.36.0.json` | **模板原文件** | 模板自身的问题 |
 
 > 只做第二种是不够的：`targets` 里的 `node_id` 是**手写的字符串**，
 > 一旦工作流的节点 ID 变动就会漂移，而漂移**不会报错**、只会静默注入到错位置或失败。
 > 只有"对渲染后的图跑 L3"才覆盖得到。这是 L3 在本项目里的主要价值。
 
-### 8.2 L1/L2/L3 怎么跑
+### 8.2 怎么跑
+
+**安装（一次即可）**：`engine/` 是可安装包（flat layout，配置在**仓库根** `pyproject.toml`）。
+从仓库根执行：
+
+```bash
+backend/.venv/bin/pip install -e . -e ./backend
+```
+
+装完后**在任何工作目录**都能 `import engine`，**不要**再靠 `sys.path` / `PYTHONPATH` 操纵。
 
 ```bash
 # L1 + L2 + L3（object_info 已入库，自动加载）
-PYTHONPATH=. backend/.venv/bin/python -m engine.validate
+python -m engine
 
 # 输出会如实列出执行的级别，例如：已执行: L1/L2/L3 · 未执行: L4
 # 若 L3 被跳过，会显式打印「节点类型/入参名/枚举取值未经验证」
 
 # 连「Schema 边界 ⊆ 全局红线」一起查（contracts.md §3.4）
-#   生成边界表（避免手工抄 settings 抄错；需在 backend/ 目录下执行）：
+#   生成边界表（避免手工抄 settings 抄错；在 backend/ 目录下执行）：
 PYTHONPATH=..:. .venv/bin/python -c "
 from app.core.config import settings
 from engine.validate import bounds_from_settings
 import json; print(json.dumps(bounds_from_settings(settings), indent=2, ensure_ascii=False))
 " > ../workflows/settings_bounds.yaml
-PYTHONPATH=. backend/.venv/bin/python -m engine.validate   # 会自动读该文件
+python -m engine     # 会自动读该文件
 
 # 单测
-PYTHONPATH=. backend/.venv/bin/python -m pytest engine/tests -q
+python -m pytest engine/tests -q
 ```
 
+> 命令用 **`python -m engine`** 而不是 `python -m engine.validate`：
+> 后者会触发 runpy 的 `RuntimeWarning`（`__init__.py` 已导入 `engine.validate`，
+> 随后又要把它当 `__main__` 跑一次）。那条警告不是 bug，但**看起来像 bug**，
+> 会让人怀疑工具本身。旧的写法仍可用，只是会打印该警告。
+>
 > `workflows/settings_bounds.yaml` 是**派生快照**，真相在 `backend/app/core/config.py`。
 > 因此它没有入库 —— 每次要跑该检查时现生成，避免出现第三份"边界真相"。
-> 若未提供，`engine.validate` 会**显式提示已跳过该检查**，不会静默放过。
+> 若未提供，`python -m engine` 会**显式提示已跳过该检查**，不会静默放过。
 
 ### 8.3 提交纪律
 
@@ -448,6 +485,22 @@ PYTHONPATH=. backend/.venv/bin/python -m pytest engine/tests -q
 **L4 未通过之前，不允许写入注册表的 `status: enabled`。**
 在无卡模式期间，所有 L4 结论必须显式标注为**「待 GPU 验证」**，
 不得因为 L1~L3 通过就写成"已跑通"（这是本项目最看重的一条：过程可证明）。
+
+#### 8.3.2 契约 §3.6 的不变量（`engine.validate` 会机械执行其中可检查的两条）
+
+`contracts.md` §3.6 列了 4 条**契约级**不变量。其中两条能离线机械检查，**已实现为 `error`（不是警告）**：
+
+| # | 不变量 | 检查方式 |
+|---|---|---|
+| **1** | 一条工作流的单次执行只产出 1 张图 → B 流**不得暴露** `batch_size` 这类参数 | 按**入参名**匹配黑名单（`batch_size` / `batch_count` / `num_images` …）。⚠️ 按入参名而非参数名 —— 叫 `n` 或 `count` 的参数照样可能写进 `batch_size` |
+| **2** | 参数默认值必须与工作流 JSON 里的实际值一致 | 逐字段比对 `default` 与模板字面值。`seed` **豁免**（`-1`=随机，本就不该等于模板里的历史字面值）；模板用 `{{key}}` 占位符时**豁免**（字面值本来就是占位符） |
+
+另两条（**3** 不得暴露不起作用的参数 · **4** `targets` 必须指向真实存在的节点与入参）
+分别依赖语义判断与 `object_info`，由 L1/L3 覆盖，无法完全机械判定。
+
+> 定级为 `error` 而非 `warn` 的理由：这两条一旦违反都是**静默失真** ——
+> 不变量 1 会让成本核算与断点续跑同时错位，不变量 2 会让"UI 里看到的初始状态"
+> 与"真实执行的"不是同一件事。警告会被忽略，错误不会。
 
 #### 8.3.1 ⚠️ L4 要区分「模板裸提交」与「渲染路径」
 
@@ -505,3 +558,4 @@ PYTHONPATH=. backend/.venv/bin/python -m pytest engine/tests -q
 | 日期 | 版本 | 变更 | 影响 |
 |---|---|---|---|
 | 2026-09-16 | v1.0 | 初稿：文件结构 / 节点 ID 分段 / 命名约定 / `targets` 用法 / `{{}}` 占位符 / Bypass 构建期裁剪 / Seed 解析 / 元数据字段 / 四级校验流程 | B 流全部工作流 |
+| 2026-09-16 | v1.1 | **L3 解锁并实测通过**（`object_info.v0.36.0.json` 入库；§8.1 改写，并区分"对模板"与"对渲染后的图"两种 L3）。新增 **§5.5**「默认渲染 ≡ 模板原样」不变量（后升格为契约 §3.6 不变量 2）。新增 **§8.3.2** 契约 §3.6 不变量的机械检查（不变量 1/2 已实现为 `error`）。§7.2.2 提示词摘要改为 **HMAC-SHA256**（原 `sha256(salt‖prompt)` 对长度扩展攻击脆弱）并补 `alg` 标志；补 `salted: false` **不等于安全**的说明 | B 流全部工作流 · A 流（埋点摘要须同盐同算法）· C 流（提示词库） |

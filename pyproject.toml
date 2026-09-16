@@ -40,5 +40,24 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["engine"]
 
+# ------------------------------------------------------------
+# 仓库级 lint 标准
+#
+# 为什么必须在这里写一份：此前根目录没有 [tool.ruff]，于是 `ruff check .`
+# 在根目录执行时，engine/ 用的是 ruff 的**默认规则集**，而 backend/ 用它自己
+# pyproject 里配置的规则集 —— **同一个命令、同一份代码，结论取决于在哪执行**。
+# 这正是 CI 最容易踩的坑（CI 通常在根目录跑 `ruff check .`）。
+#
+# 此处与 backend/pyproject.toml 的 [tool.ruff.lint] 保持一致：
+# 同一仓库里两个包不该有不同的代码标准。
+# ------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["E501"]
+
 [tool.pytest.ini_options]
 testpaths = ["engine/tests"]

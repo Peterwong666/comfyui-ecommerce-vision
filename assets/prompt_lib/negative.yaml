@@ -4,11 +4,17 @@
 # ⚠️ 重要前提（务必先读，否则会白费功夫）：
 #   反向提示词**只在 CFG > 1 时生效**。数学上 CFG=1 时
 #   去噪结果 = 纯条件分支，反向分支权重为零。
-#   · SDXL 链路（cfg 7~8）→ 反向词**有效**，本文件是主力手段
-#   · FLUX.2 klein **蒸馏版**（4 步 / cfg=1）→ 反向词**无效果**，
-#     官方模板对应的是 ConditioningZeroOut
-#   → klein 链路的「反向」诉求必须改用：① 正向增强词 ② 局部重绘 ③ 人工筛选
-#   依据：项目进展.md #16 验证 3（官方模板展开结论）＋ docs/sop/contracts.md §3.5
+#   · t2i_v1（SDXL 链路，cfg 7~8）→ 反向词**有效**，本文件是主力手段
+#   · flux2_klein_t2i_v1（klein 蒸馏版，4 步 / cfg=1）→ 反向词**无效**，
+#     官方 Distilled 子图对应的是 ConditioningZeroOut（负向整体置零）。
+#     **更进一步：该工作流的参数 Schema 里根本没有暴露 `negative_prompt` 字段**
+#     → 不是「填了不生效」，而是「在当前 API 上无处可填」。
+#     ⚠️ 不要为 klein 补这个字段 —— 补了会让用户误以为能生效。
+#   依据：项目进展.md #16 验证 3（官方模板展开）＋ contracts.md §3.5
+#        ＋ B 流答复（2026-09-16，workflow_spec / debug_log G7 相关记录）
+#
+#   → 因此本文件与 negative_packs.yaml 在 V1 的作用域是：
+#     ① t2i_v1 / SDXL 链路  ② **人工质检清单**（severity: hit 的条目即判废标准）
 # ============================================================
 schema_version: 1
 pack_id: negative

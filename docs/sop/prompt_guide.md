@@ -13,43 +13,70 @@
 
 ---
 
-## 1. ⚠️ 三条硬约束（先看这个，否则会白干）
+## 1. ⚠️ 四条硬约束（先看这个，否则会白干）
 
-| # | 约束 | 依据 | 后果 |
+| # | 约束 | 依据（**均为可直接核验的事实，不是机制推断**） | 后果 |
 |---|---|---|---|
-| 1 | **反向提示词只在 CFG > 1 时生效** | CFG=1 时去噪结果 = 纯条件分支，反向分支权重为零；官方 klein 模板对应 `ConditioningZeroOut`（`项目进展.md` #16 验证 3） | ① `t2i_v1`/SDXL（cfg 7-8）可用 ② klein 链路**连 Schema 里的 `negative_prompt` 字段都没有**，无处可填 → 不要补，补了是"看起来能用"的陷阱。详见下方 §1.1 之后的说明 |
-| 2 | **材质词是商品真实性声明** | 商用红线（`license_matrix.md` §6） | 写了「真丝」实际是涤纶 = 虚假宣传，法律风险 |
-| 3 | **文字不进模型，一律后期叠加** | 中文渲染错误率高；伪造品牌标识属法律红线 | 生成图中的乱码文字 + 假 logo 会直接毁掉交付物 |
+| 1 | 🚨 **klein 链路上严禁写权重 `(word:1.2)`** | 源码：`KleinTokenizer` 显式传 `disable_weights=True`（`comfy/text_encoders/flux.py:153,169`）→ 原样字符串进分词 | **不是"无效"，是污染提示词**（括号/冒号/数字成为 token）。详见 §1.1 |
+| 2 | **klein 链路上反向词无效，且无处可填** | ① 图上：官方 Distilled 子图用 `ConditioningZeroOut` 把负向置零 ② 接口上：Schema 未暴露 `negative_prompt` 字段 | 填不进去。**不要为 klein 补该字段** = 避免"看起来能用"的陷阱。详见下节 |
+| 3 | **材质词是商品真实性声明** | 商用红线（`license_matrix.md` §6） | 写了「真丝」实际是涤纶 = 虚假宣传，法律风险 |
+| 4 | **文字不进模型，一律后期叠加** | 中文渲染错误率高；伪造品牌标识属法律红线 | 生成图中的乱码文字 + 假 logo 会直接毁掉交付物 |
 
-### 1.1 🔶 待验证项：权重语法在 **cfg=1 的 klein 链路**上的**效果量级**（不是"能不能写"）
+> 💡 约束 1、2 的共同教训：**「该能力被禁用」与「该能力无效」是两种不同的用户指引**。
+> 前者要写「**严禁/别写**」，后者会被理解成「写了无害」。
+> 凡是「看起来能用但其实不能用」的字段，都是在给用户挖坑（`debug_log.md` G7 沉淀）。
 
-> ⚠️ **本节曾有过一个错误前提，已由 B 流证伪，保留记录以免重犯**：
-> 原先写「权重语法 `(word:1.2)` **依赖保留节点** `ComfyUI_ADV_CLIP_emb`」→ **不成立**。
-> B 流用 `object_info.v0.36.0.json` 证明该包只提供 4 个 `BNK_*` 节点，**我们两条图里一个都没有**；
-> 条件是**核心** `CLIPTextEncode` 自带的。详见 `docs/sop/debug_log.md` G7。
+### 1.1 🚨 权重语法 `(word:1.2)` 在 klein 链路上**严禁使用**（源码级定论，**不是"效果待测"**）
+
+> **口径纪律（最重要的一条）**：必须写「**klein 上严禁使用权重语法**」，**不能**写「klein 上权重无效」。
+> 后者会被用户理解成「写了也没关系」，而实际情况是**提示词被污染** —— 这是两种完全不同的用户指引。
+> 依据：`docs/sop/debug_log.md` **G7**（源码级定论）＋ `项目进展.md` 待解决清单。
 
 | 项 | 内容 |
 |---|---|
-| **已澄清（能力来源）** | ✅ 写权重是**核心 `CLIPTextEncode` 自带**能力（`python_module=nodes`），两条链路都能写 —— **与 `ADV_CLIP_emb` 无关** |
-| **`ComfyUI_ADV_CLIP_emb` 实际管什么** | 它多出的是两个参数：`token_normalization`（4 种）与 **`weight_interpretation`（5 种：`comfy` / `A1111` / `compel` / `comfy++` / `down_weight`）** —— 即它管「**权重怎么解释**」，不管「能不能写权重」。当前两条图未接 `BNK_*` → 我们用的是 **ComfyUI 默认语义** |
-| **结论状态** | 🔶 **待验证（L4，需 GPU）** —— 能否写已确定；**未确定的是 `cfg=1` 蒸馏链路上权重变更的「效果量级」是否实用**。蒸馏模型没有 guidance 放大，权重作用可能被削弱 |
-| **影响面** | P5-09 模板引擎的权重插值、以及所有依赖「调权重压过某个词」的配方调优手法。（提示词库本身**没有** `weight_hint` 之类字段，也没有任何 `(word:1.2)` 写法 —— 已正则扫过，故**此刻没有正在受损的内容**） |
-| **验证方式（B 流已写入 `debug_log.md` G7）** | 同一 seed、同一构图跑 3 组：① 无权重基线 ② `(mug:1.5)` 加权 ③ `(mug:0.6)` 降权。**klein（cfg=1）与 `t2i_v1`/SDXL（cfg≈6.5）各做一遍做对照**。<br>· klein 三组近乎一致 + SDXL 三组有明显差异 → 权重在 klein 上「结构上生效但效果量级不足」<br>· 两组都有差异 → 权重可正常用于两条链路 |
-| **归属** | B 流（工作流定型时验证，L4） |
-| **在此之前的写法纪律** | ① 配方 `notes` 与 `prompt_guide` 中**不得**把权重当作确定有效的手段来建议，一律标注「待验证」 ② 配方调优**优先用「增删词条」而非「调权重」** ③ 若实测发现 klein 上效果不足，则本文件的 weight 小节改为「**SDXL 可用、klein 不建议**」；若需要更细的权重语义，再评估接入 `BNK_*` 节点（该节点当前在白名单里是 `review`，正因未接线） |
+| **结论** | klein 链路上 **`(word:1.2)` 不被解析，且其字面字符会进入分词 → 主动污染提示词**（括号、冒号、数字都变成 token 喂给模型） |
+| **源码证据** | `comfy/text_encoders/flux.py:153,169` —— `KleinTokenizer.tokenize_with_weights()` **显式传 `disable_weights=True`**；`comfy/sd1_clip.py:585-588` —— 该分支走 `parsed_weights = [(text, 1.0)]`，**根本不调用 `token_weights()`**，原样字符串直接进分词<br>⚠️ **证据归属**：该源码为 **team-lead 在 `/root/ComfyUI` 读取**（`debug_log.md` G7）；**C 流未独立复核此源码**，本文件为**转录引用**。"该包提供 4 个 `BNK_*`"一项 C 流已独立用 `object_info` 复核 ✅ |
+| **为什么 klein 会这样** | `KleinTokenizer` 继承 `SD1Tokenizer`（**本来有解析能力**），是这个子类**显式把能力关掉了** —— 不是引擎不具备该能力 |
+| **能力来源澄清** | `(word:1.2)` 是**核心 `CLIPTextEncode`** 自带能力（`python_module=nodes`），**与 `ComfyUI_ADV_CLIP_emb` 无关**。后者的职责是「权重**怎么解释**」（提供 4 个 `BNK_*` 节点 + `token_normalization` / `weight_interpretation` 5 种语义），两条图里**一个 `BNK_*` 都没接** |
+| **两条链路的最终口径** | `t2i_v1`（SDXL）：✅ **可正常使用权重**（走 SD1 tokenizer 且未 disable）<br>`flux2_klein_t2i_v1`：🚫 **严禁使用**（写了 = 污染） |
+| **现状（重要）** | 提示词库**已正则扫过：全部 YAML 中没有任何 `(word:1.2)` 写法**，故**当前没有正在受损的内容**。这是「先查清再上」的窗口期，不需要回退任何东西 |
+| **前端提示文案（D 流）** | 将来做提示词输入 UI 时，**必须在 klein 工作流下显示「禁用权重语法」警示**，而不是静默接受输入。口径同上：「严禁」而非「无效」 |
+
+**⚠️ 本节写错过两次，都保留在案以免重犯（这是"机制推断"类错误的连环案例）：**
+
+| # | 曾经的错误结论 | 谁推翻的 | 正确的机制 |
+|---|---|---|---|
+| ① | 「权重语法**依赖**保留节点 `ComfyUI_ADV_CLIP_emb`」 | B 流（`object_info` 静态核查） | 权重是**核心 `CLIPTextEncode`** 的能力；该节点只改**解释方式** |
+| ② | 「`cfg=1` → 正负向相减为 0 → 权重无效果」 | team-lead（读源码，G7 ③） | **与 CFG 无关**：权重由 tokenizer 产出 `(token, weight)` 对、经 `encode_token_weights` 作用于 **embedding**。所以只要解析开着，`cfg=1` 也照样有加权效果；klein 失效的原因是**解析被显式关掉**，不是 CFG |
+
+> ⭐ **教训（已写入 G7 沉淀）**：**"这样改应该能行"和"我推断的机制是对的"是同一类错误。**
+> 两次错误都是「听起来很合理的机制推断」，且第二次是在同一个条目里、刚被第一次教训之后又犯的。
+> → 因此本文件从此**不写未经验证的机制**：只写「源码/数据直接支撑的事实」+「明确的开放问题」。
+
+**待验证（全部需 GPU，并入 P4；均为开放问题，不夹带预期结论）**
+
+| # | 内容 | 目的 |
+|---|---|---|
+| ① | klein 上把 `(mug:1.5)` **原样**送入，与干净提示词对比 | 量化"主动污染"的程度（是否显著劣化） |
+| ② | SDXL 上「带权重 vs 去权重」对照 | 验证机制（对照组，预期有差异） |
+| ③ | 把 klein 的文本编码节点从核心 `CLIPTextEncode` 换成 **`BNK_CLIPTextEncodeAdvanced`**，看权重是否恢复 | **开放问题**。⚠️ 且**存在反例机制**：`KleinTokenizer` 内部硬编码了 `disable_weights=True`，因此**任何**走 `clip.tokenize*()` 的节点（含 `BNK_*`）拿到的都可能是**已丢弃权重**的 token 序列 —— 除非该节点自己重新解析并对 embedding 作用权重。**故不能预期它有效**；测它的价值在于：**若无效，"klein 支持权重"这条路即被证伪，不必再投入** |
 
 ### 两条链路的反向词策略（务必分清）
 
 | 链路 | 采样参数 | 反向词 | 该怎么做 |
 |---|---|---|---|
 | `t2i_v1`（SDXL 1.0） | 25-30 步 / cfg 7.0-8.0 | ✅ **有效** | 直接用 `negative_packs.yaml` 的词包 |
-| `flux2_klein_t2i_v1`（FLUX.2 klein 4B 蒸馏） | 4 步 / cfg 1.0 | ❌ **无效** | 把反向诉求改写成：① 正向增强词（如 `structure accurate`）② 局部重绘 ③ 人工筛选 |
+| `flux2_klein_t2i_v1`（FLUX.2 klein 4B 蒸馏） | 4 步 / cfg 1.0 | ❌ **无效（且无处可填）** | 把反向诉求改写成：① 正向增强词（如 `structure accurate`）② 局部重绘 ③ 人工筛选 |
 
-> ⚠️ **klein 链路更进一步：连 `negative_prompt` 字段都没有暴露**（B 流已确认，契约 §3 的 Schema 里无此字段）。
-> 原因是官方 Distilled 子图用 `ConditioningZeroOut` 把负向**整体置零** —— 所以不是"填了不起作用"，
-> 而是**在当前 API 上根本无处可填**。`negative_packs.yaml` 对 klein **在 API 层面不可用**。
-> **不要为 klein 的 Schema 补 `negative_prompt` 字段** —— 补了会让用户误以为能生效，属"看起来能用"的陷阱。
-> `negative.yaml` / `negative_packs.yaml` 因此在 V1 的实际作用域是：① `t2i_v1`/SDXL 链路 ② **人工质检清单**（`severity: hit` 的条目就是判废标准）。
+> ⚠️ **klein 链路上反向词的失效有两条独立的落地证据**（不依赖机制推断）：
+> ① **图上**：官方 Distilled 子图用 `ConditioningZeroOut` 把负向**整体置零**
+> ② **接口上**：B 流确认 klein 工作流的参数 Schema **根本没有暴露 `negative_prompt` 字段** → **在当前 API 上无处可填**
+> 所以不是"填了不生效"，而是**填不进去**。**不要为 klein 的 Schema 补 `negative_prompt` 字段** ——
+> 补了会让用户误以为能生效，属"看起来能用"的陷阱（与 §1.1 的「严禁 vs 无效」同一类问题）。
+>
+> **`negative.yaml` / `negative_packs.yaml` 在 V1 的实际作用域**：① `t2i_v1`/SDXL 链路 ② **人工质检清单**
+> （`severity: hit` 的条目即判废标准）。**配方里的 `negative` 槽位在 klein 链路上不注入、不生效** ——
+> 该事实已用机器可读的方式写在 `assets/prompt_lib/scenes.yaml` 的 `negative_policy` 段。
 
 ---
 
@@ -89,9 +116,11 @@
 
 > **为什么要有上限**：提示词不是越长越好。klein 的文本编码器有效上下文有限（`qwen_3_4b`），堆到 20+ 条后主体词的相对权重被摊薄，
 > **表现为「产品变了」而不是「更精细了」**。
-> ⚠️ 该解释依赖「词条在文本里的相对权重会影响结果」这一前提 —— **它同样受 §1.1 待验证项约束**
-> （若 cfg=1 下权重机制不生效，「稀释」的成因描述需要修正为纯上下文长度问题）。
-> 但**上限 12 条的实操建议不受影响**：无论机制如何，「词条过多 → 主体不保真」是实测现象。
+> ⚠️ 该解释里含一个**未验证的机制假设**（「词条在文本里的相对权重会影响结果」）—— 按 §1.1 的教训，本文件不写未经验证的机制。
+> 已知的是：**权重语法在 klein 上被禁用**（§1.1），所以 klein 上根本不存在"词条权重被摊薄"这回事；
+> 因此对 klein 更可能的解释是**纯上下文长度**（token 预算被摊薄）。
+> **上限 12 条的实操建议不受影响** —— 「词条过多 → 主体不保真」是实测现象，与机制解释无关。
+> 若将来要写死机制，需先做对照实验（去权重、只变长度）。
 
 ### 2.3 按「原子词条」检索
 
@@ -163,6 +192,7 @@ grep -n "morph_risk: high" assets/prompt_lib/style.yaml
 | **带场景** | `scenes` 取值只能来自六种固定场景（或反向/通用词的 `全部`） |
 | **id 不复用** | 新增用当前最大序号 +1；**删除词条时不回收编号**（历史产物元数据靠 id 追溯） |
 | **标风险** | 形变/合规有风险的一律加 ⚠️ 与 `note` 说明，风格词标 `morph_risk` |
+| 🚫 **禁止写权重语法** | 词条的 `text` / `text_en` / 配方 `template` 中**一律不得出现 `(word:1.2)`**。理由：klein 链路上它是**污染源**（§1.1），而配方默认落在 klein。**若确有需要，必须在 `note` 里写明「仅 `t2i_v1` 适用」** |
 
 ### 3.2 新增配方（`scenes.yaml`）
 
@@ -206,7 +236,34 @@ for r in (yaml.safe_load(open('scenes.yaml')).get('recipes') or []):
                 if x not in ids: bad.append((r['id'], slot, x))
 print('BROKEN_REFS:', bad or 'NONE')
 PY
+
+# 3. 🚫 权重语法扫描（klein 禁用，见 §1.1 —— 这条必须为 NONE）
+python3 - <<'PY'
+import yaml, glob, re
+pat = re.compile(r'\(\s*[^()]{1,60}:\s*\d+(\.\d+)?\s*\)')
+bad = []
+for f in glob.glob('*.yaml'):
+    d = yaml.safe_load(open(f))
+    for e in (d.get('entries') or []):
+        for k in ('text', 'text_en'):
+            if e.get(k) and pat.search(e[k]): bad.append((e['id'], k, e[k]))
+    for key in ('packs', 'recipes'):
+        for e in (d.get(key) or []):
+            if pat.search(e.get('template') or ''): bad.append((e['id'], 'template', e['template']))
+print('WEIGHT_SYNTAX_IN_CONTENT:', bad or 'NONE')
+PY
+
+# 4. 配方 workflow 名必须已在 workflows/registry.yaml 注册
+python3 - <<'PY'
+import yaml, re
+ids = set(re.findall(r'^\s*-?\s*id:\s*([A-Za-z0-9_]+)',
+                     open('../../workflows/registry.yaml').read(), re.M))
+used = {r['workflow'] for r in yaml.safe_load(open('scenes.yaml'))['recipes']}
+print('UNREGISTERED_WORKFLOW:', used - ids or 'NONE')
+PY
 ```
+
+> 第 3、4 项是**必须为 NONE** 的硬门禁：命中权重语法 = 会污染 klein 提示词；引用未注册 workflow = 运行期才炸。
 
 ---
 
@@ -214,8 +271,8 @@ PY
 
 | 接口 | 契约 |
 |---|---|
-| **工作流内核（B 流）** | 配方里的 `workflow` 名必须存在于 `workflows/registry.yaml`；`params` 里的键必须存在于该工作流的参数 Schema |
-| **后端（A 流）** | 词条导入 DB 表 `prompt_library`（`backend/app/models/asset.py:67`）：`title` ← 配方 `name`；`category` ← 第一级标签/品类；`positive`/`negative` ← 拼装结果；`tags` ← 原样写入 |
+| **工作流内核（B 流）** | 配方里的 `workflow` 名必须是 `workflows/registry.yaml` 里**已定义**的 id（当前 `t2i_v1` / `flux2_klein_t2i_v1`）；`params` 里的键必须存在于该工作流的参数 Schema。**配方本体走 `Template.preset_params`，不进 Schema 的 `default`**（见 §2.4） |
+| **后端（A 流）** | ① 词条导入 DB 表 `prompt_library`（`backend/app/models/asset.py:67`）：`title` ← 配方 `name`；`category` ← 第一级标签/品类；`positive`/`negative` ← 拼装结果；`tags` ← 原样写入。② 配方 → `templates` 表 `preset_params`（FR-2.4/FR-3.2） |
 | **模板库（P3-10）** | `assets/prompt_lib/templates/` 由 `scenes.yaml` 落地为工作流预设 |
 | **产物元数据（P3-11）** | 每张产出图必须记录 `recipe_id` + 实际使用的词条 `id` 列表，否则无法复现（FR-5.4/FR-5.5） |
 | **评测（FR-7.1）** | 每条配方在 golden set 上的良品率回填到配方 `notes` 上方新增的 `eval` 字段（P5-02 后启用） |
@@ -226,10 +283,14 @@ PY
 
 | # | 事项 | 归属 | 说明 |
 |---|---|---|---|
-| 0 | 🔶 **提示词权重语法在 cfg=1 的 klein 链路上是否生效** | **B 流（最高优先）** | 见 §1.1。实测前本库一律不把权重当确定有效的手段；结果需回写 §1.1 与 `README.md` 的字段约定 |
+| 0 | ⚠️ **klein 链路禁用权重语法的前端提示** | **D 流（前端）+ C 流（文案）** | 见 §1.1。口径必须是「**严禁使用**」而非「无效」—— 后者会让用户以为"写了没关系"，实际是污染提示词（`debug_log.md` G7） |
+| 0b | 🔬 **G7 待验证 ③：klein 的文本编码节点换成 `BNK_CLIPTextEncodeAdvanced` 能否恢复权重** | B 流（L4，需 GPU） | **开放问题，不夹带预期结论**。⚠️ 存在反例机制：`KleinTokenizer` 内部硬编码 `disable_weights=True`，故**不能预期它有效**；测它的价值在于「若无效则此路被证伪，不必再投入」 |
+| 0c | 🔬 **G7 待验证 ①②：klein 上量化"污染"程度 + SDXL 对照** | B 流（L4，需 GPU） | ①`(mug:1.5)` 原样送入 vs 干净提示词 ②SDXL 带权重 vs 去权重 |
 | 1 | `eval` 字段（配方良品率） | P5-02 之后 | 需 golden set 跑完才有数 |
 | 2 | 品类维度的配方扩充 | 随模板库 | 当前 16 条配方覆盖六大场景，品类细分（母婴/宠物/运动户外）待补 |
 | 3 | 变量插值语法冻结 | P5-09 | `{sku_name}` 等占位符的完整语法需在模板引擎里定义并回写本文件 |
 | 4 | 英文提示词实测 | P5-02 | `text_en` 目前是人工对照，未做「中英良品率对比」实验 |
 | 5 | 提示词 → 产物元数据的落库验证 | A 流 | 需 DB 侧确认 `prompt_library` 字段能容纳配方结构 |
-| 6 | 配方 `workflow` 名与 `workflows/registry.yaml` 对账 | B ↔ C | 已发出对账请求（C 流只改自己文件） |
+| 6 | ~~配方 `workflow` 名与 `workflows/registry.yaml` 对账~~ | ✅ **已完成** | 2026-09-16 B 流答复：合法 id 为 `t2i_v1` + `flux2_klein_t2i_v1`；`rc-015` 的 `sdxl` 已改为 `t2i_v1`；`planned` 段 5 个 id 不可引用（已在 `scenes.yaml` 头部写明） |
+| 7 | 配方落地到 `templates` 表的 `preset_params` | A 流（P3-10） | 落位方式已按 B 流约束更正（§2.4）；需 A 流在 `templates` 表提供入口 |
+| 8 | ~~若 L4 证明 klein 上权重效果不足，是否接入 `BNK_*` 节点~~ | ✅ **已收敛** | G7 源码定论已把问题从"效果量级"变为"**klein 严禁写权重**"；是否接 `BNK_*` 并入上表 0b（开放问题）。`ComfyUI_ADV_CLIP_emb` 在白名单里已是 `review`（未接线） |

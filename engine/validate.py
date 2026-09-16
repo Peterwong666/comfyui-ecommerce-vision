@@ -47,6 +47,17 @@ from engine.schema import ParamSchema
 #: 数值型字段的 type（跑边界渲染用）
 _NUMERIC = {"int", "float"}
 
+#: 契约 §3.6 不变量 1 的机械执行：**不得暴露**会让单次执行产出多张图的参数。
+#: 一个参数会不会产出多张图，取决于它写进了哪个入参 —— 所以这里按**入参名**匹配，
+#: 而不是按参数名匹配（叫 `n` 或 `count` 的参数照样可能是 batch_size）。
+FORBIDDEN_TARGET_INPUTS: frozenset[str] = frozenset(
+    {"batch_size", "batch_count", "batch", "num_images", "n_images"}
+)
+
+#: 契约 §3.6 不变量 2 涉及的、default 必须与模板字面值一致的 type。
+#: `seed` 刻意排除：`-1`（随机）本来就**不应**等于模板里的历史字面值。
+_DEFAULT_MUST_MATCH = {"str", "text", "enum", "int", "float"}
+
 
 @dataclass
 class Finding:
@@ -576,26 +587,55 @@ def _validate_schema_against_graph(
                     f"参数 '{f.key}' 是数值型，却对 {t.describe()} 用了 {t.transform}",
                 )
 
-    # ---------- default 与模板字面值的一致性 ----------
-    # 规范 §5.5：target 指向的入参若在模板里已有字面值，Schema 的 default 必须与之一致。
-    # 这条不变量让「不传参数直接渲染」≡「把模板原样提交给 ComfyUI」，
-    # 从而保证 07_bench_workflow.py 这类"裸提交模板"的工具与生产渲染路径测的是同一张图。
+    # ---------- 契约 §3.6 不变量 1：不得暴露会产出多张图的参数 ----------
     for f in schema:
-        if f.type not in ("str", "text") or not isinstance(f.default, str):
+        for t in f.targets:
+            if t.input in FORBIDDEN_TARGET_INPUTS:
+                rep.error(
+                    scope,
+                    f"参数 '{f.key}' 注入 {t.describe()}，而 '{t.input}' 会让单次执行产出多张图。"
+                    "契约 §3.6 不变量 1 禁止暴露这类参数："
+                    "「子任务粒度 = 一张图」是断点续跑 / 单张成本核算 / 批量进度的共同基石，"
+                    "一次出 N 张会让这三点同时失真",
+                )
+
+    # ---------- 契约 §3.6 不变量 2：default 必须等于模板里的实际值 ----------
+    # 规范 §5.5：这条不变量让「不传参数直接渲染」≡「把模板原样提交给 ComfyUI」，
+    # 从而保证 07_bench_workflow.py 这类"裸提交模板"的工具与生产渲染路径测的是同一张图。
+    # **定级为 error**：模板、契约示例、registry 三处的默认值一度出现过字面差异
+    # （`subtle shadow` 缺失），后果是"用户在 UI 里看到的初始状态"与"真实执行的"不是同一件事。
+    for f in schema:
+        if f.type not in _DEFAULT_MUST_MATCH:
             continue
         for t in f.targets:
             node = graph.get(t.node_id)
             if not isinstance(node, dict):
                 continue
             literal = (node.get("inputs") or {}).get(t.input)
-            if not isinstance(literal, str) or _PLACEHOLDER.search(literal):
+            if isinstance(literal, (dict, list, bool)):
                 continue
-            if literal.strip() != f.default.strip():
-                rep.warn(
+            # 模板用占位符时，字面值**本来就**是 "{{key}}"，与 default 不同是正确的
+            if isinstance(literal, str) and _PLACEHOLDER.search(literal):
+                continue
+            if isinstance(f.default, str) and isinstance(literal, str):
+                if literal.strip() == f.default.strip():
+                    continue
+                rep.error(
                     scope,
-                    f"字段 '{f.key}' 的 default 与模板 {t.describe()} 的字面值不一致 —— "
+                    f"参数 '{f.key}' 的 default 与模板 {t.describe()} 的字面值不一致 —— "
                     "渲染后会覆盖模板值，使『裸提交模板』与『渲染后提交』得到不同的图。"
-                    "规范 §5.5 要求二者一致（若确为有意覆盖，请更新模板字面值）",
+                    "契约 §3.6 不变量 2 要求二者一致（若确为有意覆盖，请更新模板字面值）",
+                )
+            elif (
+                isinstance(f.default, (int, float))
+                and isinstance(literal, (int, float))
+                and not isinstance(literal, bool)
+                and float(f.default) != float(literal)
+            ):
+                rep.error(
+                    scope,
+                    f"参数 '{f.key}' 的 default={f.default} 与模板 {t.describe()} 的字面值"
+                    f"{literal} 不一致（契约 §3.6 不变量 2）",
                 )
 
     # ---------- 占位符 ----------

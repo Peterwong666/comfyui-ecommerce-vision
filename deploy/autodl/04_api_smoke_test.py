@@ -11,9 +11,9 @@ import os
 import pathlib
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.error
 import uuid
 
 HOST = os.environ.get("COMFY_HOST", "127.0.0.1")

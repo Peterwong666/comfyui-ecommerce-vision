@@ -26,6 +26,8 @@ from engine.errors import MetadataError, RenderError, SchemaError
 from engine.metadata import (
     METADATA_JSON_KEY,
     PNG_SIGNATURE,
+    PROMPT_DIGEST_ALG,
+    _prompt_digest,
     build_metadata,
     read_png_metadata,
     read_png_text_chunks,
@@ -41,6 +43,7 @@ from engine.render import (
 from engine.schema import ParamSchema
 from engine.transforms import apply_transform
 from engine.validate import (
+    _validate_schema_against_graph,
     bounds_from_settings,
     check_graph,
     check_object_info,
@@ -767,6 +770,25 @@ class TestRegistry:
                 "changelog": [{"version": 1}],
             }, index=0, registry_path=_fake_path())
 
+    def test_definition_path_is_resolved_at_load_time(self):
+        """`definition_path` 必须是可直接用的绝对路径 —— 调用方不必知道注册表在哪。
+
+        （team-lead 独立验证时踩过：`definition` 是裸文件名，得自己拼路径。）
+        """
+        for entry in Registry.load():
+            p = entry.definition_path
+            assert p.is_absolute(), f"{entry.id} 的 definition_path 不是绝对路径: {p}"
+            assert p.exists(), f"{entry.id} 的 definition_path 不存在: {p}"
+            assert p.name == entry.definition
+            # 与 Registry.definition_path() 保持一致
+            assert Registry.load().definition_path(entry) == p
+
+    def test_definition_path_is_cwd_independent(self, tmp_path, monkeypatch):
+        """换工作目录后仍能取到同一文件（这正是"自己拼路径"会断的场景）。"""
+        monkeypatch.chdir(tmp_path)
+        entry = Registry.load().require("t2i_v1")
+        assert entry.definition_path.exists()
+
     def test_changelog_must_cover_current_version(self):
         from engine.registry import _parse_entry
 
@@ -942,6 +964,159 @@ class TestObjectInfoCheck:
         report = validate_registry(object_info=str(broken))
         assert not report.ok
         assert any("KSampler" in f.message for f in report.errors)
+
+
+class TestContractInvariants:
+    """`contracts.md` §3.6 的机械执行（不变量 1 与 2）。"""
+
+    def _schema(self, **field):
+        base = {"key": "batch_size", "label": "批量张数", "type": "int",
+                "default": 1, "min": 1, "max": 8, "step": 1}
+        base.update(field)
+        return make_schema([base])
+
+    def _graph(self, inputs):
+        return {
+            "1": {"class_type": "EmptyLatentImage", "inputs": inputs},
+            "9": {"class_type": "SaveImage",
+                  "inputs": {"images": ["1", 0], "filename_prefix": "x"}},
+        }
+
+    def test_rejects_batch_size_injection(self):
+        """不变量 1：不得暴露会让单次执行产出多张图的参数。"""
+        graph = self._graph({"width": 1024, "height": 1024, "batch_size": 1})
+        schema = self._schema(targets=[{"node_id": "1", "input": "batch_size"}])
+        findings = _validate_schema_against_graph(schema, graph, {}, "t").findings
+        assert any("不变量 1" in f.message and f.level == "error" for f in findings)
+
+    def test_allows_width_injection(self):
+        graph = self._graph({"width": 1024, "height": 1024, "batch_size": 1})
+        schema = make_schema([{"key": "width", "label": "宽", "type": "int",
+                               "default": 1024, "min": 512, "max": 2048, "step": 64,
+                               "targets": [{"node_id": "1", "input": "width"}]}])
+        assert _validate_schema_against_graph(schema, graph, {}, "t").findings == []
+
+    def test_forbidden_match_is_by_input_name_not_param_name(self):
+        """叫 `n` 的参数照样可能是 batch_size —— 所以按入参名匹配。"""
+        graph = self._graph({"width": 8, "height": 8, "batch_size": 1})
+        schema = make_schema([{"key": "n", "label": "张数", "type": "int",
+                               "default": 1, "min": 1, "max": 8,
+                               "targets": [{"node_id": "1", "input": "batch_size"}]}])
+        findings = _validate_schema_against_graph(schema, graph, {}, "t").findings
+        assert any("不变量 1" in f.message for f in findings)
+
+    def test_default_mismatch_string_is_error(self):
+        """不变量 2：default 必须等于模板字面值。"""
+        graph = self._graph({"text": "模板里的完整提示词", "width": 8, "height": 8})
+        schema = make_schema([{"key": "prompt", "label": "提示词", "type": "text",
+                               "default": "少了几个字", "targets": [{"node_id": "1", "input": "text"}]}])
+        findings = _validate_schema_against_graph(schema, graph, {}, "t").findings
+        assert any("不变量 2" in f.message and f.level == "error" for f in findings)
+
+    def test_default_mismatch_numeric_is_error(self):
+        graph = self._graph({"steps": 25, "width": 8, "height": 8})
+        schema = make_schema([{"key": "steps", "label": "步数", "type": "int",
+                               "default": 30, "min": 1, "max": 100,
+                               "targets": [{"node_id": "1", "input": "steps"}]}])
+        findings = _validate_schema_against_graph(schema, graph, {}, "t").findings
+        assert any("不变量 2" in f.message for f in findings)
+
+    def test_default_matches_passes(self):
+        graph = self._graph({"steps": 25, "width": 8, "height": 8})
+        schema = make_schema([{"key": "steps", "label": "步数", "type": "int",
+                               "default": 25, "min": 1, "max": 100,
+                               "targets": [{"node_id": "1", "input": "steps"}]}])
+        assert _validate_schema_against_graph(schema, graph, {}, "t").findings == []
+
+    def test_seed_default_is_exempt(self):
+        """`-1`（随机）本来就不应等于模板里的历史字面值。"""
+        graph = self._graph({"seed": 20260915, "width": 8, "height": 8})
+        schema = make_schema([{"key": "seed", "label": "种子", "type": "seed",
+                               "default": -1, "targets": [{"node_id": "1", "input": "seed"}]}])
+        assert _validate_schema_against_graph(schema, graph, {}, "t").findings == []
+
+    def test_placeholder_literal_is_exempt(self):
+        """模板用 `{{key}}` 时，字面值与 default 不同是正确的。"""
+        graph = self._graph({"text": "a photo of {{product}}", "width": 8, "height": 8})
+        schema = make_schema([{"key": "product", "label": "商品", "type": "text",
+                               "default": "mug", "targets": [{"node_id": "1", "input": "text"}]}])
+        assert _validate_schema_against_graph(schema, graph, {}, "t").findings == []
+
+    def test_real_registry_obeys_invariants(self):
+        report = validate_registry()
+        assert report.ok, "\n".join(str(f) for f in report.errors)
+
+
+class TestPromptDigestHMAC:
+    """`HMAC-SHA256` 构造（2026-09-16 team-lead 批准，替换脆弱的 `sha256(salt‖text)`）。"""
+
+    def test_matches_independent_hmac(self):
+        import hashlib as _h
+        import hmac as _hmac
+
+        expect = _hmac.new(b"salty", "白色杯子".encode(), _h.sha256).hexdigest()
+        assert _prompt_digest("白色杯子", "salty") == expect
+
+    def test_accepts_bytes_salt(self):
+        assert _prompt_digest("x", b"salty") == _prompt_digest("x", "salty")
+
+    def test_unsalted_is_not_bare_sha256(self):
+        """无盐时用空 key 的 HMAC，**不得**退化成裸 sha256（那会被彩虹表还原）。"""
+        import hashlib as _h
+
+        assert _prompt_digest("白色杯子", None) != _h.sha256("白色杯子".encode()).hexdigest()
+
+    def test_meta_carries_alg_and_salted_flags(self):
+        meta = build_metadata(workflow_id="t2i_v1", workflow_version=1,
+                              params={"prompt": "x"}, seed=1, hash_salt="s")
+        d = meta["prompt_digest"]["prompt"]
+        assert d["alg"] == PROMPT_DIGEST_ALG == "hmac-sha256"
+        assert d["salted"] is True
+
+    def test_unsalted_is_flagged(self):
+        meta = build_metadata(workflow_id="t2i_v1", workflow_version=1,
+                              params={"prompt": "x"}, seed=1)
+        assert meta["prompt_digest"]["prompt"]["salted"] is False
+
+    def test_same_prompt_same_salt_same_digest(self):
+        a = build_metadata(workflow_id="a", workflow_version=1, params={"prompt": "p"},
+                           seed=1, hash_salt="s")
+        b = build_metadata(workflow_id="b", workflow_version=2, params={"prompt": "p"},
+                           seed=9, hash_salt="s")
+        assert (a["prompt_digest"]["prompt"]["sha256"]
+                == b["prompt_digest"]["prompt"]["sha256"])
+
+    def test_different_salt_different_digest(self):
+        a = build_metadata(workflow_id="a", workflow_version=1, params={"prompt": "p"},
+                           seed=1, hash_salt="s1")
+        b = build_metadata(workflow_id="a", workflow_version=1, params={"prompt": "p"},
+                           seed=1, hash_salt="s2")
+        assert (a["prompt_digest"]["prompt"]["sha256"]
+                != b["prompt_digest"]["prompt"]["sha256"])
+
+
+class TestDefinitionPathResolution:
+    """`definition` 是裸文件名，调用方不该自己拼路径。"""
+
+    def test_entry_carries_resolved_path(self):
+        entry = Registry.load().require("t2i_v1")
+        assert entry.definition == "t2i_v1.json"
+        assert entry.definition_path.is_absolute()
+        assert entry.definition_path.exists()
+        assert entry.definition_path.name == entry.definition
+
+    def test_registry_helper_agrees_with_entry(self):
+        registry = Registry.load()
+        for entry in registry:
+            assert registry.definition_path(entry) == entry.definition_path
+            assert entry.definition_path.exists(), entry.id
+
+    def test_resolution_is_independent_of_cwd(self, tmp_path, monkeypatch):
+        """路径解析必须在加载时完成 —— 换 CWD 也要能用。"""
+        registry = Registry.load()
+        monkeypatch.chdir(tmp_path)
+        entry = registry.require("t2i_v1")
+        assert registry.definition_path(entry).exists()
 
 
 def _fake_path():

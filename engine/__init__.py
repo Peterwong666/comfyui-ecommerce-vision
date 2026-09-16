@@ -34,6 +34,29 @@ client.submit(result.workflow)             # 直接 POST /prompt
 * **零第三方依赖**：只用标准库（`engine.registry` / `engine.validate` 读 YAML&CLI 时才需要 pyyaml）。
   这样 A 流导入 `engine` 不必关心后端虚拟环境装了什么。
 * **不碰 `backend/`**：`engine/` 是独立的纯模块，不含任何 Web 框架或 ORM 依赖。
+
+### 安装与调用（不要靠 PYTHONPATH）
+
+`engine/` 是**可安装包**（flat layout，打包配置在**仓库根** `pyproject.toml`）。
+在仓库根执行一次即可：
+
+```bash
+backend/.venv/bin/pip install -e . -e ./backend
+```
+
+此后**在任何工作目录**都能 `import engine`。
+**不要为了导入去动 `sys.path` / `PYTHONPATH`** —— 那种写法在不同 CWD 与 CI 下随时会断。
+
+命令行入口用 **`python -m engine`**（等价于 `engine.validate.main`）：
+
+```bash
+python -m engine            # L1+L2+L3 离线校验
+python -m engine --json     # 机器可读输出
+```
+
+> 用 `-m engine` 而非 `-m engine.validate`：后者会触发 runpy 的 `RuntimeWarning`
+> （`__init__.py` 已导入 `engine.validate`，随后又要把它当 `__main__` 再跑一次）。
+> 那不是 bug，但看起来像 bug。旧写法仍可用，只是会打印该警告。
 """
 
 from __future__ import annotations

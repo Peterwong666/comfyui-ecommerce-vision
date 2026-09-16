@@ -112,34 +112,83 @@ PYTHONPATH=. backend/.venv/bin/python -m engine.validate
 | **反之** | 改动**节点图**（增删节点、改连线、改入参字面值）会使 GPU 验证失效，必须 `version + 1` 并把 `verification` 降回 `static_only`，重跑 L4 才能改回 `gpu_verified` |
 | **沉淀** | ⭐ 这条区分很重要：它让我们能安心整理元数据，而不必每改一次注释就重跑一次出图。 |
 
-### G7 · 提示词权重语法 `(word:1.2)` 在 klein 链路上是否生效 🔴 **待验证（跨流风险，P3 未定型）**
+### G7 · 提示词权重语法 `(word:1.2)` 在 klein 上**不被解析、且会污染提示词** ⭐⭐ 源码级定论
 
-> 来源：C 流在 `assets/prompt_lib/` 与 `docs/sop/prompt_guide.md` 里提供权重语法，
-> 理由是节点白名单保留了 `ComfyUI_ADV_CLIP_emb`；team-lead 转来要求查清
-> 「权重是**空转**」还是「**压根没接进 klein 图**」—— 这是两个不同的问题。
+> 来源：C 流在 `assets/prompt_lib/` 与 `docs/sop/prompt_guide.md` 提供权重语法，理由是节点白名单保留了 `ComfyUI_ADV_CLIP_emb`。
+> team-lead 要求查清是「权重**空转**」还是「**压根没接进 klein 图**」。
+> **两轮核查下来，结论都不在这两个选项里。**
 
-| | |
-|---|---|
-| **已确认的事实（静态，2026-09-16）** | `workflows/` 下两条工作流的 `class_type` 全量枚举表明：**`t2i_v1` 与 `flux2_klein_t2i_v1` 都没有 `ADV_CLIP_emb` 节点**（`grep -iE "adv_clip\|CLIP_emb" workflows/` 无匹配）。klein 的提示词走 `CLIPTextEncode`（节点 `"4"`）→ `CLIPLoader`（`type: flux2`）→ `KleinTokenizer`；SDXL 走 `CLIPTextEncode`（节点 `"6"`/`"7"`）→ `CheckpointLoaderSimple` 的 CLIP。 |
-| **因此结论收窄为** | 至少在**当前图**上，问题不是"权重空转"，而是**`ADV_CLIP_emb` 根本没有接进任何一条链路**。team-lead 指出的两种情形里，这是第二种。 |
-| **但还没到能下结论的程度** ⚠️ | 还差两问：<br>① **ComfyUI 核心的 `CLIPTextEncode` 自己是否解析权重语法？** 对 SD1/SDXL 链路，权重解析通常在 `comfy/sd1_clip` 的 tokenizer 里（而非仅 ADV_CLIP_emb）；对 klein 的 Qwen3 tokenizer 则**很可能不解析**，那时 `(word:1.2)` 会被当成**字面文本**送进模型 —— 那就不是"空转"，而是**主动破坏提示词**（多出括号与数字）。<br>② C 流的配方里**目前没有任何 `(word:1.2)` 写法**（已用正则扫过 `assets/prompt_lib/`，无匹配），所以此刻没有正在受损的内容，**是"先查清再上"的窗口期**。 |
-| **待验证 ①（成本极低，无需 GPU）** | 在服务器上读源码确认两个 tokenizer 是否解析权重：<br>`grep -n "parse_parentheses\|escape_important\|def tokenize" /root/ComfyUI/comfy/sd1_clip.py`<br>`grep -rn "parse_parentheses\|weight" /root/ComfyUI/comfy/text_encoders/*.py \| head`（重点看 klein/Qwen3 对应的 tokenizer 文件）<br>**这一步能直接判定"字面文本"还是"被解析"。** |
-| **待验证 ②（需 GPU，L4）** | 固定其它参数，同一条提示词分别以「带权重」「去权重」两种写法出图，人工比对主体是否变化；**再在 SDXL（cfg>1，可作对照组）上做同样实验**。若 SDXL 有差异而 klein 无差异 → 权重语义只在 cfg>1 链路有效。 |
-| **待验证 ③（需 GPU，L4）** | 若验证 ① 判定"字面文本"，还要确认**破坏程度**：把 `(word:1.2)` 原样送进 klein，看画质相比干净提示词是否显著劣化。这决定 C 流是"删掉 weight 语义"还是"必须加节点接进去"。 |
-| **对 C 流的影响** | `prompt_guide.md` 的 weight 小节暂按**待定**处理；在验证 ① 出结果前，提示词库先不要使用该语法（当前也确实未使用）。**在 SDXL 链路上则不受此问题影响与否尚需验证 ② 的对照结果。** |
-| **沉淀** | ⭐ **"某能力依赖某个节点"这类判断，要落到"该节点是否真的在图上"这一层去核实** —— 白名单里保留了某个节点，不等于生产的图里挂了它。这是 `workflow_spec.md` §2.1 要求枚举 `class_type` 的实用价值。<br>⭐ 跨流能力（提示词语法 ↔ 工作流接线）必须在**工作流定型时**查清接线，否则双方各自以为对方负责。 |
-
-### G7 · 提示词权重语法**不依赖** `ComfyUI_ADV_CLIP_emb`（已用 object_info 证伪）
+**第一轮 · 静态核查（`object_info`）—— 排除"依赖 ADV_CLIP_emb"这个前提**
 
 | | |
 |---|---|
-| **起因** | C 流提出：提示词权重语法 `(word:1.2)` 依赖保留节点 `ComfyUI_ADV_CLIP_emb`；而 klein 是 `cfg=1` 的蒸馏链路，权重可能空转 |
-| **核查（L3，纯离线）** | 从 `object_info.v0.36.0.json` 读出该包**只提供 4 个节点**，全部是 `BNK_` 前缀：`BNK_CLIPTextEncodeAdvanced` / `BNK_CLIPTextEncodeSDXLAdvanced` / `BNK_AddCLIPSDXLParams` / `BNK_AddCLIPSDXLRParams`。而我们两条工作流用到的条件编码节点是 **核心** `CLIPTextEncode`（`python_module=nodes`），图里**一个 `BNK_*` 都没有** |
-| **结论 ①** | **C 流的前提不成立**：`(word:1.2)` 是核心 `CLIPTextEncode` 自带的能力，不是那个节点包给的。ADV_CLIP_emb 真正多出来的是两个参数 —— `token_normalization`（4 种）与 **`weight_interpretation`（5 种：`comfy` / `A1111` / `compel` / `comfy++` / `down_weight`）**。也就是说它管的是「**权重怎么解释**」，而不是「**能不能写权重**」 |
-| **结论 ②** | 所以这**不是**「ADV 节点没接进图」的问题，也**不是**「权重空转」的问题 —— 而是"权重语法本来就生效，只是解释方式用的是 ComfyUI 默认语义"。想改解释方式才需要接 `BNK_*` 节点 |
-| **仍未验证（L4）** | `cfg=1` 下权重变更的**效果量级**是否实用。蒸馏模型没有 guidance 放大，权重的作用可能被削弱 —— 这是**经验问题，必须实测**，不能靠推理下结论 |
-| **验证方法（待 GPU）** | 同一 seed、同一构图，跑 3 组：① 无权重的基线 ② `(mug:1.5)` 加权 ③ `(mug:0.6)` 降权。**在 klein（cfg=1）与 SDXL（cfg≈6.5）上各做一遍**做对照。若 klein 三组近乎一致、SDXL 三组有明显差异 → 权重在 klein 上"结构上生效但效果量级不足"，`prompt_guide.md` 的写法需要为 klein 单独说明 |
-| **沉淀** | ⭐ **"某能力依赖某自定义节点"这种判断，先用 `object_info` 查该包到底提供了哪些节点类、以及我们图里用了哪些** —— 这一步纯离线，几分钟就能把"猜测"变成"事实"。本次若不做，会带着错误前提去改提示词库 |
+| 事实 | 该包**只提供 4 个节点**，全部是 `BNK_` 前缀（`BNK_CLIPTextEncodeAdvanced` / `BNK_CLIPTextEncodeSDXLAdvanced` / `BNK_AddCLIPSDXLParams` / `BNK_AddCLIPSDXLRParams`）。我们两条工作流的条件编码节点是**核心** `CLIPTextEncode`（`python_module=nodes`），图里**一个 `BNK_*` 都没有** |
+| 该包真正的职责 | 多出 `token_normalization`（4 种）与 `weight_interpretation`（`comfy` / `A1111` / `compel` / `comfy++` / `down_weight`）—— 它管「权重**怎么解释**」，不管「**能不能写**权重」 |
+
+**第二轮 · 源码级核查（team-lead 在 `/root/ComfyUI` 读源码）—— 定论**
+
+```python
+# comfy/sd1_clip.py:585-588  —— SD1Tokenizer.tokenize_with_weights 内部
+text = escape_important(text)
+if kwargs.get("disable_weights", self.disable_weights):
+    parsed_weights = [(text, 1.0)]              # ← 跳过权重解析
+else:
+    parsed_weights = token_weights(text, 1.0)   # ← 解析 (word:1.2)
+
+# comfy/text_encoders/flux.py:153,169 —— KleinTokenizer
+class KleinTokenizer(sd1_clip.SD1Tokenizer):
+    def tokenize_with_weights(self, text, return_word_ids=False, llama_template=None, **kwargs):
+        tokens = super().tokenize_with_weights(llama_text, return_word_ids=return_word_ids,
+                                               disable_weights=True, **kwargs)   # ← 关键
+```
+
+| # | 结论 | 说明 |
+|---|---|---|
+| ① | klein **有**解析能力，但被**显式关掉** | `KleinTokenizer` 继承 `SD1Tokenizer`（本来能解析），却传了 `disable_weights=True` |
+| ② | ⚠️ **不是"空转"，是"主动破坏"** | 走 `parsed_weights = [(text, 1.0)]` 这一支时，**原样的 `(word:1.2)` 字符串会进入分词** —— 括号、冒号、数字全变成 token 喂给模型 |
+| ③ | ⚠️ **我原先关于 cfg 的推断是错的** | 我曾推断「`cfg=1` → 正负向相减为 0 → 权重无效果」。**机制不对**：权重靠 tokenizer 产出 `(token, weight)` 对、再由 `encode_token_weights` 作用到 **embedding** 上，**与 CFG 无关**。所以只要解析开着，`cfg=1` 也照样有加权效果 |
+| ④ | SDXL 链路**正常** | `t2i_v1` 走 SD1 tokenizer 且未 disable → 权重正常解析（仍值得按待验证 ② 做对照，但机制上成立） |
+
+**处置**
+
+| 对象 | 动作 |
+|---|---|
+| `prompt_guide.md` / 前端提示文案（C 流侧） | 口径必须是 **「klein 链路上**严禁**使用权重语法」**，而**不是**"权重无效" —— 后者会让用户以为"写了也没关系"，而实际是污染提示词 |
+| 提示词库现状 | 配方里**目前没有** `(word:1.2)` 写法（已用正则扫过），所以此刻没有正在受损的内容，属"先查清再上" |
+| 工作流本身 | klein 图**不改**。若要让 klein 支持权重，见待验证 ③ |
+
+**待验证（全部需 GPU，并入 P4）**
+
+| # | 内容 | 目的 |
+|---|---|---|
+| ① | klein 上把 `(mug:1.5)` **原样**送进去，与干净提示词对比 | 量化"主动破坏"的程度（是否显著劣化） |
+| ② | SDXL 上「带权重 vs 去权重」对照 | 验证机制（对照组，预期有差异） |
+| ③ | 把 klein 的文本编码节点**从核心 `CLIPTextEncode` 换成 `BNK_CLIPTextEncodeAdvanced`**（注意：不是"接在它之前" —— `BNK_*` 自己就是文本编码节点，入参是 `clip`+`text`、输出 CONDITIONING，没有 conditioning 输入），看权重是否恢复生效 | 若能生效，klein 就能支持权重语法 |
+
+⚠️ **对 ③ 的预期要克制 —— 不要重犯本节 ③ 那条错。**
+先前的写法是「这条路改的是 embedding、不依赖 CFG，`cfg=1` 下**应该有效**」。这又是一次
+**未经验证的机制推断**，而且它站不住的地方很具体：
+
+`KleinTokenizer.tokenize_with_weights()` **在内部硬编码了 `disable_weights=True`**（源码见上）。
+也就是说，**任何**调用 `clip.tokenize*(...)` 的节点 —— 包括 `BNK_CLIPTextEncodeAdvanced` ——
+拿到的都可能是**已经丢掉权重**的 token 序列。除非该节点**自己重新解析提示词并把权重直接作用到 embedding**，
+否则换节点也救不回来。
+
+**所以 ③ 的正确表述是「值得实测，但机制上并不保证有效」**，而不是"应该有效"。
+把它列为待验证项的价值在于：**若它无效，"klein 支持权重"这条路就被证伪了，不必再投入**。
+
+**沉淀（补充 ③ 的教训）**
+⭐ **"这样改应该能行"和"我推断的机制是对的"是同一类错误** —— 本条目里已经犯过一次 cfg 推断，
+不要在同一个条目里再犯一次。**待验证项要写成开放问题，不要夹带预期结论**：
+`"X 能否恢复生效（未验证，且存在 Y 这个反例机制）"` 比 `"X 应该能生效"` 有用得多 ——
+前者后人会去验，后者后人会**直接采信**。
+
+**沉淀**
+
+⭐ **推断出的机制必须用源码或数据验证后才能写进文档。** 我这次的 cfg 推断听起来很合理，实际是错的；若照它写进 `prompt_guide`，后人在 SDXL 上调权重时会被同样的逻辑误导。这正是 `项目进展.md` #14 那条教训的又一次复现（"不要停留在看起来合理的那一层"）。
+⭐ **「该能力被禁用」与「该能力无效」是两种不同的用户指引**：前者要写"别写"，后者会被理解成"写了无害"。**先查清是哪一种，再写文案。**
+⭐ **"某能力依赖某个节点"这类判断，要落到"该节点是否真的在图上"这一层核实** —— 白名单保留了某节点 ≠ 生产的图里挂了它。
+⭐ 跨流能力（提示词语法 ↔ 工作流接线）必须在**工作流定型时**查清接线，否则双方各自以为对方负责。
 
 ### G8 · `Power Lora Loader (rgthree)` **不能被 `targets` 注入**（已用真实校验器证明）
 
@@ -150,8 +199,46 @@ PYTHONPATH=. backend/.venv/bin/python -m engine.validate
 | **根因** | `object_info` 里 `Power Lora Loader (rgthree)` 的 `required` 是**空的**，`optional` 只有 `model`/`clip` —— LoRA 条目是**动态 widget 属性**，不是声明式入参。而 ComfyUI 的 prompt 校验要求入参必须落在 `required ∪ optional` 内 |
 | **结论** | **C 流的担心成立，且比预想的更硬**：不是"可能访问不到属性"，而是 **LoRA 参数压根没有可注入的入参** → 该节点的 LoRA 选择/权重**无法由外部 API 驱动** |
 | **处置** | P4-04 多 LoRA 叠加（FR-8.5）**用核心 `LoraLoader` 串链**（每个 LoRA 一个节点），不要依赖 Power Lora Loader。它可作为"手工在画布上调试"的便利工具，但**不能作为自动化链路的一环** |
-| **遗留** | 多 LoRA 的参数 Schema 形态待定（核心节点是「一节点一 LoRA」，所以要么固定最大条数、要么动态建链）。这是 P4 的设计议题，已登记 |
+| **遗留** | 多 LoRA 的参数 Schema 形态待定。**已由 C 流给出更优方案，见下 §G8.1** |
 | **沉淀** | ⭐ **`targets` 只能注入 `required ∪ optional` 里声明过的入参。** 凡是"参数藏在 widget 属性里"的节点（不少 rgthree / 便利类节点如此），外部 API 都驱动不了。<br>⭐ **选节点时应有一条判据：能进 `object_info` 的才可被自动化驱动。** 这条判据纯离线可查，应该在 P4 选型时就用上 |
+
+### G8.1 ⭐ 同一个包里就有一个**能用**的多 LoRA 节点 —— `Lora Loader Stack (rgthree)`
+
+C 流指出：`rgthree-comfy` 里除了那个不能用的 `Power Lora Loader`，还有一个**完全可注入**的多 LoRA 节点。
+我独立复核（不轻信结论，自己查 `object_info` + 跑真实校验器）：
+
+| 节点 | `required` | 可注入 | A/B 探针的实际报错 |
+|---|---|---|---|
+| `Power Lora Loader (rgthree)` | **`[]`**（空） | ❌ | `入参 'lora_01' 不被该节点接受（可选: ['clip','model']）` —— **报的是入参名** |
+| **`Lora Loader Stack (rgthree)`** | **10 个**：`model` `clip` `lora_01` `strength_01` … `lora_04` `strength_04` | ✅ | 只有 `取值 'PLACEHOLDER.safetensors' 不在允许集合内` —— **报的是取值，入参名全部被接受** |
+| 核心 `LoraLoader` | 5 个：`model` `clip` `lora_name` `strength_model` `strength_clip` | ✅ | 同上（只有文件名报错） |
+
+⭐ **这个 A/B 是"逐节点查 `required`"这条规则最好的教材**：**同一个包、名字高度相似的两个节点，注入结果完全相反。**
+`Power Lora Loader` 报的是**入参名不被接受**（根本没这个入参），
+`Lora Loader Stack` 报的是**取值不在枚举内**（入参存在，只是我们用了占位文件名）。
+⚠️ **必须能区分这两类报错** —— 前者是"驱动不了"，后者是"文件没装"，处置完全不同。
+
+**处置（P4-04 多 LoRA 叠加 / FR-8.5 的选型建议）**
+
+| 方案 | 节点数 | 连线 | Schema 稳定性 |
+|---|---|---|---|
+| 核心 `LoraLoader` × 4 串链 | 4 | 需自建 3 条连线 | 4 组 `targets`，且**增删 LoRA 数会改变链长 → Schema 得跟着改** |
+| **`Lora Loader Stack`** | **1** | 无 | 1 组 `targets`，**槽位固定 4 → Schema 稳定** |
+
+→ **优先 `Lora Loader Stack`**：槽位数固定意味着 **Schema 不随模板变**，对"参数 Schema 驱动"最友好。
+代价是硬上限 4 个 LoRA（V1 的 FR-8.5 是 Should 级，够用）。
+`rgthree` 是 **MIT** 且在白名单 keep 档，用它无许可障碍。
+
+⚠️ **但有一个前置依赖，与节点无关**：`object_info` 里 `LoraLoader.lora_name` 的枚举**是空的** ——
+**服务器上目前一个 LoRA 权重都没有**。所以 FR-8.5 的阻塞不只是"选对节点"，
+还需要**先下载并登记 LoRA 权重**（且每一个都要过许可证审查，见 `license_matrix.md`）。
+排查时先看这一条，别在节点接线里绕。
+
+**沉淀（补充）**
+⭐ **报错要读到"是入参名错还是取值错"这一层。** 两者都表现为 `VALIDATE=FAIL`，
+但一个是"这个节点驱动不了"，一个是"少了个文件"。**只看 FAIL 不看原因，会得出完全相反的结论。**
+⭐ **同一个包里节点的可注入性可能完全相反** → 判据必须落到**单个节点类**，不能按包下结论
+（C 流量化后也印证了这点：rgthree 24 个类里 **12 个（50%）**`required` 为空，而 controlnet_aux / IPAdapter_plus / BiRefNet 等关键路径包是 **0%**）。
 
 ---
 
@@ -208,7 +295,7 @@ PYTHONPATH=. backend/.venv/bin/python -m engine.validate
 | `inpaint_v1` 局部重绘 | 依赖 SAM / BiRefNet 分割链路；遮罩传递的入参名与类型不同（`MASK` 而非 `IMAGE`），需先 `08_probe_nodes.py` 查清 |
 | `style_transfer_v1` 风格迁移 | 与 `i2i_v1` 参数面高度重叠，**先评估是否合并**，避免两条工作流各自演进（双真相） |
 | `batch_v1` 批量 | ⚠️ **待 team-lead 决策：它可能不该是一条工作流。** 批量是**任意工作流的编排模式**（`POST /batches` 按 SKU 拆子任务），节点图与 `t2i_v1` 完全相同。登记成独立工作流会产生两份内容相同、版本却各自演进的 JSON |
-| LoRA 相关（P4-04 / FR-8.5） | ⚠️ **多 LoRA 必须用核心 `LoraLoader`**，不能用 `Power Lora Loader (rgthree)` —— 见 G8。另需定"固定最大条数 vs 动态建链"的 Schema 形态 |
+| LoRA 相关（P4-04 / FR-8.5） | ⚠️ **多 LoRA 用 `Lora Loader Stack (rgthree)`**（单节点、4 个固定槽位、10 个声明式入参全部可注入），比"核心 `LoraLoader` 串链"更优 —— 槽位固定意味着 Schema 不随模板变。**不能用 `Power Lora Loader`**（见 G8 / G8.1）。<br>⚠️ **另有前置依赖**：服务器上**一个 LoRA 权重都没有**（`lora_name` 枚举为空），需先下载 + 过许可审查 |
 | 图生图参考图（P4 / FR-8.x） | `asset_id → 文件名` 必须由 A 流的 `asset_resolver` 回调注入；渲染器不猜路径（规范 §5.2） |
 
 ---
@@ -232,18 +319,36 @@ PYTHONPATH=. backend/.venv/bin/python -m engine.validate
 
 **把 `render_path_l4` 变成 true 需要做的（待 GPU，一次跑完两条）**：
 
+> ⭐ **已写成可执行工具**：`engine/tools/verify_render_path.py`
+> ```bash
+> # ① 离线预检（不需要 GPU，先确认注入落点没问题再烧 GPU 机时）
+> python -m engine.tools.verify_render_path --workflow t2i_v1 --seed 20260916 --dry-run
+> # ② 真实 L4（需 ComfyUI 在跑 + GPU）
+> python -m engine.tools.verify_render_path --workflow t2i_v1 --seed 20260916
+> ```
+> 退出码语义：`0` 通过 · `1` 有检查失败 · `2` 参数用法错（如传了 `--seed -1`）。
+> ⚠️ 工具**不会**自动改注册表 —— `render_path_l4` / `status` 必须人工确认后再改，
+> 避免"脚本跑绿了就自动放行"。
+
+下面 4 项就是该工具实现的检查：
+
 1. 走渲染路径提交：`render(definition, entry.schema, params)` → 提交 → 轮询 → 取图
    （比照 `07_bench_workflow.py` 的提交/轮询逻辑，但把 `wf` 换成 `RenderResult.workflow`）
 2. **核对产物与预期一致**（这是关键，不是"没报错就算过"）：
-   - 用**显式 seed**（不用 `-1`）跑两次，两次产物应**完全一致**
+   - 用**显式 seed**（不用 `-1`）跑两次，两次产物的**像素数据（IDAT）应逐字节一致**
    - 校验 `width`/`height` 真的落到了两个节点（klein：`"6"` 与 `"7"`）
    - 校验产物 PNG 里有 `wf_meta`，且其中 `seed` 等于**显式传入的 seed**
      （验证 §7.1 的「seed 必须由渲染器解析并回写」真的生效）
    - 校验 ComfyUI 自己写的 `prompt` chunk 仍在（G6 之外的产物侧证据）
 3. 跑通后：`status: enabled` + `render_path_l4: true`，并在 `changelog` 记一条
+4. **两个模型都要跑** —— 修 SDXL 不能拿 klein 当代价（`项目进展.md` #18 的纪律）
 
 > 纪律：**上面 4 项全部有输出，才允许改 `render_path_l4`。**
 > 只做"提交后没报错"就改标志，等于把"未验证"包装成"已验证"。
+>
+> ⚠️ 该工具**不**证明画质与性能达标 —— 那分别属于 golden set（P5/P8）与稳态基准（`#18`）。
+> PASS 的唯一含义是：**渲染路径打通了。**
+
 
 ---
 
@@ -276,6 +381,7 @@ PYTHONPATH=. backend/.venv/bin/python -m engine.validate
 
 | 日期 | 版本 | 变更 |
 |---|---|---|
-| 2026-09-16 | v1.0 | 初稿：6 条全局坑（G1~G6）+ 两条已发布工作流的完整调试记录（T1-* / K1-*）+ 5 条计划的预判风险 + 记录模板 |
-| 2026-09-16 | v1.1 | **L3 解锁**（`object_info.v0.36.0.json` 已入库）→ 更新 §0.1 并新增 §0.2「L3 的两种用法」；新增 **G7**（提示词权重不依赖 ADV_CLIP_emb，已证伪）、**G8**（Power Lora Loader 不可注入，已证明）；新增 **§2.4** 说明两条工作流为何 `status: disabled`（`render_path_l4` 未通过）及其 4 步验证清单 |
-| 2026-09-16 | v1.1 | 新增 **G7**（提示词权重语法在 klein 链路是否生效）—— 由 C 流提出、team-lead 转办的跨流风险。已静态收窄结论：两条链路**都没有** `ADV_CLIP_emb` 节点，故问题不是"权重空转"而是"根本没接进去"；另列出 3 项待验证（1 项免 GPU 源码确认 + 2 项 L4） |
+| 2026-09-16 | v1.0 | 初稿：6 条全局坑（G1~G6）+ 两条已发布工作流的完整调试记录（T1-* / K1-*）+ 计划中的预判风险 + 记录模板 |
+| 2026-09-16 | v1.1 | **L3 解锁**（`object_info.v0.36.0.json` 入库）→ 更新 §0.1，新增 §0.2「L3 的两种用法」（对模板 / 对**渲染后的图**）。新增 **G7**（提示词权重在 klein 链路的跨流风险，由 C 流提出、team-lead 转办）、**G8**（`Power Lora Loader` 不可注入，已用真实校验器 A/B 证明）。新增 **§2.4**：说明两条工作流为何 `status: disabled`（`render_path_l4` 未通过），并给出 4 步验证清单 |
+| 2026-09-16 | v1.2 | **G7 改写为源码级定论**（team-lead 读 `/root/ComfyUI` 源码）：`KleinTokenizer` 显式传 `disable_weights=True` → klein 上权重**不被解析**，且 `(word:1.2)` 的**字面字符会进入分词（主动污染提示词）**，不是「空转」；**我原先的 cfg 推断（权重靠正负向相减）机制错误**，已在 G7 内明确标注并纠正；新增待验证 ③（换用 `BNK_CLIPTextEncodeAdvanced` 是否恢复权重）。同时**合并了并发编辑产生的重复 G7 标题** |
+| 2026-09-16 | v1.3 | 新增 **G8.1**：同一 rgthree 包里的 `Lora Loader Stack (rgthree)` **是可注入的**（10 个声明式入参）。用真实校验器做 A/B，证明「同包、类名高度相似的两个节点，注入结果完全相反」—— P4-04 多 LoRA 建议改用它（单节点、槽位固定 4 → **Schema 不随模板变**），不再需要核心 `LoraLoader` 串链；并记录前置依赖「服务器上目前一个 LoRA 权重都没有」。新增 **§2.4 的可执行工具** `engine/tools/verify_render_path.py`（含离线 `--dry-run`）。收敛 G7 待验证 ③ 的表述（去掉「应该有效」这类夹带预期结论的写法） |

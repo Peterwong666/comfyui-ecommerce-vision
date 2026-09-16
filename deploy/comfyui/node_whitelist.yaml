@@ -40,7 +40,7 @@ policy:
     how: "把节点目录重命名为 <name>.disabled（ComfyUI 加载时跳过该目录）"
     verify: "⚠️ 待验证：需在 v0.36.0 上确认跳过规则（ComfyUI 跳过以 . 开头或以 .disabled 结尾的目录）"
     fallback: "若该规则不成立，改为在节点目录内放置 .disabled 文件（ComfyUI-Manager 约定）"
-    must_check: "禁用后必须重启并确认 ① 目标节点类从 /object_info 消失 ② 节点类总数下降 ③ V1 关键节点仍在（基线口径：台账 #16 验证 2 记 2530，但**无文件证据**；已取回的 2102 是 v0.3.75 旧基线）"
+    must_check: "禁用后必须重启并确认 ① 目标节点类从 /object_info 消失 ② 节点类总数下降 ③ V1 关键节点仍在。<br>**基线口径**：当前 **2530**（`deploy/schemas/object_info.v0.36.0.json`，已复核）；升级前 2102（`evidence/object_info_v0.3.75_classnames.txt`）"
 
   dependency_rules:
     - "禁用节点**默认不卸载其 pip 依赖** —— 共享依赖（opencv / onnxruntime / pyyaml 等）被其它节点引用，卸载会连带破坏"
@@ -53,6 +53,19 @@ policy:
     - "**非商用（NC）**：一律禁用，无论技术状态如何"
     - "**仓库内无 LICENSE 文件**：按「未知即不用」处理 → 禁用，待上游仓库页面核实后方可回落"
     - "许可来源：节点仓库内 LICENSE* 文件首行（原始输出见 evidence/custom_nodes_licenses.txt）"
+
+  # ==========================================================
+  # ⭐ 可注入性判据（白名单的第四条轴，来源：B 流提出 + C 流用 L3 量化）
+  # ==========================================================
+  injectability_rule:
+    rule: "**只有出现在 `object_info` 的 `required ∪ optional` 里的入参，才能被参数 Schema 的 `targets` 注入驱动。**"
+    why: "本平台的自动化链路是「后端把参数注入工作流 JSON 再提交」。凡把参数藏在 **widget 属性**（而非声明式入参）里的节点，外部 API 驱动不了它 —— 它在交互式 UI 里好用，但在我们的链路里**等于不可用**。"
+    how_to_check: |
+      python -c "import json;d=json.load(open('deploy/schemas/object_info.v0.36.0.json'));\
+      print(list(d['<节点类名>']['input'].get('required',{})), list(d['<节点类名>']['input'].get('optional',{})))"
+    first_case: "**判例 G8**（`debug_log.md`）：`Power Lora Loader (rgthree)` 的 `required=[]`、`optional=['model','clip']` —— **LoRA 条目是动态 widget，没有可注入的入参** → `targets` 写 `lora_1` 被校验器拒绝（VALIDATE=FAIL）。详见本文件 rgthree 条目"
+    implication_for_whitelist: "⚠️ 这条轴**独立于**技术状态（ok/broken）与许可（MIT/GPL）—— 一个节点可以三点全绿却在我们的链路上不可用。**keep 档的判定必须同时过这一轴**（见 §2.1 的可注入性审计）。"
+    source: "B 流（stream-b-workflow）在 G8 中提出并给出查法；C 流用 `deploy/schemas/object_info.v0.36.0.json`（L3，2530 节点）完成量化"
 
 # ============================================================
 # 1. 节点清单（32 个，与 deploy/versions.lock [custom_nodes] 一一对应）
@@ -155,15 +168,19 @@ nodes:
   - name: ComfyUI_ADV_CLIP_emb
     commit: 63984deefb00
     dirty: 1
-    purpose: "高级 CLIP 文本编码（权重解释方式：A1111 / compel / 平均等）"
-    v1_path: true
-    v1_refs: [FR-8.2, P5-09]
+    purpose: "高级 CLIP 文本编码 —— 多出的是两个参数：`token_normalization`（4 种）与 `weight_interpretation`（5 种：comfy / A1111 / compel / comfy++ / down_weight）"
+    v1_path: false
+    v1_refs: [P5-09]
     status: ok
-    decision: keep
+    decision: review
     license: GPL-3.0
-    evidence: "evidence/comfyui_cpu_audit.log（0.0s）；evidence/custom_nodes_licenses.txt"
-    risk: "⚠️ 两个待办 —— ① **dirty=1**（工作区有未提交改动）② 提示词权重语法 `(word:1.2)` 依赖它，但 **cfg=1 的 klein 链路上权重是否生效未实测**（docs/sop/prompt_guide.md §1）。若在 klein 上无效，提示词库的 weight 语义就是空转 → 需 B 流在 P3 验证"
-    findings: ["🔧 待办：查明 dirty 改动内容并记录；若为本地补丁需落入部署流程，否则环境不可复现"]
+    evidence: "evidence/comfyui_cpu_audit.log（0.0s，import 正常）；evidence/custom_nodes_licenses.txt"
+    correction: "⚠️ **2026-09-16 前提更正（本条目由 keep 降为 review 的原因）** —— 原记「提示词权重语法 `(word:1.2)` **依赖它**」并据此判 keep，**该前提已被 B 流用 `object_info.v0.36.0.json` 证伪**：<br>· 该包**只提供 4 个节点**，全是 `BNK_` 前缀（`BNK_CLIPTextEncodeAdvanced` / `BNK_CLIPTextEncodeSDXLAdvanced` / `BNK_AddCLIPSDXLParams` / `BNK_AddCLIPSDXLRParams`）<br>· 两条工作流的 `class_type` 全量枚举里 **一个 `BNK_*` 都没有**<br>· 我们用的条件编码是**核心** `CLIPTextEncode`（`python_module=nodes`）→ 权重语法**是核心节点自带的能力**<br>详见 `docs/sop/debug_log.md` G7（含「先用 object_info 查该包提供哪些节点类」的方法论）"
+    risk: "低（技术）。**它是「权重怎么解释」的开关，不是「能不能写权重」的前提** —— 当前未接线 ⇒ V1 用的是 ComfyUI 默认语义，**不接线对 V1 零功能影响**。因此它不满足 keep 的定义（不在 V1 关键路径上，也非交付必需）"
+    findings:
+      - "**dirty=1** —— 工作区有未提交改动，需查明并记录（否则环境不可复现）"
+      - "🔧 把它留在环境里的**唯一理由**：若 L4 实测证明默认语义下权重效果不足（`debug_log.md` G7 待验证项），则接入 `BNK_*` 节点以改用 `A1111` / `compel` 等解释方式 → 届时升回 keep"
+    lean: "待 L4 结果：需要改权重解释方式 → keep 并接线；否则 disable"
 
   - name: rgthree-comfy
     commit: 42e73c3c48e8
@@ -175,11 +192,13 @@ nodes:
     decision: keep
     license: MIT
     evidence: "evidence/comfyui_cpu_audit.log（0.0s）；evidence/custom_nodes_licenses.txt"
-    risk: "中 —— 它给工作流引入**非标准节点**，降低与官方生态的可移植性。若 P4-04 的多 LoRA 需求可用核心 LoraLoader 满足，可降为 review"
+    risk: "⚠️ **中高（已实证，见 findings）** —— 它给工作流引入**非标准节点**，降低与官方生态的可移植性；且它的**便捷节点大量属于「widget 属性型」**（24 个类里 12 个 `required` 为空，占 50%），与自动化注入天然冲突"
     findings:
-      - "⚠️ **重要（新发现）**：第二次 CPU 审计（17:01）中 rgthree-comfy 自述与 ComfyUI 新的 **Node 2.0 渲染不兼容** —— 原文：*\"ComfyUI's new Node 2.0 rendering may be incompatible with some rgthree-comfy nodes and features, breaking some rendering as well as losing the ability to access a node's properties... It also appears to run MUCH more slowly spiking CPU usage and causing jankiness and unresponsiveness, especially with large workflows.\"*（见 evidence/comfyui_cpu_startup.log，非 [WARNING] 前缀的裸输出）"
-      - "**为何重要**：我们保留它的理由是 Power Lora Loader（P4-04）。若「节点属性不可访问」成立，**参数可能无法从外部注入** → 直接破坏 contracts.md §3.3 的 targets 注入契约"
-      - "🔧 **处置**：P4-04 接入时必须**实测 Power Lora Loader 能否被参数注入**；若不能 → 改用核心 LoraLoader 并把本节点降为 review"
+      - "⚠️ 第二次 CPU 审计（17:01）中 rgthree-comfy 自述与 ComfyUI 新的 **Node 2.0 渲染不兼容** —— 原文：*\"ComfyUI's new Node 2.0 rendering may be incompatible with some rgthree-comfy nodes and features, breaking some rendering as well as losing the ability to access a node's properties...\"*（见 evidence/comfyui_cpu_startup.log）"
+      - "🚨 **已由 B 流用真实校验器 A/B 证伪「Power Lora Loader 可用」（`debug_log.md` G8）**：<br>`Power Lora Loader (rgthree)` 在 `object_info` 里 **`required=[]`、`optional=['model','clip']`** —— LoRA 条目是**动态 widget 属性**，不是声明式入参 → 注入 `lora_1` 直接被拒（`入参 'lora_1' 不被该节点接受（可选: ['clip','model']）→ VALIDATE=FAIL`）。<br>**这不是「属性可能访问不到」，而是「LoRA 参数压根没有可注入的入参」** → 本节点**无法**承担 P4-04 的多 LoRA 注入"
+      - "✅ **但 keep 判定仍然成立 —— 理由需要换**：同一包内 **`Lora Loader Stack (rgthree)`** 的 `required=['model','clip','lora_01','strength_01','lora_02','strength_02','lora_03','strength_03','lora_04','strength_04']` —— **10 个全是声明式入参，完全可注入**（一个节点装 4 个 LoRA + 权重，见 §2.1）。另有 `Seed` / `KSampler Config` / `Image Resize` / `Image Comparer` / `Power Prompt`（`required=['prompt']`）等可注入节点"
+      - "🔧 **处置（修正后）**：P4-04 的多 LoRA 走 **`Lora Loader Stack`（单节点、4 LoRA、可注入）**，而非 B 流原计划的「核心 `LoraLoader` 串链 4 个」（串链需 4 个节点且要自建连线）；更**不要**用 `Power Lora Loader`。<br>本节点由 `keep` **维持 keep**，但保留理由从「Power Lora Loader」改为「**`Lora Loader Stack` 等可注入节点**」—— 这条修正必须同步给 B 流（P4-04 的节点选型）"
+      - "⚠️ 同时保留 Node 2.0 的渲染不兼容风险：我们**不经 UI 出图**（走 API 注入），故该风险主要影响人工调试体验，不影响生产链路 —— 但**若 P4-04 需要人工在 UI 里搭图，要留意卡顿与属性面板失效**"
 
   - name: ComfyUI-KJNodes
     commit: f37df472dfb3
@@ -399,11 +418,12 @@ nodes:
     v1_path: false
     v1_refs: []
     status: ok
-    decision: review
+    decision: disable
     license: GPL-3.0
     evidence: "审计日志（0.5s，import 正常）。**与 efficiency-nodes-comfyui 功能高度重叠**，两者择一；且聚合层会**隐藏实际节点结构**，与「参数 Schema 的 targets 必须指向真实节点」契约（contracts.md §3.3）冲突"
     risk: "⚠️ 中 —— 聚合节点不利于参数注入的可解释性"
     lean: disable
+    convergence: "**收敛判定 → disable**（判据：可注入性 + 是否 V1 关键路径）。① 不在 V1 关键路径（`v1_path: false`，无 `v1_refs`）② 200 个类里 8 个 `required` 为空，且它的**核心设计是「把多节点封装成一键节点」→ 隐藏真实节点结构**，与 `contracts.md` §3.3「targets 必须指向真实存在的节点与入参」**直接冲突** ③ 与 `efficiency-nodes-comfyui` 功能重叠（两者择一，已保留后者）④ GPL-3.0，减少 GPL 面本身有正收益。**禁用不删除**，需要时一条改名即可恢复"
 
   - name: efficiency-nodes-comfyui
     commit: f0971b5553ea
@@ -426,11 +446,12 @@ nodes:
     v1_path: false
     v1_refs: [P5-03]
     status: ok
-    decision: review
+    decision: disable
     license: GPL-3.0
     evidence: "审计日志（0.2s，import 正常）。随机提示词/批处理对评测扫描有用；但与 KJNodes / essentials 有重叠"
     risk: "低（依赖轻）。待 P5-03 评测流程定型后再定"
     lean: keep
+    convergence: "**收敛判定 → disable**（判据同上）。① 不在 V1 关键路径（无 `v1_refs` 的硬需求，`P5-03` 属「有用非必需」）② 功能与**已保留**的 `ComfyUI-KJNodes`（198 类）与 `ComfyUI_essentials`（85 类）大幅重叠，**无独有能力证据** ③ 其「随机提示词」能力由后端 / P5-09 模板引擎提供更可控（可见、可校验、可统计），放节点里反而不可观测。**禁用不删除**"
 
   - name: comfyui-ollama
     commit: 6db7560576e5
@@ -439,11 +460,12 @@ nodes:
     v1_path: false
     v1_refs: [E4（V2）]
     status: ok
-    decision: review
+    decision: disable
     license: Apache-2.0
     evidence: "审计日志（0.5s，import 正常）。V2 的 LLM 提示词助手（E4）会用到；**V1 的 FR 清单里没有 LLM 需求**"
     risk: "⚠️ 中 —— 它会拉起本地 LLM 服务，**挤占 4090 显存**（双底模已常驻 13.1G/24G；NFR-2 要求并发=1 且模型常驻）"
     lean: disable（V1 期间）
+    convergence: "**收敛判定 → disable**（判据同上）。① 不在 V1 关键路径：**PRD §3.1 的 M1–M9 无 LLM 需求**，它服务的是 V2 的 E4 ② ⚠️ **显存竞争**：它会拉起本地 LLM 服务，而 NFR-2 要求「并发=1、双底模常驻 13.1G/24G」—— 并行跑 LLM 会直接挤压出图显存 ③ 许可干净（Apache-2.0），**仅因 V1 时机不对而禁用**。<br>**触发条件（明确）**：V2 启动做 LLM 提示词助手（E4）时重新评估并回升"
 
   - name: ComfyUI-Dev-Utils
     commit: 38852e78803a
@@ -452,11 +474,12 @@ nodes:
     v1_path: false
     v1_refs: []
     status: ok
-    decision: review
+    decision: disable
     license: MIT
     evidence: "审计日志（0.0s，import 正常）。仅节点开发者在写自定义节点时需要；**本项目不自研节点**"
     risk: "低"
     lean: disable
+    convergence: "**收敛判定 → disable**（判据同上）。① 不在 V1 关键路径 ② 它是**节点开发者**的调试工具，而本项目**不自研自定义节点** → 该能力对本项目无使用场景。**禁用不删除**"
 
   - name: ComfyUI_tinyterraNodes
     commit: 1a90e4348056
@@ -465,11 +488,12 @@ nodes:
     v1_path: false
     v1_refs: []
     status: ok
-    decision: review
+    decision: disable
     license: GPL-3.0
     evidence: "审计日志（0.2s，import 正常）。与 KJNodes / Essentials 重叠度高，无独有必需能力证据"
     risk: "低"
     lean: disable
+    convergence: "**收敛判定 → disable**（判据同上）。① 不在 V1 关键路径（无 `v1_refs`）② 42 类里仅 1 个 `required` 为空，其余可注入 —— **技术/许可都无问题，纯粹是「与 KJNodes / essentials 重叠且无独有必需能力」** ③ 「节点越多越脆」是本轮裁剪动机，重叠包是首选裁剪对象。**禁用不删除**"
 
   - name: PowerNoiseSuite
     commit: 581c164114dc
@@ -478,11 +502,12 @@ nodes:
     v1_path: false
     v1_refs: []
     status: ok
-    decision: review
+    decision: disable
     license: GPL-3.0
     evidence: "审计日志（0.0s，import 正常）。理论上有助于细节质感（P5-03 材质/质感评测），但**无实测证据**"
     risk: "低。若 P5-03 证明对材质特写有帮助可回归"
     lean: 待评测
+    convergence: "**收敛判定 → disable**（判据同上）。① 不在 V1 关键路径 ② 11 类且**全部可注入**（`required` 空 = 0），技术上无问题 ③ 但**无任何实测证据**表明它对材质/质感有实际收益 —— 按「无证据不启用」先禁用；若 P5-03 评测确认需要细节增强手段，再回升（**禁用不删除，回退成本 ≈ 0**）"
 
   - name: ComfyUI-Coziness
     commit: d841eaea9a56
@@ -491,12 +516,13 @@ nodes:
     v1_path: false
     v1_refs: [FR-8.5, P4-04]
     status: ok
-    decision: review
+    decision: disable
     license: MIT
     evidence: "**用途已由本轮采集澄清**（读其 README）：作用域是 LoRA 加载（FR-8.5，Should 级，P4-04）。审计日志（0.0s，import 正常）。上游 skfoo/ComfyUI-Coziness，最后更新 2024-05-27（v1.0.2）"
     risk: "低（技术/合规双低）—— **功能与 rgthree-comfy 的 Power Lora Loader 重叠**。差异化价值是「**提示词驱动的 LoRA 加载**」，若 P4-04 采用该交互方式则可保留"
     findings: ["⏳ 维护状态较旧（最后更新 2024-05），需在 P4-04 复测与新 ComfyUI 的兼容性"]
     lean: "若 P4-04 用提示词驱动 LoRA → keep；否则 disable"
+    convergence: "**收敛判定 → disable**（判据同上）。① 不在 V1 关键路径 ② 2 类且全部可注入、MIT 许可 —— 技术/许可均无问题 ③ **但它的设计方向与平台架构相反**：它把「用哪些 LoRA、权重多少」**藏进提示词文本**（`<lora:name:1.1>` 语法）→ 这些参数**绕过了后端校验与注入**，与 `contracts.md` §3.4「后端必须二次校验」、§3.3「参数经 Schema 暴露」相冲突；且产物元数据无法结构化记录用了哪些 LoRA（破坏 FR-5.4 可复现性）④ P4-04 的多 LoRA 已选定更优方案 `Lora Loader Stack (rgthree)`（固定 4 槽位、Schema 稳定、参数可校验）。<br>**触发条件**：若 P4-04 最终确需「提示词内联 LoRA」这一交互，再回升"
 
   - name: was-node-suite-comfyui
     commit: ea935d1044ae
@@ -505,7 +531,7 @@ nodes:
     v1_path: false
     v1_refs: []
     status: ok
-    decision: review
+    decision: disable
     license: MIT
     evidence: "审计日志（**3.7s —— 全部节点中最慢**，无 IMPORT FAILED）。**依赖最重的综合套件之一**（自带 cstr / ffmpy / img2texture 等 git+ 依赖，见 versions.lock [pip]），功能面广但与 KJNodes/Essentials 大量重叠"
     risk: "⚠️ **中高 —— 它是「太多太脆」的典型代表**：依赖面最广、加载最慢、与其它套件重叠。**倾向禁用**；若某条工作流确实依赖它的独有节点，则保留并**记录具体是哪个节点**"
@@ -517,9 +543,11 @@ nodes:
 summary:
   total: 32
   by_decision:
-    keep: 12
+    keep: 11
     disable: 11
-    review: 9
+    review: 10
+    # ⚠️ 2026-09-16 变更：ComfyUI_ADV_CLIP_emb 由 keep → review（其 keep 依据「权重语法依赖它」被 B 流证伪，
+    #    见该条目的 correction 字段与 docs/sop/debug_log.md G7）→ keep 12→11、review 9→10
   by_status:
     ok: 29                 # 审计日志 Import times 段列出且未标 IMPORT FAILED
     broken: 3              # nunchaku / TeaCache / smZNodes
@@ -529,8 +557,10 @@ summary:
     consistency: "✅ 两次运行给出**完全相同的 3 个失败节点** → 稳定复现，非偶发"
     self_check: "两次日志的 Import times 段均为 33 行 = 32 个节点 + websocket_image_save.py（ComfyUI 自带单文件节点）→ 采集期间无节点增删，两份日志可比"
   by_v1_path:
-    critical: 12
-    not_critical: 20
+    critical: 10           # ⚠️ 已按实际字段统计修正（原记 12 与逐条 v1_path 不符，2026-09-16 核实）
+    not_critical: 22
+    critical_nodes: [comfyui_controlnet_aux, ComfyUI-Advanced-ControlNet, ComfyUI_IPAdapter_plus, ComfyUI-Impact-Pack, masquerade-nodes-comfyui, ComfyUI_BiRefNet_ll, rgthree-comfy, ComfyUI-KJNodes, ComfyUI_essentials, ComfyUI-Manager]
+    note: "**v1_path ≠ decision**：keep 有 11 个，但其中 ComfyUI-Custom-Scripts 是 v1_path=false（纯 UI 增强，开发期有用）→ 两个计数天然不等，不应互相推导"
   by_license:
     MIT: 10                # Coziness / Custom-Scripts / Dev-Utils / Frame-Interpolation / BiRefNet_ll / FizzNodes / essentials / masquerade / rgthree / was-node-suite
     Apache-2.0: 5          # TeaCache / WanVideoWrapper / nunchaku / ollama / comfyui_controlnet_aux
@@ -541,9 +571,38 @@ summary:
     result: "✅ **32/32 零漂移** —— 服务器实际 HEAD 与 deploy/versions.lock [custom_nodes] 逐条完全一致"
     caveat: "⚠️ 4 个节点工作区有未提交改动（nunchaku=1 / ADV_CLIP_emb=1 / supersave=1 / efficiency-nodes=2）→ 「锁的是 commit，跑的是 commit+改动」，需查明并记录"
   node_class_delta:
-    baseline_old: 2102     # evidence/object_info_v0.3.75_baseline.json（**v0.3.75 旧版本**，2025-09-15）
-    current: null          # ⚠️ 未采集：需启动 v0.36.0 后 curl /object_info（台账 #16 记 2530，但无文件证据）
-    todo: "执行禁用后需采集：① 禁用前节点类数 ② 禁用后节点类数 ③ 确认 V1 关键节点全部仍在"
+    baseline_old: 2102     # evidence/object_info_v0.3.75_classnames.txt（**v0.3.75 旧版本**，2025-09-15）
+    current: 2530          # ✅ **已有文件证据**：deploy/schemas/object_info.v0.36.0.json（L3，3817136 B，2026-09-16 采集）
+    source: "B 流解锁的 L3 离线校验件（deploy/schemas/object_info.v0.36.0.json）—— 节点类总数经 C 流 `len(json)` 复核 = **2530**，与台账 #16 验证 2 的记录一致 → **该数字从「无文件证据」升级为「有文件证据」**"
+    todo: "执行禁用后需采集：① 禁用前节点类数（= 2530）② 禁用后节点类数 ③ 确认 V1 关键节点全部仍在"
+
+# ============================================================
+# 2.1 keep 档的「可注入性审计」（C 流，基于 L3 object_info）
+# ============================================================
+# 动机：keep 档原先只过了「技术状态 ok」+「许可能商用」两轴。
+#       但 B 流 G8 证明还有第三轴：**参数能否被 targets 注入**（见 policy.injectability_rule）。
+#       一个节点可以两轴全绿、却在自动化链路上完全不可用。
+# 方法：把每个 keep 节点的节点类，按其 python_module 归属聚合，统计 required 为空（= 只能靠 widget 交互）的类数。
+injectability_audit:
+  method: "按 python_module 前缀匹配节点类 → 统计 required 为空的类占比（required 空 = 无可注入入参）"
+  caveat: "⚠️ 本审计是**粗筛**：① required 为空 ≠ 该节点完全无用（它可能经 optional 注入，如 rgthree `Context` 的 base_ctx/model/clip）② 占比高只说明「不能依赖它做参数注入」，具体到某条工作流仍需按节点类逐个核（用 policy.injectability_rule 的查法）"
+  results:
+    - {node: comfyui_controlnet_aux, classes: 64, non_injectable: 0, ratio: "0%"}
+    - {node: ComfyUI-Advanced-ControlNet, classes: 43, non_injectable: 2, ratio: "4.7%"}
+    - {node: ComfyUI_IPAdapter_plus, classes: 37, non_injectable: 0, ratio: "0%"}
+    - {node: ComfyUI-Impact-Pack, classes: 197, non_injectable: 11, ratio: "5.6%"}
+    - {node: masquerade-nodes-comfyui, classes: 22, non_injectable: 0, ratio: "0%"}
+    - {node: ComfyUI_BiRefNet_ll, classes: 6, non_injectable: 0, ratio: "0%"}
+    - {node: rgthree-comfy, classes: 24, non_injectable: 12, ratio: "⚠️ 50%"}
+    - {node: ComfyUI-KJNodes, classes: 198, non_injectable: 3, ratio: "1.5%"}
+    - {node: ComfyUI_essentials, classes: 85, non_injectable: 1, ratio: "1.2%"}
+    - {node: ComfyUI-Custom-Scripts, classes: 13, non_injectable: 0, ratio: "0%"}
+    - {node: ComfyUI-Manager, classes: "未匹配到节点类", non_injectable: "-", ratio: "-"}
+  conclusion:
+    - "✅ **9/11 个可匹配的 keep 节点，非注入比例 ≤6%** → 控制体系类节点（controlnet_aux / IPAdapter_plus / masquerade / BiRefNet）**全部 0%**，说明 P4 的关键路径在注入层面是干净的"
+    - "⚠️ **`rgthree-comfy` 是唯一的例外（50%）** —— 它的「便利节点」大量是 widget 属性型。**实证后果就是 G8**。→ 已在 policy 与 rgthree 条目中处置：多 LoRA 改用可注入的 `Lora Loader Stack`"
+    - "💡 **对 P4-04 的直接建议**：多 LoRA 优先用 `Lora Loader Stack (rgthree)`（10 个声明式入参、单节点 4 LoRA）而非串链核心 `LoraLoader`（4 个节点 + 需自建连线）。两者都可注入，前者 Schema 更简洁"
+    - "ℹ️ `ComfyUI-Manager` 不注册节点类（未匹配到）→ 它**对节点图零影响**，是纯运维工具。这与「V1 上线后建议禁用」的判定一致（不影响任何工作流）"
 
 # ============================================================
 # 3. ⚠️ 环境级缺陷：sageattention（非节点，但导致节点失效）
@@ -595,7 +654,7 @@ execution_plan:
     - "① 备份现状：`ls -1 custom_nodes/ > /root/autodl-tmp/nodes_before.txt`；`curl -s 127.0.0.1:8188/object_info > /root/autodl-tmp/object_info_before.json` 并记录节点类总数"
     - "② 对 disable 档（11 个）执行重命名：`mv <name> <name>.disabled`（**不删除**）"
     - "③ 重启 ComfyUI —— 用 deploy/autodl/31_restart_prod.sh，**不要内联 pkill**（项目进展.md #19）"
-    - "④ 验证：23_cpu_mode_node_audit.sh + 26_validate_workflow.py 均须通过；V1 关键路径的 12 个节点必须仍在"
+    - "④ 验证：23_cpu_mode_node_audit.sh + 26_validate_workflow.py 均须通过；summary.by_v1_path.critical_nodes 列出的 10 个节点必须仍在"
     - "⑤ 采集禁用后的 /object_info，回填 §2 的 node_class_delta"
   rollback:
     how: "反向重命名 `<name>.disabled` → `<name>`，重启即可"
@@ -711,3 +770,4 @@ license_cross_validation:
       how: "`for d in */; do git -C $d remote get-url origin; done`（只读）"
       owner: C 流
       when: "下次服务器可达时，与 dirty 文件的 `git diff` 一并取"
+    convergence: "**收敛判定 → disable**（判据同上）。① 不在 V1 关键路径 ② **221 个类、8 个 `required` 为空**，是 32 个节点里体量最大者之一，且自带多个 `git+` 依赖（`cstr` / `ffmpy` / `img2texture`）→ **依赖面最广 = 单点故障概率最高** ③ 与 KJNodes / essentials 大量重叠，**无独有能力证据** ④ MIT 许可无问题，纯技术裁剪。<br>**它是「太多太脆」的最典型代表**，禁用收益最高。**禁用不删除**；若某条工作流将来确实依赖它的独有节点，再按具体节点类恢复"

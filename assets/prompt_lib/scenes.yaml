@@ -25,7 +25,34 @@ slots_contract:
   order: [subject, material, style, light, composition, quality_tail]
   quality_tail: [pos-055, pos-061]
   max_terms: 12
-  note: "超过 12 条基础词条后边际收益急剧下降，且会稀释主体词权重（P5-09 模板引擎将据此做截断）"
+  note: "**上限 12 条是实测建议**（词条过多 → 主体不保真）。注意：该现象的机制解释**未经验证**，本文件不写未证机制 —— 详见 prompt_guide.md §2.2"
+
+# ============================================================
+# ⚠️ 槽位在各链路上的**生效性**（机器可读；依据 debug_log.md G7 与 B 流答复）
+# ============================================================
+# 为什么必须写在这里：配方声明了槽位，不等于槽位在目标链路上有效。
+# 若不写明，下游（A 流的注入逻辑 / D 流的表单）会照单全收，
+# 出现「用户填了却毫无作用」的"看起来能用"陷阱。
+negative_policy:
+  by_workflow:
+    t2i_v1:
+      effective: true
+      reason: "SD1 tokenizer 未 disable → 反向提示词正常解析，且 Schema 暴露了该入口"
+    flux2_klein_t2i_v1:
+      effective: false
+      exposed: false              # ⚠️ 关键：不是"填了不生效"，而是 Schema 里**根本没有该字段**
+      reason: "① 图上官方 Distilled 子图用 ConditioningZeroOut 把负向整体置零；② 该工作流的参数 Schema 未暴露 negative_prompt 字段"
+  consequence:
+    - "**配方里的 `negative` 槽位在 klein 链路上不要注入、也不要提示用户可填** —— 该槽位对这些配方的作用是**人工质检清单**（`negative.yaml` 的 `severity: hit` 条目即判废标准）"
+    - "**不要为 klein 的 Schema 补 `negative_prompt` 字段** —— 补了会让用户误以为能生效（`prompt_guide.md` §1 约束 2）"
+    - "配方仍保留 `negative` 引用，因为它同时服务于 `t2i_v1` 场景与人工质检；下游按 `by_workflow` 决定是否注入"
+
+# ⚠️ 权重语法禁用（同属"生效性"，与槽位无关但必须与配方一起读）
+weight_syntax_policy:
+  t2i_v1: "allowed —— 核心 CLIPTextEncode 正常解析 `(word:1.2)`"
+  flux2_klein_t2i_v1: "FORBIDDEN —— KleinTokenizer 显式 disable_weights=True，写法会**污染**提示词（不是「无效」，是「有害」）"
+  library_status: "本库全部 YAML 已正则扫过：**无任何 `(word:1.2)` 写法**，故无正在受损的内容"
+  evidence: "docs/sop/debug_log.md G7（源码级定论）+ docs/sop/prompt_guide.md §1.1"
 
 # ---------- 建议工作流与参数 ----------
 # ⚠️ `workflow` 取值必须是 `workflows/registry.yaml` 里**已定义**的 id，本文件不自造名字。

@@ -44,12 +44,17 @@ class WorkflowEntry:
     title: str
     display_name: str
     description: str
+    #: 注册表 YAML 里写的**裸文件名**（相对注册表所在目录），仅作原始记录用。
+    #: 要取文件请用 `definition_path` —— 自己拼路径是已踩过一次的坑
+    #: （调用方被迫知道"注册表在哪"，换个 CWD 或换个注册表就静默找不到文件）。
     definition: str
     status: str
     models: tuple[str, ...]
     schema: ParamSchema
     verification: str
     engine: str | None = None
+    #: `definition` 的**已解析绝对路径**，由 `Registry.load()` 算好。
+    definition_path: pathlib.Path = field(default_factory=lambda: pathlib.Path())
     rollout_percent: int = 100
     #: **渲染路径** L4 是否已通过（即 `engine/render` 渲染后提交给真实引擎并核对过产物）。
     #:
@@ -145,7 +150,13 @@ class Registry:
         return tuple(e for e in self.workflows if e.is_enabled)
 
     def definition_path(self, entry: WorkflowEntry) -> pathlib.Path:
-        """`entry.definition` 是**相对注册表所在目录**的路径。"""
+        """取该工作流定义文件的**绝对路径**。
+
+        优先用 `entry.definition_path`（加载时已解析）；为兼容手工构造的
+        `WorkflowEntry`（如测试夹具）才在此兜底重新拼一次。
+        """
+        if entry.definition_path and entry.definition_path != pathlib.Path():
+            return entry.definition_path
         base = self.path.parent if self.path is not None else DEFAULT_REGISTRY_PATH.parent
         return (base / entry.definition).resolve()
 
@@ -268,6 +279,8 @@ def _parse_entry(item: Any, *, index: int, registry_path: pathlib.Path) -> Workf
         display_name=need_str("display_name"),
         description=str(item.get("description") or ""),
         definition=need_str("definition"),
+        # 加载时就把路径解析好，调用方不必知道注册表在哪
+        definition_path=(registry_path.parent / need_str("definition")).resolve(),
         status=status,
         models=tuple(models_raw),
         schema=schema,

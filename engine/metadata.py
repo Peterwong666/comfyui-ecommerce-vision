@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import binascii
 import hashlib
+import hmac
 import json
 import pathlib
 import struct
@@ -61,6 +62,14 @@ from engine.errors import MetadataError
 
 #: 元数据 JSON 的格式版本。字段增删**向后兼容**时可不变；破坏性改动必须递增。
 METADATA_SCHEMA_VERSION = 1
+
+#: 提示词摘要所用的算法标识。
+#:
+#: ⚠️ **必须与 `_prompt_digest()` 的实际构造一致** —— 它存在的意义就是
+#: "让两份来源不同的摘要能判断是否可比"，标错等于给了错误的比对许可。
+#: 当前构造是 **HMAC-SHA256**（`hmac.new(salt, text, sha256)`）。
+#: 换构造（如改回加盐前缀式、或换 BLAKE3）**必须同时改这里的字符串**。
+PROMPT_DIGEST_ALG = "hmac-sha256"
 
 #: 完整元数据 JSON 的 chunk 关键字（iTXt）
 METADATA_JSON_KEY = "wf_meta"
@@ -88,21 +97,27 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 def _prompt_digest(text: str, salt: str | bytes | None) -> str:
-    """提示词摘要。
+    """提示词摘要（**HMAC-SHA256**）。
 
-    ⚠️ **加盐的理由**：埋点侧只记 hash 时，若用**不加盐**的裸 sha256，
+    ⚠️ **为什么加盐**：埋点侧只记 hash 时，若用**不加盐**的裸 sha256，
     短提示词会被彩虹表 / 暴力枚举还原（`"白色杯子"` 这类候选空间很小）。
     加盐后摘要不可逆，同时仍可用于分布统计与去重。
 
+    ⚠️ **为什么是 HMAC 而不是 `sha256(salt ‖ text)`**：
+    后者对**长度扩展攻击**脆弱 —— 已知 `sha256(salt‖P)` 的人可以算出
+    `sha256(salt‖P‖padding‖X)`，即**为另一个（更长的）提示词伪造出合法摘要**。
+    对我们的用途威胁不高，但 HMAC 是**零成本的标准构造**，没有理由用弱的那一个。
+    （2026-09-16 team-lead 批准改为 HMAC；当时无生产数据，改动成本为零。）
+
     ⚠️ **跨系统比对的前提**：产物元数据里的摘要若要与服务端事件的摘要对上，
-    两侧必须用**同一个盐**。盐取自配置（如 `settings.prompt_hash_salt`），
+    两侧必须用**同一个盐 + 同一个算法**。盐取自配置（如 `settings.prompt_hash_salt`），
     **不要写死在代码里** —— 换盐等于作废全部历史摘要，必须是一次有意识的迁移。
     """
-    h = hashlib.sha256()
-    if salt is not None:
-        h.update(salt.encode("utf-8") if isinstance(salt, str) else salt)
-    h.update(text.encode("utf-8"))
-    return h.hexdigest()
+    return hmac.new(
+        b"" if salt is None else (salt.encode("utf-8") if isinstance(salt, str) else salt),
+        text.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def build_metadata(
@@ -140,6 +155,10 @@ def build_metadata(
                 "sha256": _prompt_digest(value, hash_salt),
                 "length": len(value),
                 "salted": hash_salt is not None,
+                # 算法标识：跨系统比对的前提是**同盐 + 同算法**。
+                # 少了它，将来换了构造（如 HMAC→BLAKE3）后新旧摘要会被直接比对，
+                # 得出"提示词不同"的错误结论（与 `salted` 标志同一个理由）。
+                "alg": PROMPT_DIGEST_ALG,
             }
 
     if not include_prompt:
