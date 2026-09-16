@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import struct
 import uuid
 import zipfile
@@ -289,6 +290,29 @@ class TestAssetQueries:
         client.delete(f"/api/v1/assets/{a['id']}")
         assert client.delete(f"/api/v1/assets/{a['id']}").status_code == 409
 
+    def test_soft_deleted_asset_detail_is_404(self, client, mem_storage):
+        """⭐ 软删除后**详情接口**（`GET /assets/{id}`）也是 404 —— P6-10 刻意的口径统一。
+
+        素材一进回收站，就该在**所有**接口上一致地表现为"不存在"；否则会出现
+        "详情 200（拿得到元数据、还能看到缩略图占位）但取图 404"这种自相矛盾的状态，
+        前端据此判断不出到底发生了什么。这也正是 V1 没有回收站恢复接口的必然结果：
+        既然看不到、也取不回，就没有任何接口需要"看得见"它。
+
+        ⚠️ 这是 P6-10 引入的**行为变更**：`_owned_asset` 的默认口径从"不过滤
+        `is_deleted`"改成"默认过滤"。于是本接口对已软删除素材的返回码
+        从 **200 变成 404**（删除前 200 / 删除 200 / 删除后再详情 200 → 现在 404 /
+        重复删除仍是 409）。旧语义下"删除后再详情"返回 200。
+
+        这条用例就是钉住新语义：**若有人把 `include_deleted` 的默认值改回 `True`
+        （或从 `_owned_asset` 的默认条件里去掉 `is_deleted`），本用例必须变红。**
+        此前只有 `/content` 子路径的软删除用例（`test_soft_deleted_asset_is_404`），
+        详情接口这一条无人覆盖 —— 改回去不会被任何测试发现。
+        """
+        a = self._make(client)
+        assert client.get(f"/api/v1/assets/{a['id']}").status_code == 200
+        assert client.delete(f"/api/v1/assets/{a['id']}").status_code == 200
+        assert client.get(f"/api/v1/assets/{a['id']}").status_code == 404
+
     def test_missing_asset_is_404(self, client, mem_storage):
         assert client.get("/api/v1/assets/999999").status_code == 404
 
@@ -472,6 +496,51 @@ class TestAssetContent:
         # ETag 是内容寻址（带引号）；Cache-Control 必须 private（按用户隔离）
         assert resp.headers["etag"].startswith('"') and resp.headers["etag"].endswith('"')
         assert "private" in resp.headers["cache-control"]
+
+    def test_etag_is_content_addressed_sha256(self, client, mem_storage):
+        """⭐ ETag 必须是**响应字节的 sha256**（内容寻址），不是 id / 时间等非内容标识。
+
+        为什么值得单独钉一条：现有的 ETag 断言（`test_returns_exact_bytes_and_mime`）
+        只检查首尾带引号 —— 于是把实现改成 `ETag = f'"{asset.id}"'` 也能存活。
+        而 ETag 用非内容标识会导致**内容没变却缓存失效、重新下载整张图**（浪费带宽），
+        且同一字节内容被上传两次会得到两个不同 ETag，缓存完全失效。
+
+        四条断言各钉一件事：
+        ① 形状：带引号 + 去掉引号后 64 位十六进制（sha256 的形态）；
+        ② **内容寻址（决定性的一条）**：等于 `sha256(resp.content)`，测试里独立算一遍；
+        ③ 幂等：同一张图再次请求 ETag 不变；
+        ④ 判别力：内容不同的两张图 ETag 不同（钉住"ETag 不是常量"）。
+
+        关于"哪几条能杀掉 `ETag = asset.id` 这个变异体"：**决定性的是 ① ②**。
+        ④ 杀不掉它 —— 两张内容不同的图 id 也不同，用 id 当 ETag 时它们照样不等；
+        ③ 同样杀不掉（同一张图 id 当然相同）。② 直接断言"ETag 是内容的函数"，
+        候选若与内容无关（id）必然不等；① 则从形态上就排除了短数字 id。
+        ④ 真正杀的是"ETag 是常量"那类变异。
+        """
+        first = _upload(client, _blob(512)).json()["id"]
+        second = _upload(client, _blob(640)).json()["id"]
+
+        resp = client.get(f"/api/v1/assets/{first}/content")
+        assert resp.status_code == 200, resp.text
+        etag = resp.headers["etag"]
+
+        # ① 形如 "<64 位十六进制>"
+        assert etag.startswith('"') and etag.endswith('"'), etag
+        digest = etag.strip('"')
+        assert len(digest) == 64, etag
+        assert all(c in "0123456789abcdef" for c in digest), etag
+
+        # ② 内容寻址：等于响应字节的 sha256
+        assert digest == hashlib.sha256(resp.content).hexdigest()
+
+        # ③ 同一张图再次请求，ETag 不变
+        again = client.get(f"/api/v1/assets/{first}/content")
+        assert again.headers["etag"] == etag
+
+        # ④ 内容不同的两张图，ETag 必须不同
+        other = client.get(f"/api/v1/assets/{second}/content")
+        assert other.content != resp.content
+        assert other.headers["etag"] != etag
 
     def test_disposition_inline_by_default_attachment_when_download(self, client, mem_storage):
         asset_id = _upload(client, _blob()).json()["id"]
