@@ -4,15 +4,30 @@
 1. **`image_probe`** —— 按魔数判格式 + 从头部取尺寸。这是新写的、且**安全相关**
    （EX-10 要防"改后缀混进来"），所以测得比较细，含两个"看起来能过其实是错的"的陷阱
 2. **上传接口** —— 四层校验（体积 / 格式 / 尺寸 / 落库）逐层验，且**原因必须具体**
+3. **产物消费（P6-10）** —— 取图 / 标记采纳 / 打包下载。这一部分的原则是：
+   **接口返回 200 不算通过，得看副作用**（字节逐字节相等、`events` 表真的多了一条）。
+   `image_adopted`（良品率分子）与 `image_downloaded`（北极星分子）在本次之前
+   全仓库零处触发，所以埋点必须由测试钉死 —— 否则"指标没有数据源"会再次静默发生。
 """
 
 from __future__ import annotations
 
 import struct
+import uuid
+import zipfile
+from datetime import datetime, timedelta, timezone
+from io import BytesIO
 
 import pytest
+from sqlalchemy import select
 
+from app.models.asset import Asset
+from app.models.enums import AssetKind, UserRole
+from app.models.event import AuditLog, Event, EventName
+from app.models.task import Batch, Task
+from app.models.user import User
 from app.services.image_probe import ImageInfo, UnsupportedImage, probe
+from app.services.storage import AssetStorage
 
 # ============================================================
 # 测试用图片头构造器（不依赖 Pillow，只造**头部**）
@@ -305,3 +320,461 @@ class TestAssetQueries:
         assert client.delete(f"/api/v1/assets/{theirs.id}").status_code == 404
         # 列表里也看不到
         assert client.get("/api/v1/assets").json()["total"] == 0
+
+    def test_filter_by_task_and_batch(self, client, mem_storage, db, user, workflow):
+        """FR-5.1 的「按任务筛选」。
+
+        ⚠️ `total` 与 `items` 必须同时正确 —— 计数查询漏掉 join 时，接口会
+        "说有 2 条、实际返回 0 条"，而两者单看都像是合理的。
+        """
+        batch = Batch(user_id=user.id, workflow_id=workflow.id, name="b1", common_params={})
+        db.add(batch)
+        db.flush()
+        t1 = _make_task(db, user, workflow, batch_id=batch.id)
+        t2 = _make_task(db, user, workflow, batch_id=batch.id)
+        lone = _make_task(db, user, workflow)
+        _make_output(db, user, t1, mem_storage, _blob())
+        _make_output(db, user, t2, mem_storage, _blob())
+        outside = _make_output(db, user, lone, mem_storage, _blob())
+
+        by_task = client.get("/api/v1/assets", params={"task_id": t1.id}).json()
+        assert by_task["total"] == 1 and len(by_task["items"]) == 1
+
+        by_batch = client.get("/api/v1/assets", params={"batch_id": batch.id}).json()
+        assert by_batch["total"] == 2
+        assert len(by_batch["items"]) == 2
+        assert outside.id not in [item["id"] for item in by_batch["items"]]
+
+    def test_filter_by_favorite_and_created_range(self, client, mem_storage):
+        keep = _upload(client, _blob()).json()
+        _upload(client, _blob(640))
+
+        patched = client.patch(f"/api/v1/assets/{keep['id']}", json={"is_favorite": True})
+        assert patched.status_code == 200
+        fav = client.get("/api/v1/assets", params={"favorite_only": True}).json()
+        assert fav["total"] == 1 and fav["items"][0]["id"] == keep["id"]
+
+        now, day = datetime.now(timezone.utc), timedelta(days=1)
+        window = client.get(
+            "/api/v1/assets",
+            params={
+                "created_from": (now - day).isoformat(),
+                "created_to": (now + day).isoformat(),
+            },
+        ).json()
+        assert window["total"] == 2
+        # naive 时间同样可用：库里存 UTC，naive 按 UTC 解释（`_as_utc`）。
+        # 少了这步归一化不会报错，只会静默按服务器时区解释、少返回一批数据。
+        naive = client.get(
+            "/api/v1/assets",
+            params={"created_from": (now - day).replace(tzinfo=None).isoformat()},
+        ).json()
+        assert naive["total"] == 2
+        future = client.get(
+            "/api/v1/assets", params={"created_from": (now + day).isoformat()}
+        ).json()
+        assert future["total"] == 0
+
+
+# ============================================================
+# 3. 产物消费（P6-10）：取图 / 标记采纳 / 打包下载
+#
+# 这一段的测试原则与上传不同：**接口返回 200 不算通过**。
+# `image_adopted`（良品率分子）与 `image_downloaded`（北极星分子）在本次之前
+# 全仓库零处触发 —— 也就是说指标不是"还没做看板"，而是压根没有数据源。
+# 所以凡是有埋点的路径，都必须断言 `events` 表里真的多了（并且只多了）那一条。
+# ============================================================
+
+
+def _blob(width: int = 512) -> bytes:
+    """造一张"内容是 PNG"的大字节块（≥100KB，能过上传的体积下限）。"""
+    return png_header(width, width) + b"\x00" * (110 * 1024)
+
+
+def _make_task(db, user, workflow, *, params=None, batch_id=None) -> Task:
+    """造一个任务。产物 Asset 靠它承载 `params`（SKU）与归属。"""
+    task = Task(
+        user_id=user.id, workflow_id=workflow.id, params=params or {},
+        batch_id=batch_id, idx=0,
+    )
+    db.add(task)
+    db.flush()
+    return task
+
+
+def _make_output(db, user, task, store, blob, *, mime="image/png", ext="png") -> Asset:
+    """造一条 `kind=output` 的产物。
+
+    ⚠️ 字节**真的写进存储**：只写 DB 记录的话，取图那条链路在测试里永远读不到东西，
+    于是"取图 500"会被误当成实现 bug，改错地方。
+    `object_key` 每次用新 uuid —— 它是唯一约束，重复会直接撞 IntegrityError。
+    """
+    key = f"outputs/{user.id}/{task.id}/{uuid.uuid4().hex}.{ext}"
+    store.put(key, blob, mime)
+    asset = Asset(
+        user_id=user.id, task_id=task.id, kind=AssetKind.OUTPUT.value,
+        object_key=key, mime_type=mime, size_bytes=len(blob), width=512, height=512,
+    )
+    db.add(asset)
+    db.commit()
+    return asset
+
+
+def _other_users_asset(db, store) -> Asset:
+    """造一个属于**别人**的素材（越权用例用）。"""
+    other = User(
+        email="intruder@example.com", password_hash="x", role=UserRole.USER.value,
+        quota_total=10, quota_used=0,
+    )
+    db.add(other)
+    db.flush()
+    key = f"uploads/{other.id}/{uuid.uuid4().hex}.png"
+    blob = _blob()
+    store.put(key, blob, "image/png")
+    asset = Asset(
+        user_id=other.id, kind=AssetKind.UPLOAD.value, object_key=key,
+        mime_type="image/png", size_bytes=len(blob), width=512, height=512,
+    )
+    db.add(asset)
+    db.commit()
+    return asset
+
+
+def _events(db, name: str) -> list[Event]:
+    return list(db.scalars(select(Event).where(Event.event_name == name)).all())
+
+
+class _BoomStorage(AssetStorage):
+    """读必炸的存储替身：模拟"对象丢了 / MinIO 不可达"这类**运维事故**。"""
+
+    def put(self, key, data, content_type):  # pragma: no cover - 本用例不走写路径
+        raise RuntimeError("should not put")
+
+    def get(self, key):
+        raise RuntimeError("storage down")
+
+    def delete(self, key):  # pragma: no cover - 本用例不走写路径
+        raise RuntimeError("should not delete")
+
+
+class TestAssetContent:
+    """取图：`GET /assets/{id}/content`（受控代理，不走预签名 URL）。"""
+
+    def test_returns_exact_bytes_and_mime(self, client, mem_storage):
+        """⭐ 逐字节相等。只断言 200 的话，"返回了半张图 / 返回了占位图"也会通过。"""
+        body = _blob()
+        asset_id = _upload(client, body).json()["id"]
+
+        resp = client.get(f"/api/v1/assets/{asset_id}/content")
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"] == "image/png"
+        assert resp.content == body
+        # ETag 是内容寻址（带引号）；Cache-Control 必须 private（按用户隔离）
+        assert resp.headers["etag"].startswith('"') and resp.headers["etag"].endswith('"')
+        assert "private" in resp.headers["cache-control"]
+
+    def test_disposition_inline_by_default_attachment_when_download(self, client, mem_storage):
+        asset_id = _upload(client, _blob()).json()["id"]
+
+        inline = client.get(f"/api/v1/assets/{asset_id}/content")
+        assert inline.headers["content-disposition"].startswith("inline")
+        assert f'filename="asset_{asset_id}.png"' in inline.headers["content-disposition"]
+
+        attached = client.get(f"/api/v1/assets/{asset_id}/content", params={"download": 1})
+        assert attached.headers["content-disposition"].startswith("attachment")
+        # 附件与内联是**同一份字节**，只是响应头不同
+        assert attached.content == inline.content
+
+    def test_other_users_asset_is_404(self, client, mem_storage, db):
+        theirs = _other_users_asset(db, mem_storage)
+        assert client.get(f"/api/v1/assets/{theirs.id}/content").status_code == 404
+
+    def test_soft_deleted_asset_is_404(self, client, mem_storage):
+        """回收站里的图不该还能取到 —— 否则"删除"只是列表里看不见而已。"""
+        asset_id = _upload(client, _blob()).json()["id"]
+        assert client.get(f"/api/v1/assets/{asset_id}/content").status_code == 200
+        client.delete(f"/api/v1/assets/{asset_id}")
+        assert client.get(f"/api/v1/assets/{asset_id}/content").status_code == 404
+
+    def test_storage_failure_is_500_not_404(self, client, mem_storage, monkeypatch, db):
+        """⭐ 记录在、对象不在 = 运维事故，必须 500 而不是 404。
+
+        伪装成 404 会让前端以为"用户删过它"而静默丢弃这张图 —— 事故就此被埋掉，
+        谁也不会去查（这正是"不报错的错误"里最贵的一种）。
+        """
+        from app.api.v1 import assets as assets_router
+
+        asset_id = _upload(client, _blob()).json()["id"]
+        monkeypatch.setattr(assets_router, "MinioAssetStorage", lambda *a, **kw: _BoomStorage())
+
+        resp = client.get(f"/api/v1/assets/{asset_id}/content")
+        assert resp.status_code == 500, resp.text
+
+    def test_download_emits_exactly_one_event(self, client, mem_storage, db):
+        """⭐ "埋点真的接上了"的唯一证据。
+
+        `image_downloaded` 是北极星分子；断言接口 200 完全不能说明它在写。
+        `pack=False` + `count=1` 是单张下载的口径（契约 §4 E11）。
+        """
+        asset_id = _upload(client, _blob()).json()["id"]
+        client.get(f"/api/v1/assets/{asset_id}/content", params={"download": 1})
+
+        events = _events(db, EventName.IMAGE_DOWNLOADED)
+        assert len(events) == 1
+        assert events[0].props["pack"] is False
+        assert events[0].props["count"] == 1
+        assert events[0].props["scope"] == "selected"
+
+    def test_inline_preview_does_not_emit_event(self, client, mem_storage, db):
+        """预览不算交付：否则在画廊里划一遍就等于"交付"了几十张，北极星随之失真。"""
+        asset_id = _upload(client, _blob()).json()["id"]
+        client.get(f"/api/v1/assets/{asset_id}/content")
+        assert _events(db, EventName.IMAGE_DOWNLOADED) == []
+
+
+class TestAssetUpdate:
+    """标记采纳（FR-2.7，良品率的唯一数据来源）与收藏（FR-5.3）。"""
+
+    def test_adopt_output_succeeds_and_emits_event(self, client, mem_storage, db, user, workflow):
+        task = _make_task(db, user, workflow)
+        asset = _make_output(db, user, task, mem_storage, _blob())
+
+        resp = client.patch(f"/api/v1/assets/{asset.id}", json={"is_adopted": True})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["is_adopted"] is True
+        assert db.get(Asset, asset.id).is_adopted is True
+
+        events = _events(db, EventName.IMAGE_ADOPTED)
+        assert len(events) == 1
+        assert events[0].task_id == task.id
+        # E10 冻结的 4 个属性：task_id · image_id · workflow · template_id
+        assert events[0].props["image_id"] == asset.id
+        assert events[0].props["workflow"] == workflow.name
+        assert "template_id" in events[0].props
+
+    def test_repeated_adopt_does_not_duplicate_event(self, client, mem_storage, db, user, workflow):
+        """⭐ 良品率 = `image_adopted 数 / succeeded 图数`。
+
+        重复 PATCH true 若每次都埋点，用户点两下就能把良品率灌到 100% 以上 ——
+        指标一旦可以被用户的操作次数污染，就不再是质量指标。
+        """
+        task = _make_task(db, user, workflow)
+        asset = _make_output(db, user, task, mem_storage, _blob())
+        for _ in range(3):
+            assert (
+                client.patch(f"/api/v1/assets/{asset.id}", json={"is_adopted": True}).status_code
+                == 200
+            )
+        assert len(_events(db, EventName.IMAGE_ADOPTED)) == 1
+
+    def test_unadopt_updates_field_without_event(self, client, mem_storage, db, user, workflow):
+        """取消采纳：字段正常变，但**不该**凭空造一个契约里没有的事件。
+
+        口径是"累计采纳过多少张"，不是"当前有多少张处于采纳态"。
+        """
+        task = _make_task(db, user, workflow)
+        asset = _make_output(db, user, task, mem_storage, _blob())
+        client.patch(f"/api/v1/assets/{asset.id}", json={"is_adopted": True})
+
+        resp = client.patch(f"/api/v1/assets/{asset.id}", json={"is_adopted": False})
+        assert resp.status_code == 200 and resp.json()["is_adopted"] is False
+        assert len(_events(db, EventName.IMAGE_ADOPTED)) == 1
+
+    def test_adopt_upload_asset_is_409(self, client, mem_storage):
+        """上传素材没有"这次生成得好不好"的语义 —— 放开会让良品率的分子分母跨集合。"""
+        asset_id = _upload(client, _blob()).json()["id"]
+        resp = client.patch(f"/api/v1/assets/{asset_id}", json={"is_adopted": True})
+        assert resp.status_code == 409, resp.text
+        assert "产物" in resp.json()["detail"]
+
+    def test_empty_body_is_422(self, client, mem_storage):
+        """空 body 几乎总是前端拼错了字段名；静默 200 会让它以为"标记成功"。"""
+        asset_id = _upload(client, _blob()).json()["id"]
+        assert client.patch(f"/api/v1/assets/{asset_id}", json={}).status_code == 422
+
+    def test_other_users_asset_is_404(self, client, mem_storage, db):
+        theirs = _other_users_asset(db, mem_storage)
+        resp = client.patch(f"/api/v1/assets/{theirs.id}", json={"is_favorite": True})
+        assert resp.status_code == 404
+
+    def test_deleted_asset_is_409(self, client, mem_storage):
+        """回收站里的素材不能被标记：它在其它接口上都"不存在"，这里不该例外。"""
+        asset_id = _upload(client, _blob()).json()["id"]
+        client.delete(f"/api/v1/assets/{asset_id}")
+        resp = client.patch(f"/api/v1/assets/{asset_id}", json={"is_favorite": True})
+        assert resp.status_code == 409
+
+    def test_favorite_writes_audit_log(self, client, mem_storage, db):
+        """FR-1.4 留痕：采纳/收藏是用户侧状态变更，同样要进审计日志。"""
+        asset_id = _upload(client, _blob()).json()["id"]
+        client.patch(f"/api/v1/assets/{asset_id}", json={"is_favorite": True})
+
+        logs = list(
+            db.scalars(select(AuditLog).where(AuditLog.action == "asset.favorite")).all()
+        )
+        assert len(logs) == 1
+        assert logs[0].target_id == str(asset_id)
+
+
+class TestAssetPack:
+    """打包下载（FR-5.2 / FR-3.7）。"""
+
+    def _two_outputs(self, client, mem_storage, db, user, workflow, sku="SKU-A"):
+        """上传两张图，再造两条**引用同样字节**的产物（带同一个 task_id 与 sku）。"""
+        task = _make_task(db, user, workflow, params={"sku": sku})
+        first = _make_output(db, user, task, mem_storage, _blob())
+        second = _make_output(db, user, task, mem_storage, _blob(640))
+        return task, first, second
+
+    def test_pack_by_asset_ids_is_a_valid_zip(self, client, mem_storage, db, user, workflow):
+        """⭐ 必须真的能当 zip 打开 —— 只断言 200 的话，返回一坨垃圾也算过。"""
+        _, first, second = self._two_outputs(client, mem_storage, db, user, workflow)
+
+        resp = client.post(
+            "/api/v1/assets/pack", json={"asset_ids": [first.id, second.id]}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.headers["content-type"] == "application/zip"
+
+        with zipfile.ZipFile(BytesIO(resp.content)) as zf:
+            assert zf.testzip() is None  # CRC 自检：内容完整
+            names = zf.namelist()
+            assert len(names) == 2
+            # FR-3.7「按 SKU 分目录」
+            assert all(name.startswith("SKU-A/") for name in names)
+            assert sorted(names) == sorted(
+                [f"SKU-A/{first.id}.png", f"SKU-A/{second.id}.png"]
+            )
+
+    def test_pack_mixing_another_users_asset_is_404(self, client, mem_storage, db, user, workflow):
+        """⭐ 不静默少给：用户明确要了 3 张，少 1 张他当时不会发现，发现时已经晚了。"""
+        _, first, second = self._two_outputs(client, mem_storage, db, user, workflow)
+        theirs = _other_users_asset(db, mem_storage)
+
+        resp = client.post(
+            "/api/v1/assets/pack",
+            json={"asset_ids": [first.id, second.id, theirs.id]},
+        )
+        assert resp.status_code == 404, resp.text
+        assert "1" in resp.json()["detail"]
+
+    def test_pack_asset_ids_pointing_at_deleted_is_404(self, client, mem_storage, db, user, workflow):
+        """回收站里的素材在点名下载时算"不存在"（404），与详情/取图口径一致。"""
+        _, first, _ = self._two_outputs(client, mem_storage, db, user, workflow)
+        client.delete(f"/api/v1/assets/{first.id}")
+
+        resp = client.post("/api/v1/assets/pack", json={"asset_ids": [first.id]})
+        assert resp.status_code == 404
+
+    def test_pack_over_limit_is_422(self, client, mem_storage, db, user, workflow, monkeypatch):
+        """上限是内存/磁盘护栏（EX-4）。这里把上限改成 1，避免真造 200 条记录。"""
+        from app.core.config import settings
+
+        _, first, second = self._two_outputs(client, mem_storage, db, user, workflow)
+        monkeypatch.setattr(settings, "max_pack_assets", 1)
+
+        resp = client.post(
+            "/api/v1/assets/pack", json={"asset_ids": [first.id, second.id]}
+        )
+        assert resp.status_code == 422, resp.text
+        assert "1" in resp.json()["detail"]  # 原因要说明上限值
+
+    def test_pack_empty_selection_is_422(self, client, mem_storage, db, user, workflow):
+        """任务没有产出图是正常的，但**空 zip 不是**：用户无从判断是"还没出图"还是"下载坏了"。"""
+        task = _make_task(db, user, workflow)
+        resp = client.post("/api/v1/assets/pack", json={"task_id": task.id})
+        assert resp.status_code == 422, resp.text
+        assert "没有可下载" in resp.json()["detail"]
+
+    def test_pack_by_task_id_returns_all_outputs(self, client, mem_storage, db, user, workflow):
+        """按任务打包：scope 是 `all`（整任务的产物），与"勾选"区分开。"""
+        task, first, second = self._two_outputs(client, mem_storage, db, user, workflow)
+
+        resp = client.post("/api/v1/assets/pack", json={"task_id": task.id})
+        assert resp.status_code == 200, resp.text
+        with zipfile.ZipFile(BytesIO(resp.content)) as zf:
+            assert len(zf.namelist()) == 2
+
+        events = _events(db, EventName.IMAGE_DOWNLOADED)
+        assert len(events) == 1
+        assert events[0].task_id == task.id
+
+    def test_pack_by_batch_id_collects_all_tasks(self, client, mem_storage, db, user, workflow):
+        batch = Batch(user_id=user.id, workflow_id=workflow.id, name="b1", common_params={})
+        db.add(batch)
+        db.flush()
+        for sku in ("SKU-X", "SKU-Y"):
+            task = _make_task(db, user, workflow, params={"sku": sku}, batch_id=batch.id)
+            _make_output(db, user, task, mem_storage, _blob())
+
+        resp = client.post("/api/v1/assets/pack", json={"batch_id": batch.id})
+        assert resp.status_code == 200, resp.text
+        with zipfile.ZipFile(BytesIO(resp.content)) as zf:
+            names = sorted(zf.namelist())
+        assert len(names) == 2
+        assert {name.split("/")[0] for name in names} == {"SKU-X", "SKU-Y"}
+
+    def test_other_users_task_is_404(self, client, mem_storage, db, user, workflow):
+        """按 task_id 打包要先校验任务归属，否则等于用 task_id 遍历别人的产物。"""
+        other = User(
+            email="stranger@example.com", password_hash="x", role=UserRole.USER.value,
+            quota_total=10, quota_used=0,
+        )
+        db.add(other)
+        db.commit()
+        theirs = _make_task(db, other, workflow)
+
+        resp = client.post("/api/v1/assets/pack", json={"task_id": theirs.id})
+        assert resp.status_code == 404
+
+    def test_pack_emits_event_with_pack_true_and_real_count(self, client, mem_storage, db, user, workflow):
+        """⭐ 北极星分子是 `Σ image_downloaded.count`，所以 count 必须是**实际张数**。"""
+        _, first, second = self._two_outputs(client, mem_storage, db, user, workflow)
+
+        resp = client.post(
+            "/api/v1/assets/pack", json={"asset_ids": [first.id, second.id]}
+        )
+        assert resp.status_code == 200
+
+        events = _events(db, EventName.IMAGE_DOWNLOADED)
+        assert len(events) == 1
+        assert events[0].props["pack"] is True
+        assert events[0].props["count"] == 2
+        assert events[0].props["scope"] == "selected"
+
+    @pytest.mark.parametrize("sku", ["../../evil", "a/b", "..", "///", "C:\\temp\\x"])
+    def test_pack_sku_cannot_escape_the_zip(
+        self, client, mem_storage, db, user, workflow, sku
+    ):
+        """⭐ zip-slip 防护回归。
+
+        SKU 是**用户可控**字符串。直接拼进 zip 条目名，就能产出
+        `../../.ssh/authorized_keys` 这种条目，用户在本机解压时把文件写到压缩包之外。
+        这里断言条目名里既没有 `..` 也没有多余的分隔符 —— 目录只能有一层。
+        """
+        task = _make_task(db, user, workflow, params={"sku": sku})
+        asset = _make_output(db, user, task, mem_storage, _blob())
+
+        resp = client.post("/api/v1/assets/pack", json={"asset_ids": [asset.id]})
+        assert resp.status_code == 200, resp.text
+
+        with zipfile.ZipFile(BytesIO(resp.content)) as zf:
+            names = zf.namelist()
+        assert len(names) == 1
+        name = names[0]
+        assert ".." not in name
+        assert "\\" not in name
+        assert not name.startswith("/")
+        parts = name.split("/")
+        assert len(parts) == 2, name  # 只有我们自己的那一层分隔符
+        assert parts[1] == f"{asset.id}.png"
+
+    def test_pack_falls_back_when_sku_is_blank(self, client, mem_storage, db, user, workflow):
+        """SKU 为空（没填）时要回退到 `task_{id}`，而不是产出 `/5.png` 这种以分隔符开头的条目。"""
+        task = _make_task(db, user, workflow, params={})
+        asset = _make_output(db, user, task, mem_storage, _blob())
+
+        resp = client.post("/api/v1/assets/pack", json={"asset_ids": [asset.id]})
+        with zipfile.ZipFile(BytesIO(resp.content)) as zf:
+            names = zf.namelist()
+        assert names == [f"task_{task.id}/{asset.id}.png"]
