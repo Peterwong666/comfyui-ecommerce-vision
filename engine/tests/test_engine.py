@@ -904,6 +904,43 @@ class TestObjectInfoCheck:
     def test_valid_graph_passes(self):
         assert check_object_info(self._graph(), self.INFO, scope="t") == []
 
+    def test_runtime_asset_input_is_exempt_from_enum_check(self):
+        """⭐ 运行时素材引用豁免枚举检查 —— 且豁免**只针对被标记的入参**。
+
+        背景（实测发现，2026-09-16）：L2 的冒烟渲染用假 resolver 产出 `smoke_0.png`，
+        而 `/object_info` 的枚举是**快照时刻**对输入目录的静态扫描 ——
+        拿静态快照去比运行时文件名，**按构造就不可能匹配**。
+        不豁免的话，**任何带参考图的工作流都无法通过 L1/L2/L3**
+        （i2i_v1 / inpaint_v1 会被直接堵死）。
+
+        本测试的三段是**正对照**（`debug_log G9`：判据本身要能被人为破坏后检出）：
+        ① 不豁免 → 必须报错，证明这条检查仍然有牙、不是被整体放宽；
+        ② 标记为运行时素材 → 不报错；
+        ③ 标记了**别的入参名** → 仍然报错，证明豁免不是"连坐"。
+        """
+        info = {"LoadImage": {"input": {"required": {"image": [["example.png"], {}]}}}}
+        graph = {"10": {"class_type": "LoadImage", "inputs": {"image": "uploaded_ref.png"}}}
+
+        def has_enum_error(findings) -> bool:
+            return any(
+                f.level == "error" and "不在允许集合内" in f.message for f in findings
+            )
+
+        # ① 不豁免 → 报错（检查有牙）
+        assert has_enum_error(check_object_info(graph, info, scope="t"))
+        # ② 正主：标记为运行时素材 → 豁免
+        assert check_object_info(
+            graph, info, scope="t", runtime_asset_inputs={("10", "image")}
+        ) == []
+        # ③ 豁免不连坐：标记的是同节点但**不同入参名**
+        assert has_enum_error(
+            check_object_info(graph, info, scope="t", runtime_asset_inputs={("10", "other")})
+        )
+        # ④ 豁免不连坐：标记的是同入参名但**不同节点**
+        assert has_enum_error(
+            check_object_info(graph, info, scope="t", runtime_asset_inputs={("99", "image")})
+        )
+
     def test_unknown_class_type(self):
         g = self._graph()
         g["2"]["class_type"] = "NotANode"
@@ -1492,11 +1529,21 @@ class TestBackendContract:
         assert json.loads(text)["prompt"]["9"]["class_type"] == "SaveImage"
 
     def test_no_meta_key_leaks_into_prompt(self):
+        """`_meta` 段不得混进提交给 ComfyUI 的图（规范 §2.1 规则 1）。
+
+        ⚠️ 本测试遍历**全部已注册工作流**，因此必须给一个 stub `asset_resolver`：
+        带参考图的工作流（i2i_v1 等）在 `transform=ref_to_filename` 下
+        **按契约就要求** resolver，缺它渲染会正确报错 —— 那是预期行为，
+        与本测试要验证的「元数据泄漏」无关。给 stub 是为了让本测试只测它该测的东西。
+        """
         from engine.render import load_definition
 
         registry = Registry.load()
+        opts = RenderOptions(asset_resolver=lambda asset_id: f"stub_{asset_id}.png")
         for entry in registry:
-            result = render(load_definition(registry.definition_path(entry)), entry.schema)
+            result = render(
+                load_definition(registry.definition_path(entry)), entry.schema, options=opts
+            )
             assert all(not k.startswith("_") for k in result.workflow)
             for node in result.workflow.values():
                 assert set(node) <= {"class_type", "inputs"}

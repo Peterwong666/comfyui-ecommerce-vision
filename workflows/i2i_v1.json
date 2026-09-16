@@ -1,0 +1,95 @@
+{
+  "_meta": {
+    "id": "i2i_v1",
+    "version": 1,
+    "title": "SDXL 图生图（参考图驱动）",
+    "engine": "ComfyUI v0.36.0 (commit ee71d5c4)",
+    "models": ["sd_xl_base_1.0.safetensors"],
+    "license_note": "CreativeML OpenRAIL++-M，可商用；见 docs/sop/license_matrix.md",
+    "node_titles": {
+      "1": "加载·SDXL 底模（含 VAE）",
+      "10": "输入·参考图",
+      "11": "输入·正向提示词",
+      "12": "输入·负向提示词",
+      "13": "输入·统一分辨率",
+      "20": "输入·编码为潜空间",
+      "21": "采样·主采样器（denoise 决定改图幅度）",
+      "30": "处理·解码",
+      "40": "输出·保存图片"
+    },
+    "note": "与 t2i_v1 的唯一实质区别是入口：参考图经 ImageScale 统一分辨率后 VAEEncode 成潜空间，由 KSampler.denoise<1 在保留原图结构的前提下重绘。denoise 是本工作流最有价值的参数（0.6 左右为「保结构、改风格」的常用起点）。",
+    "todo": "v2 计划：① 增加「不提供参考图时自动回退到 t2i_v1」由调度层处理，不在本图内 ② 评估是否接入 ControlNet 强化结构保持（P4 再做）"
+  },
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "sd_xl_base_1.0.safetensors"
+    }
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "example.png"
+    }
+  },
+  "11": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "professional product photo, on a light grey seamless background, soft studio lighting, subtle shadow, sharp focus, high detail, centered composition",
+      "clip": ["1", 1]
+    }
+  },
+  "12": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "blurry, low quality, distorted, deformed, watermark, text, logo, cropped, oversaturated, plastic look",
+      "clip": ["1", 1]
+    }
+  },
+  "13": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": ["10", 0],
+      "upscale_method": "lanczos",
+      "width": 1024,
+      "height": 1024,
+      "crop": "disabled"
+    }
+  },
+  "20": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": ["13", 0],
+      "vae": ["1", 2]
+    }
+  },
+  "21": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 20260915,
+      "steps": 25,
+      "cfg": 6.5,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 0.6,
+      "model": ["1", 0],
+      "positive": ["11", 0],
+      "negative": ["12", 0],
+      "latent_image": ["20", 0]
+    }
+  },
+  "30": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["21", 0],
+      "vae": ["1", 2]
+    }
+  },
+  "40": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "i2i_v1/base",
+      "images": ["30", 0]
+    }
+  }
+}

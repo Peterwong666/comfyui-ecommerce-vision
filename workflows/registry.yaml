@@ -311,6 +311,261 @@ workflows:
   # ==========================================================================
   # 文生图 · FLUX.2 [klein] 4B Distilled
   # ==========================================================================
+  # ==========================================================================
+  # 图生图 · SDXL（参考图驱动）
+  # ==========================================================================
+  - id: i2i_v1
+    version: 1
+    title: "SDXL 图生图（参考图驱动）"
+    display_name: "图生图（参考图）"
+    description: >-
+      以用户上传的商品图为起点重绘（FR-3.1 的参考图链路）。
+      与 t2i_v1 的区别只在入口：参考图统一分辨率后编码为潜空间，
+      由 KSampler.denoise 控制「保留多少原图结构」。
+    definition: i2i_v1.json
+    engine: "ComfyUI v0.36.0 (commit ee71d5c4)"
+    models:
+      - sd_xl_base_1.0.safetensors
+    # ⚠️ 新工作流：节点图未在真实 GPU 上出过图，故 disabled + pending_gpu
+    status: disabled
+    rollout_percent: 0
+    verification: pending_gpu
+    verification_note: >-
+      节点图为本轮新写，**尚未在真实引擎上出过图**（L4 未跑）。
+      已通过 L1（结构自洽）+ L2（多组参数渲染冒烟）+ L3（对 /object_info 快照校验
+      节点类型/入参名/枚举取值）。
+      ⚠️ 待 GPU 验证的要点：① **`LoadImage` 的 MASK 输出极性**（是否 `1-alpha`）——
+      本工作流未用 MASK，但它与 inpaint_v1 同源，需一起确认
+      ② `ImageScale.crop=disabled` 在非等比参考图上会拉伸（是否有损需看实际产物）
+      验证方法：`python -m engine.tools.verify_render_path --workflow i2i_v1 --seed 20260916`
+    render_path_l4: false
+
+    changelog:
+      - version: 1
+        date: "2026-09-16"
+        change: >-
+          首次创建。节点 ID 按规范 §3.2 分段落位（1-9 加载器 / 10-19 输入 / 20-29 采样 /
+          30-39 后处理 / 40-49 输出）。核心参数为 `denoise`（重绘幅度）。
+        reason: "P3-04；V1 首发场景（电商商品图）的参考图链路，`asset_resolver` 是它的运行时前置（P6-09）"
+        evidence:
+          - "节点与入参经 L3 对 deploy/schemas/object_info.v0.36.0.json 校验通过"
+          - "参数 Schema 遵循 docs/sop/contracts.md §3（含 §3.6 四条不变量）"
+        affected: "B · A · D"
+
+    notes: >-
+      已知局限（有意保留）：① `ImageScale` 用 `crop=disabled` 直接拉伸到目标宽高，
+      非等比参考图会变形；等比裁切需 `crop=center`，但那会裁掉商品边缘 —— V1 先取
+      「不裁切」的保守选择，待 golden set 评测后定 ② 不暴露 `sampler_name`/`scheduler`
+      之外的采样参数，`denoise` 是唯一决定改图幅度的旋钮。
+
+    param_schema:
+      schema_version: 1
+      fields:
+        - key: reference_image
+          label: "参考图"
+          type: image
+          # ⚠️ 契约缺口：`image` 类型的 default **不能是 null**
+          #    实测（2026-09-16）：default=null 时，调用方省略该参数会让渲染直接抛
+          #    RenderError（"参数值为 None"）。而 default 为整数时，省略会注入
+          #    `asset_0.png` 这种不存在的文件 —— 前者「响亮失败」优于后者「静默用错图」。
+          #    故这里取 0 作为占位，并要求 **后端在提交时校验必填**（见 §4 待办）。
+          #    已登记为契约缺口：§3.1 的 default 对 image 类型无法表达「必填」。
+          default: 0
+          group: "参考图"
+          help: "商品参考图（素材 id）。**本工作流必须提供**；不提供时渲染会失败 —— 这是有意的（宁可响亮失败，不用错图）"
+          targets:
+            - node_id: "10"
+              input: image
+              transform: ref_to_filename
+
+        - key: prompt
+          label: "正向提示词"
+          type: text
+          default: >-
+            professional product photo, on a light grey seamless background,
+            soft studio lighting, subtle shadow, sharp focus, high detail,
+            centered composition
+          max_length: 2000
+          group: "提示词"
+          help: "描述**场景与风格**（主体来自参考图）。建议包含：背景 + 光线 + 视角"
+          targets:
+            - node_id: "11"
+              input: text
+
+        - key: negative_prompt
+          label: "负向提示词"
+          type: text
+          default: >-
+            blurry, low quality, distorted, deformed, watermark, text, logo, cropped,
+            oversaturated, plastic look
+          max_length: 2000
+          group: "提示词"
+          advanced: true
+          help: "不想出现的内容。需 cfg>1 才生效"
+          targets:
+            - node_id: "12"
+              input: text
+
+        - key: width
+          label: "宽度"
+          type: int
+          default: 1024
+          min: 512
+          max: 2048
+          step: 64
+          group: "画布"
+          help: "输出尺寸；参考图会被缩放到该尺寸（长边受 PRD §6.2 约束 512–2048）"
+          targets:
+            - node_id: "13"
+              input: width
+
+        - key: height
+          label: "高度"
+          type: int
+          default: 1024
+          min: 512
+          max: 2048
+          step: 64
+          group: "画布"
+          targets:
+            - node_id: "13"
+              input: height
+
+        - key: denoise
+          label: "重绘幅度"
+          type: float
+          default: 0.6
+          min: 0.0
+          max: 1.0
+          step: 0.05
+          group: "采样"
+          help: "本工作流的核心参数。0.4–0.6 保结构改风格；>0.8 会大幅偏离参考图；1.0 等同忽略参考图"
+          targets:
+            - node_id: "21"
+              input: denoise
+
+        - key: seed
+          label: "随机种子"
+          type: seed
+          default: -1
+          group: "采样"
+          help: "-1 表示随机。渲染时解析成真实值并写进产物元数据（FR-5.4/5.5）"
+          targets:
+            - node_id: "21"
+              input: seed
+
+        - key: steps
+          label: "采样步数"
+          type: int
+          default: 25
+          min: 1
+          max: 100
+          step: 1
+          group: "采样"
+          advanced: true
+          help: "SDXL 推荐 20–35"
+          targets:
+            - node_id: "21"
+              input: steps
+
+        - key: cfg
+          label: "CFG"
+          type: float
+          default: 6.5
+          min: 1.0
+          max: 20.0
+          step: 0.1
+          group: "采样"
+          advanced: true
+          help: "SDXL 推荐 5–8；过高会过饱和"
+          targets:
+            - node_id: "21"
+              input: cfg
+
+        - key: sampler_name
+          label: "采样器"
+          type: enum
+          default: dpmpp_2m
+          # ⚠️ 选项为**长期稳定的子集**，不是 v0.36.0 的完整取值。
+          #    #16 记录过 CLIPLoader.type 在升级中由 17 项扩到 29 项 —— 枚举值会随引擎变。
+          #    完整取值需 L3 用 /object_info 核对后补全（workflow_spec.md §8.1）。
+          # 以下取值**逐项取自** deploy/schemas/object_info.v0.36.0.json 的
+          # KSampler.sampler_name（L3 已核，非人工枚举）
+          options:
+            - { value: euler, label: "euler" }
+            - { value: euler_cfg_pp, label: "euler_cfg_pp" }
+            - { value: euler_ancestral, label: "euler_ancestral" }
+            - { value: euler_ancestral_cfg_pp, label: "euler_ancestral_cfg_pp" }
+            - { value: heun, label: "heun" }
+            - { value: heunpp2, label: "heunpp2" }
+            - { value: exp_heun_2_x0, label: "exp_heun_2_x0" }
+            - { value: exp_heun_2_x0_sde, label: "exp_heun_2_x0_sde" }
+            - { value: dpm_2, label: "dpm_2" }
+            - { value: dpm_2_ancestral, label: "dpm_2_ancestral" }
+            - { value: lms, label: "lms" }
+            - { value: dpm_fast, label: "dpm_fast" }
+            - { value: dpm_adaptive, label: "dpm_adaptive" }
+            - { value: dpmpp_2s_ancestral, label: "dpmpp_2s_ancestral" }
+            - { value: dpmpp_2s_ancestral_cfg_pp, label: "dpmpp_2s_ancestral_cfg_pp" }
+            - { value: dpmpp_sde, label: "dpmpp_sde" }
+            - { value: dpmpp_sde_gpu, label: "dpmpp_sde_gpu" }
+            - { value: dpmpp_2m, label: "DPM++ 2M（推荐）" }
+            - { value: dpmpp_2m_cfg_pp, label: "dpmpp_2m_cfg_pp" }
+            - { value: dpmpp_2m_sde, label: "dpmpp_2m_sde" }
+            - { value: dpmpp_2m_sde_gpu, label: "dpmpp_2m_sde_gpu" }
+            - { value: dpmpp_2m_sde_heun, label: "dpmpp_2m_sde_heun" }
+            - { value: dpmpp_2m_sde_heun_gpu, label: "dpmpp_2m_sde_heun_gpu" }
+            - { value: dpmpp_3m_sde, label: "dpmpp_3m_sde" }
+            - { value: dpmpp_3m_sde_gpu, label: "dpmpp_3m_sde_gpu" }
+            - { value: ddpm, label: "ddpm" }
+            - { value: lcm, label: "lcm" }
+            - { value: ipndm, label: "ipndm" }
+            - { value: ipndm_v, label: "ipndm_v" }
+            - { value: deis, label: "deis" }
+            - { value: cfgpp_ud10_ab, label: "cfgpp_ud10_ab" }
+            - { value: res_multistep, label: "res_multistep" }
+            - { value: res_multistep_cfg_pp, label: "res_multistep_cfg_pp" }
+            - { value: res_multistep_ancestral, label: "res_multistep_ancestral" }
+            - { value: res_multistep_ancestral_cfg_pp, label: "res_multistep_ancestral_cfg_pp" }
+            - { value: gradient_estimation, label: "gradient_estimation" }
+            - { value: gradient_estimation_cfg_pp, label: "gradient_estimation_cfg_pp" }
+            - { value: er_sde, label: "er_sde" }
+            - { value: seeds_2, label: "seeds_2" }
+            - { value: seeds_3, label: "seeds_3" }
+            - { value: sa_solver, label: "sa_solver" }
+            - { value: sa_solver_pece, label: "sa_solver_pece" }
+            - { value: ddim, label: "ddim" }
+            - { value: uni_pc, label: "uni_pc" }
+            - { value: uni_pc_bh2, label: "uni_pc_bh2" }
+          group: "采样"
+          advanced: true
+          help: "取值集合已按 v0.36.0 的 /object_info 逐项核对（L3）"
+          targets:
+            - node_id: "21"
+              input: sampler_name
+
+        - key: scheduler
+          label: "调度器"
+          type: enum
+          default: karras
+          # 取自 object_info 的 KSampler.scheduler（L3 已核）
+          options:
+            - { value: simple, label: "simple" }
+            - { value: sgm_uniform, label: "sgm_uniform" }
+            - { value: karras, label: "Karras（推荐）" }
+            - { value: exponential, label: "exponential" }
+            - { value: ddim_uniform, label: "ddim_uniform" }
+            - { value: beta, label: "beta" }
+            - { value: normal, label: "normal" }
+            - { value: linear_quadratic, label: "linear_quadratic" }
+            - { value: kl_optimal, label: "kl_optimal" }
+          group: "采样"
+          advanced: true
+          help: "取值集合已按 v0.36.0 的 /object_info 逐项核对（L3）"
+          targets:
+            - node_id: "21"
+              input: scheduler
+
   - id: flux2_klein_t2i_v1
     version: 1
     title: "FLUX.2 [klein] 4B Distilled 文生图"

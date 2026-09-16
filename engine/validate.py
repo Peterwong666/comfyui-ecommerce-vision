@@ -321,13 +321,27 @@ def _is_link(value: Any) -> bool:
 
 
 def check_object_info(
-    graph: Mapping[str, Any], info: Mapping[str, Any], *, scope: str
+    graph: Mapping[str, Any],
+    info: Mapping[str, Any],
+    *,
+    scope: str,
+    runtime_asset_inputs: set[tuple[str, str]] | None = None,
 ) -> list[Finding]:
     """L3：用 ComfyUI 的 `/object_info` 校验节点类型、入参名、枚举取值、连线序号。
 
     **比 `26_validate_workflow.py` 多了一层用途**：那个脚本校验的是**模板原文件**，
     而这里可以对**渲染后**的图校验 —— 也就是把 `targets` 注入的结果也验一遍。
     注入错误（节点 ID 漂移、入参名拼错、枚举取值非法）只有这样才抓得到。
+
+    ⚠️ `runtime_asset_inputs`：**由 `transform=ref_to_filename` 产生的入参值**，
+    形如 `{("10", "image")}`。这些值是**运行时**由 asset_resolver 决定的
+    （生产路径下素材先经 `/upload/image` 上传、文件届时才存在），
+    而 `/object_info` 的枚举是**快照时刻对模型/输入目录的静态扫描** ——
+    拿静态快照去比运行时文件名，**按构造就不可能匹配**。
+
+    实测（2026-09-16）：不加这个豁免，**任何带参考图的工作流都无法通过 L1/L2/L3**
+    （L2 用假 resolver 渲染出 `smoke_0.png`，L3 立刻报"取值不在允许集合内"），
+    等于把 P3-04 图生图 / P3-06 局部重绘直接堵死。故此处豁免，而非放宽整个枚举检查。
     """
     out: list[Finding] = []
 
@@ -380,6 +394,10 @@ def check_object_info(
                 continue
             choices = spec_v[0]
             if not isinstance(choices, list):
+                continue
+            # ⚠️ 运行时素材引用豁免：值由 asset_resolver 在运行时决定（生产路径下先经
+            #    /upload/image 上传），静态快照的枚举按构造比不中 —— 详见函数 docstring
+            if runtime_asset_inputs and (nid, k) in runtime_asset_inputs:
                 continue
             if value not in choices:
                 hint = ""
@@ -740,6 +758,17 @@ def render_smoke(
         asset_resolver=lambda asset_id: f"smoke_{asset_id}.png",
     )
 
+    # 由 `transform=ref_to_filename` 产生的入参：其值是**运行时**文件名（生产路径下
+    # 素材先经 /upload/image 上传），静态快照的枚举按构造比不中 → 交给 L3 豁免。
+    # 不加这一条，任何带参考图的工作流都会被 L2/L3 误判为 FAIL。
+    runtime_asset_inputs: set[tuple[str, str]] = {
+        (t.node_id, t.input)
+        for f in entry.schema
+        if f.type in ("image", "image_list")
+        for t in f.targets
+        if t.transform == "ref_to_filename"
+    }
+
     for label, params in variants:
         try:
             result = render(definition, entry.schema, params, options=opts)
@@ -764,7 +793,12 @@ def render_smoke(
         if object_info is not None:
             # L3 跑在**渲染后**的图上 —— 这是模板校验覆盖不到的部分
             rep.findings.extend(
-                check_object_info(result.workflow, object_info, scope=f"{scope} [{label}]")
+                check_object_info(
+                    result.workflow,
+                    object_info,
+                    scope=f"{scope} [{label}]",
+                    runtime_asset_inputs=runtime_asset_inputs,
+                )
             )
         orphans = set(orphan_nodes(result.workflow))
         if is_first:
