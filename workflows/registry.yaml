@@ -17,7 +17,7 @@
 # ============================================================================
 
 registry_version: 1
-updated_at: "2026-09-16"
+updated_at: "2026-09-16"  # 新增 i2i_v1 / inpaint_v1 / upscale_v1
 
 # ---------------------------------------------------------------------------
 # verification 取值口径（唯一的判据，不许自行放宽）
@@ -314,6 +314,271 @@ workflows:
   # ==========================================================================
   # 图生图 · SDXL（参考图驱动）
   # ==========================================================================
+  # ==========================================================================
+  # 局部重绘 · SDXL（蒙版驱动，免专用 inpaint 模型）
+  # ==========================================================================
+  - id: inpaint_v1
+    version: 1
+    title: "SDXL 局部重绘（蒙版驱动）"
+    display_name: "局部重绘"
+    description: >-
+      只重绘蒙版区、其余部分按原图像素贴回（FR-2.8）。
+      免专用 inpaint 权重：SetLatentNoiseMask 让采样只作用于蒙版区，任何 SDXL 底模可用。
+    definition: inpaint_v1.json
+    engine: "ComfyUI v0.36.0 (commit ee71d5c4)"
+    models:
+      - sd_xl_base_1.0.safetensors
+    # ⚠️ 新工作流：节点图未在真实 GPU 上出过图
+    status: disabled
+    rollout_percent: 0
+    verification: pending_gpu
+    verification_note: >-
+      节点图为本轮新写，**L4 未跑**。已过 L1（结构自洽）+ L2（多组参数渲染冒烟）+
+      L3（对 /object_info 快照校验节点类型/入参名/枚举取值）。
+      ⚠️ **本工作流有一个必须先实测才能定稿的前提**：
+      **`LoadImage` 的 MASK 输出极性**（是否为 `1 - alpha`）快照里读不到语义，
+      而它直接决定「重绘哪一块」—— 若极性相反，会去重绘**非**选区。
+      当前按 ComfyUI 常见约定假设：**透明区 = 待重绘区**。
+      验证方法：① 读 `/root/ComfyUI/nodes.py` 的 `LoadImage` 实现确认是否 `1. - alpha`
+      ② 用一张「透明区 = 待重绘区」的图跑一次，看 `MaskToImage` 预览是否为白
+      ③ 若极性相反，修复方式 = 在 `GrowMask` 前插入 `InvertMask`
+      （不预先插入，是因为那会在极性假设正确时**反过来**做错 —— 不能两全，只能实测后定）
+    render_path_l4: false
+
+    changelog:
+      - version: 1
+        date: "2026-09-16"
+        change: >-
+          首次创建。节点 ID 按规范 §3.2 分段落位。走免专用模型的
+          SetLatentNoiseMask 路线；非选区用 ImageCompositeMasked 贴回原图。
+        reason: "P3-06；V1 电商场景的高频需求（换背景 / 去瑕疵 / 补细节），且必须保证非选区零改动"
+        evidence:
+          - "节点与入参经 L3 对 deploy/schemas/object_info.v0.36.0.json 校验通过"
+          - "免模型路线经 node 侦察确认：VAEEncodeForInpaint / SetLatentNoiseMask 均在，且无需外部权重"
+        affected: "B · A · D"
+
+    notes: >-
+      已知局限（有意保留）：① 非选区用 ImageCompositeMasked **按原图像素贴回**，
+      这不是多余步骤 —— VAE 编解码往返会劣化整张图，贴回才能保证非选区严格等于原图
+      ② `GrowMask.tapered_corners` 固定为 true（羽化边缘、避免接缝），未暴露给用户
+      ③ `GrowMask.expand` 默认 6 会**悄悄改变蒙版形状**，本工作流显式写死为 8 并暴露成参数。
+
+    param_schema:
+      schema_version: 1
+      fields:
+        - key: reference_image
+          label: "原图"
+          type: image
+          # ⚠️ 同 i2i_v1：契约 §3.1 的 default 对 image 类型无法表达「必填」，
+          #    实测 default=null 会让省略该参数时渲染直接抛 RenderError。
+          #    取 0 占位 + 要求后端提交时校验（见 registry 顶部 §4 待办与 i2i_v1 的同类注释）
+          default: 0
+          group: "输入"
+          help: "待重绘的原图（素材 id）。**必须提供**；重绘区 = 该图的**透明区域**（蒙版极性待 GPU 实测确认，见 verification_note）"
+          targets:
+            - node_id: "10"
+              input: image
+              transform: ref_to_filename
+
+        - key: prompt
+          label: "正向提示词"
+          type: text
+          default: >-
+            professional product photo, on a light grey seamless background,
+            soft studio lighting, subtle shadow, sharp focus, high detail
+          max_length: 2000
+          group: "提示词"
+          help: "描述**重绘区**应该长什么样（非选区不受影响）"
+          targets:
+            - node_id: "11"
+              input: text
+
+        - key: negative_prompt
+          label: "负向提示词"
+          type: text
+          default: >-
+            blurry, low quality, distorted, deformed, watermark, text, logo, cropped,
+            oversaturated, plastic look
+          max_length: 2000
+          group: "提示词"
+          advanced: true
+          targets:
+            - node_id: "12"
+              input: text
+
+        - key: mask_expand
+          label: "蒙版扩张"
+          type: int
+          default: 8
+          min: -32
+          max: 128
+          step: 1
+          group: "蒙版"
+          help: "正数向外扩张蒙版（像素）。适度扩张可让接缝更自然；负数为收缩"
+          targets:
+            - node_id: "14"
+              input: expand
+
+        - key: width
+          label: "宽度"
+          type: int
+          default: 1024
+          min: 512
+          max: 2048
+          step: 64
+          group: "画布"
+          help: "输出尺寸；原图会被缩放到该尺寸（长边受 PRD §6.2 约束 512–2048）"
+          targets:
+            - node_id: "13"
+              input: width
+
+        - key: height
+          label: "高度"
+          type: int
+          default: 1024
+          min: 512
+          max: 2048
+          step: 64
+          group: "画布"
+          targets:
+            - node_id: "13"
+              input: height
+
+        - key: denoise
+          label: "重绘强度"
+          type: float
+          default: 1.0
+          min: 0.0
+          max: 1.0
+          step: 0.05
+          group: "采样"
+          help: "蒙版区内完全重画（1.0）。因为只作用于选区、非选区已贴回，通常无需调低"
+          targets:
+            - node_id: "22"
+              input: denoise
+
+        - key: seed
+          label: "随机种子"
+          type: seed
+          default: -1
+          group: "采样"
+          help: "-1 表示随机。渲染时解析成真实值并写进产物元数据（FR-5.4/5.5）"
+          targets:
+            - node_id: "22"
+              input: seed
+
+        - key: steps
+          label: "采样步数"
+          type: int
+          default: 25
+          min: 1
+          max: 100
+          step: 1
+          group: "采样"
+          advanced: true
+          help: "SDXL 推荐 20–35"
+          targets:
+            - node_id: "22"
+              input: steps
+
+        - key: cfg
+          label: "CFG"
+          type: float
+          default: 6.5
+          min: 1.0
+          max: 20.0
+          step: 0.1
+          group: "采样"
+          advanced: true
+          help: "SDXL 推荐 5–8；过高会过饱和"
+          targets:
+            - node_id: "22"
+              input: cfg
+
+        - key: sampler_name
+          label: "采样器"
+          type: enum
+          default: dpmpp_2m
+          # ⚠️ 选项为**长期稳定的子集**，不是 v0.36.0 的完整取值。
+          #    #16 记录过 CLIPLoader.type 在升级中由 17 项扩到 29 项 —— 枚举值会随引擎变。
+          #    完整取值需 L3 用 /object_info 核对后补全（workflow_spec.md §8.1）。
+          # 以下取值**逐项取自** deploy/schemas/object_info.v0.36.0.json 的
+          # KSampler.sampler_name（L3 已核，非人工枚举）
+          options:
+            - { value: euler, label: "euler" }
+            - { value: euler_cfg_pp, label: "euler_cfg_pp" }
+            - { value: euler_ancestral, label: "euler_ancestral" }
+            - { value: euler_ancestral_cfg_pp, label: "euler_ancestral_cfg_pp" }
+            - { value: heun, label: "heun" }
+            - { value: heunpp2, label: "heunpp2" }
+            - { value: exp_heun_2_x0, label: "exp_heun_2_x0" }
+            - { value: exp_heun_2_x0_sde, label: "exp_heun_2_x0_sde" }
+            - { value: dpm_2, label: "dpm_2" }
+            - { value: dpm_2_ancestral, label: "dpm_2_ancestral" }
+            - { value: lms, label: "lms" }
+            - { value: dpm_fast, label: "dpm_fast" }
+            - { value: dpm_adaptive, label: "dpm_adaptive" }
+            - { value: dpmpp_2s_ancestral, label: "dpmpp_2s_ancestral" }
+            - { value: dpmpp_2s_ancestral_cfg_pp, label: "dpmpp_2s_ancestral_cfg_pp" }
+            - { value: dpmpp_sde, label: "dpmpp_sde" }
+            - { value: dpmpp_sde_gpu, label: "dpmpp_sde_gpu" }
+            - { value: dpmpp_2m, label: "DPM++ 2M（推荐）" }
+            - { value: dpmpp_2m_cfg_pp, label: "dpmpp_2m_cfg_pp" }
+            - { value: dpmpp_2m_sde, label: "dpmpp_2m_sde" }
+            - { value: dpmpp_2m_sde_gpu, label: "dpmpp_2m_sde_gpu" }
+            - { value: dpmpp_2m_sde_heun, label: "dpmpp_2m_sde_heun" }
+            - { value: dpmpp_2m_sde_heun_gpu, label: "dpmpp_2m_sde_heun_gpu" }
+            - { value: dpmpp_3m_sde, label: "dpmpp_3m_sde" }
+            - { value: dpmpp_3m_sde_gpu, label: "dpmpp_3m_sde_gpu" }
+            - { value: ddpm, label: "ddpm" }
+            - { value: lcm, label: "lcm" }
+            - { value: ipndm, label: "ipndm" }
+            - { value: ipndm_v, label: "ipndm_v" }
+            - { value: deis, label: "deis" }
+            - { value: cfgpp_ud10_ab, label: "cfgpp_ud10_ab" }
+            - { value: res_multistep, label: "res_multistep" }
+            - { value: res_multistep_cfg_pp, label: "res_multistep_cfg_pp" }
+            - { value: res_multistep_ancestral, label: "res_multistep_ancestral" }
+            - { value: res_multistep_ancestral_cfg_pp, label: "res_multistep_ancestral_cfg_pp" }
+            - { value: gradient_estimation, label: "gradient_estimation" }
+            - { value: gradient_estimation_cfg_pp, label: "gradient_estimation_cfg_pp" }
+            - { value: er_sde, label: "er_sde" }
+            - { value: seeds_2, label: "seeds_2" }
+            - { value: seeds_3, label: "seeds_3" }
+            - { value: sa_solver, label: "sa_solver" }
+            - { value: sa_solver_pece, label: "sa_solver_pece" }
+            - { value: ddim, label: "ddim" }
+            - { value: uni_pc, label: "uni_pc" }
+            - { value: uni_pc_bh2, label: "uni_pc_bh2" }
+          group: "采样"
+          advanced: true
+          help: "取值集合已按 v0.36.0 的 /object_info 逐项核对（L3）"
+          targets:
+            - node_id: "22"
+              input: sampler_name
+
+        - key: scheduler
+          label: "调度器"
+          type: enum
+          default: karras
+          # 取自 object_info 的 KSampler.scheduler（L3 已核）
+          options:
+            - { value: simple, label: "simple" }
+            - { value: sgm_uniform, label: "sgm_uniform" }
+            - { value: karras, label: "Karras（推荐）" }
+            - { value: exponential, label: "exponential" }
+            - { value: ddim_uniform, label: "ddim_uniform" }
+            - { value: beta, label: "beta" }
+            - { value: normal, label: "normal" }
+            - { value: linear_quadratic, label: "linear_quadratic" }
+            - { value: kl_optimal, label: "kl_optimal" }
+          group: "采样"
+          advanced: true
+          help: "取值集合已按 v0.36.0 的 /object_info 逐项核对（L3）"
+          targets:
+            - node_id: "22"
+              input: scheduler
+
   - id: i2i_v1
     version: 1
     title: "SDXL 图生图（参考图驱动）"
@@ -566,6 +831,257 @@ workflows:
             - node_id: "21"
               input: scheduler
 
+  # ==========================================================================
+  # 高清修复 · SDXL（潜空间放大 + 细节重绘 + 分块解码，免放大器模型）
+  # ==========================================================================
+  - id: upscale_v1
+    version: 1
+    title: "SDXL 高清修复（潜空间放大 + 细节重绘 + 分块解码）"
+    display_name: "高清修复"
+    description: >-
+      把一张已有图放大并补细节（FR-2.7）。免放大器权重：LatentUpscaleBy 在潜空间插值放大，
+      再由低 denoise 的 KSampler 重绘；VAEDecodeTiled 分块解码防止大图爆显存。
+    definition: upscale_v1.json
+    engine: "ComfyUI v0.36.0 (commit ee71d5c4)"
+    models:
+      - sd_xl_base_1.0.safetensors
+    status: disabled
+    rollout_percent: 0
+    verification: pending_gpu
+    verification_note: >-
+      节点图为本轮新写，**L4 未跑**。已过 L1 + L2 + L3。
+      ⚠️ 待 GPU 验证：① **放大后的画质增益是否成立** —— 潜空间插值本身不引入新信息，
+      增益全部来自低 denoise 重绘，需实看图确认（本项不声称画质达标，那属 golden set）
+      ② `LatentUpscaleBy.upscale_method=bislerp` 与 `nearest-exact/bilinear/bicubic`
+      的差异未实测，当前取 bislerp 是「潜空间放大」的常见选择
+      ③ `VAEDecodeTiled` 的 `temporal_size/temporal_overlap` 是**为视频设计**的参数，
+      静态图也必须填；其取值是否影响静态图结果未实测
+      验证方法：`python -m engine.tools.verify_render_path --workflow upscale_v1 --seed 20260916`
+    render_path_l4: false
+
+    changelog:
+      - version: 1
+        date: "2026-09-16"
+        change: >-
+          首次创建。走**免放大器模型**路线（潜空间插值放大 + 低 denoise 重绘 + 分块解码）。
+          节点 ID 按规范 §3.2 分段落位。
+        reason: "P3-05；服务器上 upscale_models/ 枚举为空（无任何放大器权重），故先做免模型路线"
+        evidence:
+          - "节点与入参经 L3 对 deploy/schemas/object_info.v0.36.0.json 校验通过"
+          - "权重缺口经 node 侦察确认：UpscaleModelLoader.model_name 枚举为空"
+        affected: "B · A · D"
+
+    notes: >-
+      已知局限（有意保留）：① **不暴露放大器模型选择** —— 服务器上一个放大器权重都没有，
+      而唯一非空的候选（`LoadUpscalerTensorrtModel`）属 `ComfyUI-Upscaler-Tensorrt`，
+      许可为 CC BY-NC-SA 4.0（非商用），白名单已 disable，**红线不可用**
+      ② 不暴露 `upscale_method`（固定 bislerp）与 `overlap`（固定 64）以收敛参数面；
+      若后续证明需要，再经契约流程加入 ③ **放大后的输出尺寸可能超过 PRD §6.2 的
+      2048 长边约束**（取决于输入尺寸 × scale_by），前端应在提交前提示。
+
+    param_schema:
+      schema_version: 1
+      fields:
+        - key: reference_image
+          label: "待放大的图"
+          type: image
+          # ⚠️ 同 i2i_v1 / inpaint_v1：image 类型的 default 无法表达「必填」（契约缺口）
+          default: 0
+          group: "输入"
+          help: "要放大的原图（素材 id）。**必须提供**；建议先用 t2i_v1/i2i_v1 出一张再拿过来"
+          targets:
+            - node_id: "10"
+              input: image
+              transform: ref_to_filename
+
+        - key: prompt
+          label: "正向提示词"
+          type: text
+          default: >-
+            professional product photo, on a light grey seamless background,
+            soft studio lighting, subtle shadow, sharp focus, high detail
+          max_length: 2000
+          group: "提示词"
+          help: "重绘补细节时用的提示词。低 denoise 下影响有限，但描述准确有助于补出正确细节"
+          targets:
+            - node_id: "11"
+              input: text
+
+        - key: negative_prompt
+          label: "负向提示词"
+          type: text
+          default: >-
+            blurry, low quality, distorted, deformed, watermark, text, logo,
+            oversaturated, plastic look
+          max_length: 2000
+          group: "提示词"
+          advanced: true
+          targets:
+            - node_id: "12"
+              input: text
+
+        - key: scale_by
+          label: "放大倍数"
+          type: float
+          default: 1.5
+          min: 1.0
+          max: 2.0
+          step: 0.05
+          group: "放大"
+          help: "输出尺寸 = 输入尺寸 × 该倍数。⚠️ 1.5 倍以上时输出可能超过 2048 长边约束"
+          targets:
+            - node_id: "21"
+              input: scale_by
+
+        - key: tile_size
+          label: "解码分块大小"
+          type: int
+          default: 512
+          min: 64
+          max: 2048
+          step: 32
+          group: "放大"
+          advanced: true
+          help: "分块解码的块尺寸。大图调小可防显存爆，但块越小接缝风险越高（本工作流固定 64 重叠）"
+          targets:
+            - node_id: "30"
+              input: tile_size
+
+        - key: denoise
+          label: "细节重绘强度"
+          type: float
+          default: 0.4
+          min: 0.0
+          max: 1.0
+          step: 0.05
+          group: "采样"
+          help: "放大后补细节的强度。0.3–0.5 是常见区间；太高会偏离原图、太低则补不出细节"
+          targets:
+            - node_id: "22"
+              input: denoise
+
+        - key: seed
+          label: "随机种子"
+          type: seed
+          default: -1
+          group: "采样"
+          help: "-1 表示随机。渲染时解析成真实值并写进产物元数据（FR-5.4/5.5）"
+          targets:
+            - node_id: "22"
+              input: seed
+
+        - key: steps
+          label: "采样步数"
+          type: int
+          default: 20
+          min: 1
+          max: 100
+          step: 1
+          group: "采样"
+          advanced: true
+          help: "低 denoise 重绘不需要太多步数，20 左右通常够"
+          targets:
+            - node_id: "22"
+              input: steps
+
+        - key: cfg
+          label: "CFG"
+          type: float
+          default: 6.5
+          min: 1.0
+          max: 20.0
+          step: 0.1
+          group: "采样"
+          advanced: true
+          help: "SDXL 推荐 5–8"
+          targets:
+            - node_id: "22"
+              input: cfg
+
+        - key: sampler_name
+          label: "采样器"
+          type: enum
+          default: dpmpp_2m
+          # ⚠️ 选项为**长期稳定的子集**，不是 v0.36.0 的完整取值。
+          #    #16 记录过 CLIPLoader.type 在升级中由 17 项扩到 29 项 —— 枚举值会随引擎变。
+          #    完整取值需 L3 用 /object_info 核对后补全（workflow_spec.md §8.1）。
+          # 以下取值**逐项取自** deploy/schemas/object_info.v0.36.0.json 的
+          # KSampler.sampler_name（L3 已核，非人工枚举）
+          options:
+            - { value: euler, label: "euler" }
+            - { value: euler_cfg_pp, label: "euler_cfg_pp" }
+            - { value: euler_ancestral, label: "euler_ancestral" }
+            - { value: euler_ancestral_cfg_pp, label: "euler_ancestral_cfg_pp" }
+            - { value: heun, label: "heun" }
+            - { value: heunpp2, label: "heunpp2" }
+            - { value: exp_heun_2_x0, label: "exp_heun_2_x0" }
+            - { value: exp_heun_2_x0_sde, label: "exp_heun_2_x0_sde" }
+            - { value: dpm_2, label: "dpm_2" }
+            - { value: dpm_2_ancestral, label: "dpm_2_ancestral" }
+            - { value: lms, label: "lms" }
+            - { value: dpm_fast, label: "dpm_fast" }
+            - { value: dpm_adaptive, label: "dpm_adaptive" }
+            - { value: dpmpp_2s_ancestral, label: "dpmpp_2s_ancestral" }
+            - { value: dpmpp_2s_ancestral_cfg_pp, label: "dpmpp_2s_ancestral_cfg_pp" }
+            - { value: dpmpp_sde, label: "dpmpp_sde" }
+            - { value: dpmpp_sde_gpu, label: "dpmpp_sde_gpu" }
+            - { value: dpmpp_2m, label: "DPM++ 2M（推荐）" }
+            - { value: dpmpp_2m_cfg_pp, label: "dpmpp_2m_cfg_pp" }
+            - { value: dpmpp_2m_sde, label: "dpmpp_2m_sde" }
+            - { value: dpmpp_2m_sde_gpu, label: "dpmpp_2m_sde_gpu" }
+            - { value: dpmpp_2m_sde_heun, label: "dpmpp_2m_sde_heun" }
+            - { value: dpmpp_2m_sde_heun_gpu, label: "dpmpp_2m_sde_heun_gpu" }
+            - { value: dpmpp_3m_sde, label: "dpmpp_3m_sde" }
+            - { value: dpmpp_3m_sde_gpu, label: "dpmpp_3m_sde_gpu" }
+            - { value: ddpm, label: "ddpm" }
+            - { value: lcm, label: "lcm" }
+            - { value: ipndm, label: "ipndm" }
+            - { value: ipndm_v, label: "ipndm_v" }
+            - { value: deis, label: "deis" }
+            - { value: cfgpp_ud10_ab, label: "cfgpp_ud10_ab" }
+            - { value: res_multistep, label: "res_multistep" }
+            - { value: res_multistep_cfg_pp, label: "res_multistep_cfg_pp" }
+            - { value: res_multistep_ancestral, label: "res_multistep_ancestral" }
+            - { value: res_multistep_ancestral_cfg_pp, label: "res_multistep_ancestral_cfg_pp" }
+            - { value: gradient_estimation, label: "gradient_estimation" }
+            - { value: gradient_estimation_cfg_pp, label: "gradient_estimation_cfg_pp" }
+            - { value: er_sde, label: "er_sde" }
+            - { value: seeds_2, label: "seeds_2" }
+            - { value: seeds_3, label: "seeds_3" }
+            - { value: sa_solver, label: "sa_solver" }
+            - { value: sa_solver_pece, label: "sa_solver_pece" }
+            - { value: ddim, label: "ddim" }
+            - { value: uni_pc, label: "uni_pc" }
+            - { value: uni_pc_bh2, label: "uni_pc_bh2" }
+          group: "采样"
+          advanced: true
+          help: "取值集合已按 v0.36.0 的 /object_info 逐项核对（L3）"
+          targets:
+            - node_id: "22"
+              input: sampler_name
+
+        - key: scheduler
+          label: "调度器"
+          type: enum
+          default: karras
+          # 取自 object_info 的 KSampler.scheduler（L3 已核）
+          options:
+            - { value: simple, label: "simple" }
+            - { value: sgm_uniform, label: "sgm_uniform" }
+            - { value: karras, label: "Karras（推荐）" }
+            - { value: exponential, label: "exponential" }
+            - { value: ddim_uniform, label: "ddim_uniform" }
+            - { value: beta, label: "beta" }
+            - { value: normal, label: "normal" }
+            - { value: linear_quadratic, label: "linear_quadratic" }
+            - { value: kl_optimal, label: "kl_optimal" }
+          group: "采样"
+          advanced: true
+          help: "取值集合已按 v0.36.0 的 /object_info 逐项核对（L3）"
+          targets:
+            - node_id: "22"
+              input: scheduler
+
   - id: flux2_klein_t2i_v1
     version: 1
     title: "FLUX.2 [klein] 4B Distilled 文生图"
@@ -742,34 +1258,21 @@ workflows:
 # 会让 A 流的灌库脚本与前端表单拿到一个必然失败的配置。
 # ---------------------------------------------------------------------------
 planned:
-  - id: i2i_v1
-    title: "图生图（参考图锁定）"
-    fr: FR-8.1 / FR-8.2
-    blocked_by: "需先完成 P4 控制体系选型（IP-Adapter vs PuLID）与素材上传接口（P6-09）"
-    note: >-
-      klein 支持单/多参考图编辑，是这条工作流的首选底模；
-      但素材 → ComfyUI 可见文件名的解析（transform=ref_to_filename 的 asset_resolver）
-      依赖 A 流的素材落盘方案，未定之前无法定 Schema。
-
-  - id: upscale_v1
-    title: "高清修复"
-    fr: FR-2.9 / FR-6.2
-    blocked_by: "需先选定放大链路（ESRGAN / Tile 重采样 / TensorRT），并确认显存占用"
-    note: >-
-      计划做成 t2i_v1 的**可选分支**而不是独立工作流 ——
-      用 _meta.switches 声明 bypass（规范 §6），避免"文生图 + 高清"组合再复制一份 JSON。
-
-  - id: inpaint_v1
-    title: "局部重绘"
-    fr: FR-2.8
-    blocked_by: "需 SAM / BiRefNet 分割链路验证（P4）与遮罩传递接口"
-    note: "依赖遮罩类参数（image + mask），transform 与上传边界都要先定。"
-
+  # 已实现的条目已移出本段（i2i_v1 / inpaint_v1 / upscale_v1 见上方 workflows）。
+  # 本段只列「还没写定义文件的」，每条都要写清阻塞原因与解锁条件。
   - id: style_transfer_v1
     title: "风格迁移"
     fr: FR-6.2
-    blocked_by: "需先做风格参考图的一致性验证（良品率的第二个关键转化点）"
-    note: "与 i2i_v1 共享大部分参数面，可能合并实现。"
+    blocked_by: "**缺权重**：`ipadapter/*` 与 `clip_vision/*` 两个目录枚举均为空；LoRA 目录也为空 → 三条实现路径全断"
+    note: >-
+      逐项已核实（2026-09-16，基于 /object_info 快照）：
+      ① IP-Adapter 本体 `IPAdapterModelLoader.ipadapter_file` 枚举空
+      ② CLIP Vision 编码器 `CLIPVisionLoader.clip_name` 枚举空（IPAdapter 的硬前置）
+      ③ LoRA 路线 `LoraLoader.lora_name` 枚举空
+      → **必须先下载权重并通过许可审查**（见 license_matrix §7：IP-Adapter 多为 Apache-2.0，
+        CLIP-ViT-H-14 部分源自 LAION，须核原文）才能开工。
+      ⚠️ **不做「img2img + 风格提示词」的降级版**：那不是真正的风格迁移（无参考图驱动），
+      命名为 style_transfer 会造成「功能名不副实」—— 宁可缺一条，不要一条名不副实的。
 
   # ⚠️ 「批量」**不在这里**，它不是一条工作流 —— 见文件末尾的说明。
 

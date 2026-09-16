@@ -339,67 +339,128 @@ C 流指出：`rgthree-comfy` 里除了那个不能用的 `Power Lora Loader`，
 
 ### 2.3 计划中的工作流（槽位已建，定义文件尚未编写）
 
-| id | 已识别的**预判风险**（写下来，避免重复踩） |
+> 已实现的条目已移出本段。当前只剩 `style_transfer_v1` 一条。
+
+| id | 已识别的**预判风险 / 阻塞原因** |
 |---|---|
-| `i2i_v1` 图生图 | ① `asset_id → 文件名` 的解析必须由 A 流以 `asset_resolver` 回调注入，**渲染器不猜路径**（规范 §5.2）② 素材上传边界（100KB–20MB / 64–2048px）要在 Schema 的 `image` 类型上对齐 PRD §6.2 |
-| `upscale_v1` 高清修复 | 计划做成 `t2i_v1` 的**可选分支**而非独立 JSON，用 `_meta.switches` 声明 bypass。⚠️ 必须先确认"关闭分支时的重连"写到哪个节点 —— 这正是 K1-5 与规范 §6.3 要防的问题 |
-| `inpaint_v1` 局部重绘 | 依赖 SAM / BiRefNet 分割链路；遮罩传递的入参名与类型不同（`MASK` 而非 `IMAGE`），需先 `08_probe_nodes.py` 查清 |
-| `style_transfer_v1` 风格迁移 | 与 `i2i_v1` 参数面高度重叠，**先评估是否合并**，避免两条工作流各自演进（双真相） |
-| `batch_v1` 批量 | ⚠️ **待 team-lead 决策：它可能不该是一条工作流。** 批量是**任意工作流的编排模式**（`POST /batches` 按 SKU 拆子任务），节点图与 `t2i_v1` 完全相同。登记成独立工作流会产生两份内容相同、版本却各自演进的 JSON |
-| LoRA 相关（P4-04 / FR-8.5） | ⚠️ **多 LoRA 用 `Lora Loader Stack (rgthree)`**（单节点、4 个固定槽位、10 个声明式入参全部可注入），比"核心 `LoraLoader` 串链"更优 —— 槽位固定意味着 Schema 不随模板变。**不能用 `Power Lora Loader`**（见 G8 / G8.1）。<br>⚠️ **另有前置依赖**：服务器上**一个 LoRA 权重都没有**（`lora_name` 枚举为空），需先下载 + 过许可审查 |
-| 图生图参考图（P4 / FR-8.x） | `asset_id → 文件名` 必须由 A 流的 `asset_resolver` 回调注入；渲染器不猜路径（规范 §5.2） |
+| `style_transfer_v1` 风格迁移 | 🔴 **缺权重**：`ipadapter/*` 与 `clip_vision/*` 枚举均为空，LoRA 目录也为空 → 三条实现路径全断（2026-09-16 基于 `/object_info` 快照核实）。必须先下载权重并过许可审查（`license_matrix §7`）。<br>⚠️ **不做「img2img + 风格提示词」的降级版** —— 那不是真正的风格迁移（无参考图驱动），命名成 `style_transfer` 是「功能名不副实」 |
+| LoRA 相关（P4-04 / FR-8.5） | ⚠️ **多 LoRA 用 `Lora Loader Stack (rgthree)`**（单节点、4 个固定槽位、10 个声明式入参全部可注入），比"核心 `LoraLoader` 串链"更优 —— 槽位固定意味着 **Schema 不随模板变**。**不能用 `Power Lora Loader`**（见 G8 / G8.1）。<br>⚠️ **前置依赖**：服务器上**一个 LoRA 权重都没有**（`lora_name` 枚举为空） |
+
+> **`batch_v1` 已定论：它不是工作流**（批量是**任意工作流的编排模式**，节点图与 `t2i_v1` 完全相同；
+> 登记成独立工作流会产生两份内容相同、版本各自演进的 JSON = 双真相）。
+> ⚠️ 并与契约 §3.6 不变量 1 显式澄清：那里的「单次执行只产出 1 张图」说的是**一条工作流跑一次**，
+> 批量是靠父任务拆 N 个**独立子任务**达成的 —— **两者不矛盾**。
 
 ---
 
-## 2.4 ⚠️ 两条已注册工作流**尚未通过**「渲染路径 L4」
+### 2.4 「渲染路径 L4」的状态（两条已通过，三条待跑）
 
-这是当前最需要说清楚的一件事 —— **注册表里两条工作流的 `status` 都是 `disabled`**，
-不是遗漏，而是如实反映验证状态：
+**为什么要有这个概念**：`verification: gpu_verified` 只说明**节点图本身**能出图
+（可能是用裸提交模板的方式验证的）。但生产走的是**渲染路径** ——
+`engine/render` → 真实引擎 → 核对产物，中间多了 `targets` 注入、seed 解析、
+bypass 裁剪、输出前缀覆写这一整套。**"裸提交能出图"不能推出"渲染路径能出图"。**
 
-| 概念 | 含义 | 现在的状态 |
+| 工作流 | `render_path_l4` | `status` | 说明 |
+|---|---|---|---|
+| `t2i_v1` | ✅ **true** | enabled | 2026-09-16 实机通过（通过 11 项 / 失败 0） |
+| `flux2_klein_t2i_v1` | ✅ **true** | enabled | 同上（通过 13 项 / 失败 0） |
+| `i2i_v1` | ⬜ false | disabled | 本轮新写，**L4 未跑** |
+| `inpaint_v1` | ⬜ false | disabled | 同上；且**蒙版极性**必须先实测 |
+| `upscale_v1` | ⬜ false | disabled | 同上 |
+
+**已通过的判定依据**（`2026-09-16`，RTX 4090，生产配置 `--highvram`，显式 `seed=20260916`）：
+
+| # | 检查项 | 结果 |
 |---|---|---|
-| `verification: gpu_verified` | **节点图本身能出图**（哪怕是用裸提交模板的方式验证的） | ✅ 两条都满足（`项目进展.md` #16 验证 5 ③④ / #18） |
-| `render_path_l4` | **我们的渲染路径也能出图**：`engine/render` → 真实引擎 → 核对产物 | ❌ **两条都是 false** |
+| 1 | 走渲染路径提交并出图 | ✅ 两条均成功 |
+| 2 | **同一显式 seed 两次出图，产物 IDAT 逐字节一致** | ✅ 一致（确定性成立） |
+| 3 | `targets` 注入落点正确（含多 target 一致性） | ✅ 含 klein 的 `width`/`height` 双 target |
+| 4 | 产物 `wf_meta.seed` == 传入的显式 seed | ✅ |
+| 5 | 写元数据未改动像素数据 | ✅ |
+| 6 | ComfyUI 自己写的 `prompt` chunk 仍保留 | ✅ |
 
-**为什么这个区分是必要的**：既有 GPU 证据来自 `07_bench_workflow.py` /
-`27_gpu_verify.sh`，它们把**模板 JSON 原样提交**，完全没经过 `engine/render`。
-而生产走的是渲染路径 —— 中间多了 `targets` 注入、seed 解析、bypass 裁剪、
-输出前缀覆写这一整套。**"裸提交能出图"不能推出"渲染路径能出图"。**
-（这正是 G6 的反面：`_meta` 改动不影响验证，但**渲染逻辑**是另一条代码路径，
-必须单独验证。）
-
-**把 `render_path_l4` 变成 true 需要做的（待 GPU，一次跑完两条）**：
-
-> ⭐ **已写成可执行工具**：`engine/tools/verify_render_path.py`
+> ⭐ **可执行工具**：`engine/tools/verify_render_path.py`（本文档本节的可执行版本）
 > ```bash
-> # ① 离线预检（不需要 GPU，先确认注入落点没问题再烧 GPU 机时）
-> python -m engine.tools.verify_render_path --workflow t2i_v1 --seed 20260916 --dry-run
-> # ② 真实 L4（需 ComfyUI 在跑 + GPU）
-> python -m engine.tools.verify_render_path --workflow t2i_v1 --seed 20260916
+> python -m engine.tools.verify_render_path --workflow <id> --seed 20260916 --dry-run  # 离线预检
+> python -m engine.tools.verify_render_path --workflow <id> --seed 20260916            # 真实 L4
 > ```
-> 退出码语义：`0` 通过 · `1` 有检查失败 · `2` 参数用法错（如传了 `--seed -1`）。
-> ⚠️ 工具**不会**自动改注册表 —— `render_path_l4` / `status` 必须人工确认后再改，
+> 退出码：`0` 通过 · `1` 有检查失败 · `2` 用法错。
+> ⚠️ 工具**不会**自动改注册表 —— `render_path_l4`/`status` 必须人工确认后再改，
 > 避免"脚本跑绿了就自动放行"。
-
-下面 4 项就是该工具实现的检查：
-
-1. 走渲染路径提交：`render(definition, entry.schema, params)` → 提交 → 轮询 → 取图
-   （比照 `07_bench_workflow.py` 的提交/轮询逻辑，但把 `wf` 换成 `RenderResult.workflow`）
-2. **核对产物与预期一致**（这是关键，不是"没报错就算过"）：
-   - 用**显式 seed**（不用 `-1`）跑两次，两次产物的**像素数据（IDAT）应逐字节一致**
-   - 校验 `width`/`height` 真的落到了两个节点（klein：`"6"` 与 `"7"`）
-   - 校验产物 PNG 里有 `wf_meta`，且其中 `seed` 等于**显式传入的 seed**
-     （验证 §7.1 的「seed 必须由渲染器解析并回写」真的生效）
-   - 校验 ComfyUI 自己写的 `prompt` chunk 仍在（G6 之外的产物侧证据）
-3. 跑通后：`status: enabled` + `render_path_l4: true`，并在 `changelog` 记一条
-4. **两个模型都要跑** —— 修 SDXL 不能拿 klein 当代价（`项目进展.md` #18 的纪律）
-
-> 纪律：**上面 4 项全部有输出，才允许改 `render_path_l4`。**
-> 只做"提交后没报错"就改标志，等于把"未验证"包装成"已验证"。
 >
-> ⚠️ 该工具**不**证明画质与性能达标 —— 那分别属于 golden set（P5/P8）与稳态基准（`#18`）。
+> ⚠️ 该工具**不**证明画质与性能达标（分别属 golden set 与稳态基准 `#18`）。
 > PASS 的唯一含义是：**渲染路径打通了。**
 
+**纪律**：上面各项**全部有输出**，才允许改 `render_path_l4`。
+只做"提交后没报错"就改标志，等于把"未验证"包装成"已验证"。
+另外 **两个底模都要各跑一遍** —— 修 SDXL 不能拿 klein 当代价（`项目进展.md` #18）。
+
+---
+
+### 2.5 `i2i_v1`（SDXL 图生图）· version 1 · `pending_gpu`
+
+**链路**：`CheckpointLoaderSimple` → `LoadImage` → `ImageScale` → `VAEEncode`
+→ `KSampler`（**denoise 是核心参数**）→ `VAEDecode` → `SaveImage`
+
+| # | 现象 | 分析 | 决策/处置 | 沉淀 |
+|---|---|---|---|---|
+| I1-1 | `check_object_info` 报「节点 10 (LoadImage).image: 取值 'smoke_0.png' 不在允许集合内」 | L2 的冒烟渲染用**假 resolver** 产出 `smoke_0.png`，而 L3 的枚举来自 `/object_info` 快照（**快照时刻对输入目录的静态扫描**）—— 拿静态快照比运行时文件名，**按构造就不可能匹配**。**后果：任何带参考图的工作流都无法通过 L1/L2/L3**（i2i 与 inpaint 会被直接堵死） | 给 `check_object_info` 加 `runtime_asset_inputs` 参数，由 `render_smoke` 从 Schema 推导（`type ∈ {image,image_list}` 且 `transform == ref_to_filename` 的 target），**只豁免这些入参**，不是放宽整个枚举检查 | ⭐ **校验器要对「运行时才确定的值」留豁免口**。这类值拿静态快照校验必然是假阳性 —— 且它表现为「工作流写不出来」，很容易被误判成"自己写错了"而不是"校验器有缺陷"。修完按 G9 补了正对照测试：不豁免必须报错、标记后不报错、标记别的入参/节点仍必须报错 |
+| I1-2 | `image` 类型的 `default` 该写什么？ | 实测四种组合：`default=null` + 省略该参数 → **渲染直接抛 RenderError**；`default=0` + 省略 → 注入 `asset_0.png`（不存在的文件）。两条路都不完美 | 取 `default: 0` 占位 + `help` 写明「必须提供」+ 要求后端提交时校验。**立场是「响亮失败优于静默用错图」** | ⭐ **契约缺口**：`contracts.md §3.1` 的 `default` 对 `image` 类型**无法表达「必填」**。已登记待补 `required` 语义。当前用 0 占位是因为 L2 冒烟必须能用 default 渲染通过 |
+| I1-3 | `ImageScale.crop=disabled` 会拉伸非等比参考图 | 等比裁切（`crop=center`）会裁掉商品边缘 | V1 取「不裁切」的保守选择，**已知局限**写进 registry `notes`，待 golden set 评测后定 | 参数取舍要**写下取舍理由**，否则后人只会看到"这里写着 disabled"而不知道是权衡的结果 |
+
+**依据来源**：节点/入参经 L3 对 `deploy/schemas/object_info.v0.36.0.json` 校验
+**当前 GPU 依据**：无（**L4 未跑**）
+**性能参考值**：无（未出图，不填）
+**待验证**：① L4 渲染路径 ② `LoadImage` 的 MASK 极性（与 inpaint 同源）
+**待办**：等放大器/IP-Adapter 资产到位后评估是否接入 ControlNet 强化结构保持（P4）
+
+---
+
+### 2.6 `inpaint_v1`（SDXL 局部重绘）· version 1 · `pending_gpu`
+
+**链路**：`LoadImage`（取 `0:IMAGE` + `1:MASK`）→ `ImageScale` → `GrowMask`
+→ `VAEEncode` → `SetLatentNoiseMask` → `KSampler`(denoise=1.0) → `VAEDecode`
+→ `ImageCompositeMasked`（**非选区贴回原图**）→ `SaveImage`
+
+| # | 现象 | 分析 | 决策/处置 | 沉淀 |
+|---|---|---|---|---|
+| IP-1 | 免专用 inpaint 模型的路线是否成立？ | 侦察确认 `SetLatentNoiseMask` 在核心节点里，让采样**只作用于蒙版区**，任何 SDXL 底模都能用 → **零新增权重** | 走这条路线。专用模型（`InpaintModelConditioning`）路线留到权重到位 | ⭐ **先找「零新增权重」的可行路线**：本项目多处被权重缺口卡住（放大器/IP-Adapter/LoRA），但同一个需求往往有核心节点就能做的实现 —— 先做能做的，把"名不副实"的降级版排除掉 |
+| IP-2 | 为什么还要 `ImageCompositeMasked` 把原图贴回？ | 看似多余（`SetLatentNoiseMask` 已保证非选区不被采样修改），但 **VAE 编解码往返会轻微劣化整张图** | 保留这一步，保证**非选区严格等于原图像素** | ⭐ 电商场景的硬要求：**不该动的地方一个像素都不能动**。这类"看起来多余但保证语义"的步骤，理由必须写进 `notes`，否则后人会当冗余删掉 |
+| IP-3 | `GrowMask.tapered_corners` 默认 `True`、`expand` 默认 0 | 快照给的默认值会**悄悄改变蒙版形状**，跨版本可能漂移 | 两个值都**在 JSON 里显式写死**（`tapered_corners: true` / `expand: 8`），`expand` 暴露成参数 | 凡是"默认值会影响结果"的入参，**都显式写出来**，不依赖默认值 |
+
+**依据来源**：节点/入参经 L3 校验；免模型路线经侦察确认
+**当前 GPU 依据**：无（**L4 未跑**）
+**性能参考值**：无
+**待验证** ⚠️ **本工作流有一个必须先实测才能定稿的前提**：
+**`LoadImage` 的 MASK 输出极性**（是否为 `1 - alpha`）—— 它直接决定「重绘哪一块」，
+极性相反会去重绘**非**选区。当前按常见约定假设「透明区 = 待重绘区」。
+验证方法：① 读 `/root/ComfyUI/nodes.py` 的 `LoadImage` 实现确认是否 `1. - alpha`
+② 用「透明区 = 待重绘区」的图跑一次，看 `MaskToImage` 预览是否为白
+③ 若相反，修复 = 在 `GrowMask` 前插 `InvertMask`（**不预先插**：那会在假设正确时反过来做错，
+两全不可能，只能实测后定）
+**待办**：权重到位后增加专用 inpaint 模型分支（用 `_meta.switches` 声明 bypass，**不新建 JSON**）
+
+---
+
+### 2.7 `upscale_v1`（SDXL 高清修复）· version 1 · `pending_gpu`
+
+**链路**：`LoadImage` → `VAEEncode` → `LatentUpscaleBy` → `KSampler`(denoise=0.4)
+→ `VAEDecodeTiled`（**分块解码防显存爆**）→ `SaveImage`
+
+| # | 现象 | 分析 | 决策/处置 | 沉淀 |
+|---|---|---|---|---|
+| U1-1 | `UpscaleModelLoader.model_name` 枚举为空 | 服务器上**一个放大器权重都没有**；而唯一非空的候选 `LoadUpscalerTensorrtModel` 属 `ComfyUI-Upscaler-Tensorrt`，许可 **CC BY-NC-SA 4.0（非商用）**，白名单已 disable | 走**免放大器模型**路线：`LatentUpscaleBy` 潜空间插值放大 + 低 denoise 重绘 | ⚠️ **"唯一可用的那个恰好是红线"**：许可禁用会连带砍掉功能入口，选型时必须把「许可」与「能力」一起看，否则会得到一个"技术可行但不能用"的方案 |
+| U1-2 | 原计划把高清修复做成 `t2i_v1` 的**可选分支**（用 `_meta.switches`），我做成了**独立工作流** | 分支方案只能放大 `t2i_v1` 刚生成的图；独立工作流能放大**任意来源**的图（含其他工作流的产物），更贴合「高清修复」语义 | 做成独立工作流，**并把这次偏离记在这里** | ⭐ **偏离原计划要写明** —— 否则后人看到 `planned` 里写着"做成可选分支"而实际是独立工作流，会以为是漏做。语义差异（"修复任意图" vs "修复刚生成的图"）是决策依据 |
+| U1-3 | `VAEDecodeTiled` 的 `temporal_size` / `temporal_overlap` 是**为视频设计**的 | 静态图也必须填这两个参数（快照显示为 required） | 显式填 `64` / `8`，并在 `verification_note` 标注「其对静态图的影响未实测」 | 节点参数带"视频语义"却出现在静态图链路里时，**不要猜它无影响** —— 标为待验证 |
+
+**依据来源**：节点/入参经 L3 校验；权重缺口经侦察确认
+**当前 GPU 依据**：无（**L4 未跑**）
+**性能参考值**：无
+**待验证**：① L4 渲染路径 ② **放大后的画质增益是否成立**（潜空间插值本身不引入新信息，
+增益全部来自低 denoise 重绘，需实看图；**本项不声称画质达标**）③ `upscale_method=bislerp`
+与其他取值的差异 ④ `temporal_*` 对静态图的影响
+**待办**：放大器权重到位后增加「两段式」分支（`UpscaleModelLoader` → `ImageUpscaleWithModel`
+→ `VAEEncode` → `KSampler`），用 `_meta.switches` 声明 bypass
 
 ---
 
@@ -439,3 +500,4 @@ C 流指出：`rgthree-comfy` 里除了那个不能用的 `Power Lora Loader`，
 | 2026-09-16 | v1.4 | G7 三项待验证**已备可执行探针** `engine/tools/probe_g7_weight.py`（三种模式：`klein-core` / `klein-bnk` / `sdxl`），并明确「探针只给**客观信号**（同 seed 像素是否逐字节相同），**语义判断必须人工看图**」—— 避免把"像素不同"读成"权重生效"。探针的 BNK 变体**运行时由注册表派**（不落第二份 JSON，防双真相），且定位提示词节点用的是**注册表 Schema 的 `targets`** 而非硬编码 ID。修复 `verify_render_path.py` 多 target 检查的一个**假通过**缺陷：原实现用字段 key 当入参名取值，遇 `seed`→`noise_seed` 这类不同名会取到 `None`，使"一致性检查"退化为"两个 None 相等" |
 | 2026-09-16 | v1.5 | 探针补**两道自证**（由 C 流提出，「像素相同 = 决定性结论」隐含"两次真跑了 + 输入真不同"这个前提）：① 离线校验 baseline 与 weighted 的图必须不同 ② GPU 上加**正对照**（同提示词、只改 seed）必须像素不同，否则该模式所有"相同"结论**作废**。**自证 ① 上线即抓到真 bug**：变体构造只做浅拷贝 → 所有变体共享同一批节点 dict → 后一次迭代把已构造的 baseline 追溯性改写 → 比对恒为"相同"（方向最危险的假通过）。已改深拷贝 + 加回归测试。回填口径改为**只给字母 A/B/C/D**（`prompt_guide.md` §1.1.1 已预先约定四种措辞，避免事后合理化） |
 | 2026-09-16 | v1.6 | 新增 **G9**「**判据本身也要能被检出**」：把"检查通过 ≠ 检查真的在检查"立为独立全局坑。该族已出现**至少四次**（#20 无痕 / #21 工作区绿 ≠ 仓库完整 / 本轮假通过 + 假阴性 / C 流白名单禁用验收的同构陷阱），两次方向相反但**特征一致：错误结论不报错，只显得更稳妥或更成功**。纪律：**凡判据都要能被人为破坏后检出；验证工具交付前故意让它失败一次**。附带两条：**"作废"要比"提示"显眼**、**别把"该不该采信"交给当场心情判断** |
+| 2026-09-16 | v1.7 | **新增三条工作流的调试记录**（§2.5 `i2i_v1` / §2.6 `inpaint_v1` / §2.7 `upscale_v1`），并把踩到的坑写成可复用规则。**§2.4 更新**：`t2i_v1` 与 `flux2_klein_t2i_v1` 的「渲染路径 L4」**已于 2026-09-16 实机通过**（通过 11 / 13 项，失败 0），两条已 `status: enabled`；三条新工作流待跑。**§2.3 清理**：已实现的条目移出，只剩 `style_transfer_v1`（缺 IP-Adapter + CLIP Vision + LoRA 三类权重）；`batch_v1` 定论为「不是工作流」并与契约 §3.6 不变量 1 显式澄清不矛盾。**同时记录一个校验器缺陷的修复**：`check_object_info` 会把 `transform=ref_to_filename` 产生的**运行时文件名**也拿去比静态快照枚举 → **任何带参考图的工作流都无法通过 L1/L2/L3**，已加 `runtime_asset_inputs` 豁免（只豁免这些入参）并按 G9 补正对照测试 |

@@ -1,0 +1,124 @@
+{
+  "_meta": {
+    "id": "inpaint_v1",
+    "version": 1,
+    "title": "SDXL 局部重绘（蒙版驱动）",
+    "engine": "ComfyUI v0.36.0 (commit ee71d5c4)",
+    "models": ["sd_xl_base_1.0.safetensors"],
+    "license_note": "CreativeML OpenRAIL++-M，可商用；见 docs/sop/license_matrix.md",
+    "node_titles": {
+      "1": "加载·SDXL 底模（含 VAE）",
+      "10": "输入·原图（同时提供蒙版）",
+      "11": "输入·正向提示词",
+      "12": "输入·负向提示词",
+      "13": "输入·统一分辨率",
+      "14": "输入·蒙版扩张",
+      "20": "输入·编码为潜空间",
+      "21": "采样·把噪声只加到蒙版区",
+      "22": "采样·主采样器",
+      "30": "处理·解码",
+      "31": "处理·非选区贴回原图",
+      "40": "输出·保存图片"
+    },
+    "note": "免专用 inpaint 模型的路线：SetLatentNoiseMask 让采样只作用于蒙版区，任何 SDXL 底模都能用、零新增权重。ImageCompositeMasked 把**非选区按原图像素贴回** —— 这一步不是多余的：VAE 编解码往返会轻微劣化整张图，贴回可保证非选区严格等于原图（这是电商场景的硬要求：不该动的地方一个像素都不能动）。",
+    "todo": "v2 计划：① 待放大器/inpaint 权重到位后，增加「专用 inpaint 模型」分支（InpaintModelConditioning 路线）并用 _meta.switches 声明 bypass ② 评估是否暴露 tapered_corners"
+  },
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {
+      "ckpt_name": "sd_xl_base_1.0.safetensors"
+    }
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "example.png"
+    }
+  },
+  "11": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "professional product photo, on a light grey seamless background, soft studio lighting, subtle shadow, sharp focus, high detail",
+      "clip": ["1", 1]
+    }
+  },
+  "12": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "text": "blurry, low quality, distorted, deformed, watermark, text, logo, cropped, oversaturated, plastic look",
+      "clip": ["1", 1]
+    }
+  },
+  "13": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": ["10", 0],
+      "upscale_method": "lanczos",
+      "width": 1024,
+      "height": 1024,
+      "crop": "disabled"
+    }
+  },
+  "14": {
+    "class_type": "GrowMask",
+    "inputs": {
+      "mask": ["10", 1],
+      "expand": 8,
+      "tapered_corners": true
+    }
+  },
+  "20": {
+    "class_type": "VAEEncode",
+    "inputs": {
+      "pixels": ["13", 0],
+      "vae": ["1", 2]
+    }
+  },
+  "21": {
+    "class_type": "SetLatentNoiseMask",
+    "inputs": {
+      "samples": ["20", 0],
+      "mask": ["14", 0]
+    }
+  },
+  "22": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 20260915,
+      "steps": 25,
+      "cfg": 6.5,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1.0,
+      "model": ["1", 0],
+      "positive": ["11", 0],
+      "negative": ["12", 0],
+      "latent_image": ["21", 0]
+    }
+  },
+  "30": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": ["22", 0],
+      "vae": ["1", 2]
+    }
+  },
+  "31": {
+    "class_type": "ImageCompositeMasked",
+    "inputs": {
+      "destination": ["13", 0],
+      "source": ["30", 0],
+      "x": 0,
+      "y": 0,
+      "resize_source": false,
+      "mask": ["14", 0]
+    }
+  },
+  "40": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "filename_prefix": "inpaint_v1/base",
+      "images": ["31", 0]
+    }
+  }
+}

@@ -283,10 +283,10 @@ P2-03 有意推迟（先用自带环境跑主线）；剩 P2-07（复现脚本+�
 | P3-01 | **统一工作流规范**：输入/输出节点命名约定、Bypass 开关、seed 与 metadata 注入、注释分组 | `docs/sop/workflow_spec.md` | P0 |
 | P3-02 | 工作流 API 格式转换与参数占位机制（`{{width}}` 之类） | 转换工具 | P0 |
 | P3-03 | WF-T2I 文生图（底模 + 采样器 + 高清分支） | `workflows/t2i_v1.json` | P0 |
-| P3-04 | WF-I2I 图生图（重绘幅度策略） | `workflows/i2i_v1.json` | P0 |
-| P3-05 | WF-UPSCALE 高清修复（放大 + tile 分块 + 细节重绘，防显存爆） | `workflows/upscale_v1.json` | P0 |
-| P3-06 | WF-INPAINT 局部重绘（mask 输入 → inpaint / BrushNet） | `workflows/inpaint_v1.json` | P0 |
-| P3-07 | WF-STYLE 风格迁移（IP-Adapter + LoRA + 风格模板） | `workflows/style_v1.json` | P0 |
+| P3-04 | WF-I2I 图生图（重绘幅度策略） | ✅ `workflows/i2i_v1.json`（9 节点；核心参数 `denoise`；L1/L2/L3 PASS，**L4 待 GPU**） | P0 |
+| P3-05 | WF-UPSCALE 高清修复 | ✅ `workflows/upscale_v1.json`（免放大器模型路线：`LatentUpscaleBy` + 低 denoise 重绘 + `VAEDecodeTiled`；L1/L2/L3 PASS，**L4 待 GPU**）。⚠️ 两段式（`UpscaleModelLoader`）待权重 | P0 |
+| P3-06 | WF-INPAINT 局部重绘 | ✅ `workflows/inpaint_v1.json`（免专用模型路线：`SetLatentNoiseMask` + `ImageCompositeMasked` 贴回；L1/L2/L3 PASS，**L4 待 GPU**）。⚠️ **蒙版极性待实测** | P0 |
+| P3-07 | WF-STYLE 风格迁移 | 🔴 **被资产阻塞**：`ipadapter/*` + `clip_vision/*` + `loras/*` 三类权重枚举全空；先下载并过许可审查 | P0 |
 | P3-08 | WF-BATCH 批量出图（参数矩阵 / CSV 驱动 / 目录监听） | 批量引擎 + 文档 | P0 |
 | P3-09 | **工作流注册表**：ID + 版本 + 参数 Schema + 变更日志 + 启用/灰度 | `workflows/registry.yaml` | P0 |
 | P3-10 | 参数模板库（每个场景 3-5 套预设，含适用场景说明） | `assets/prompt_lib/templates/` | P1 |
@@ -295,7 +295,7 @@ P2-03 有意推迟（先用自带环境跑主线）；剩 P2-07（复现脚本+�
 
 **DoD**：6 条工作流全部可稳定出图，参数可从外部注入，产物带完整元数据，注册表可查询版本。
 
-**阶段结果**：🔵 进行中（**5/12**，2026-09-16）。已完成 P3-01/02/09/11/12 —— 即「规范 + 工具链 + 注册表」这一层，**但工作流本身只有 2 条**（`t2i_v1` / `flux2_klein_t2i_v1`），P3-03~08 六条中的其余 4 条仍是零起点。
+**阶段结果**：🔵 进行中（**8/12**，2026-09-16 收尾）。已完成 P3-01/02/04/05/06/09/11/12 —— 三条新工作流（i2i/inpaint/upscale）定义与 Schema 完成并通过 L1/L2/L3；P3-03（WF-T2I）由 t2i_v1 承担且 L4 已通过；**P3-07 被权重阻塞**。
 - 工具链已就绪且**离线可校验**：`python -m engine` 跑 L1/L2/L3 → `VALIDATE=PASS`（2530 节点注册表）
 - ⚠️ 两条已有工作流的 `status: disabled` —— **如实反映**「渲染路径未经过真实出图验证」（`render_path_l4` 未过）。裸提交模板出过图 ≠ 渲染器接进去也能出图
 - ⚠️ **P3 的产出无法自证**：L4 必须真实出图，**需 GPU**。这是 P3 剩余部分的前置
