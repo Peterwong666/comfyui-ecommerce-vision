@@ -101,15 +101,38 @@ ControlNet（canny / depth / lineart / softedge / normal / openpose）· IP-Adap
 
 ## 快速开始
 
-> 部署文档将在 P11 阶段完善，当前仅可在开发环境手动启动。
+> 当前处于开发阶段（V1 进行中），**产品形态的平台尚未封装完成**，还没有面向最终用户的一键部署。
+> 开发环境可以手动跑通端到端出图。
+
+| 我想… | 看这里 |
+|---|---|
+| **15 分钟从零到出一张图** | [`docs/sop/quickstart.md`](./docs/sop/quickstart.md) |
+| 深入了解环境、排错、加模型、跑基准 | [`docs/sop/runbook.md`](./docs/sop/runbook.md) |
+| 了解产品要做什么 | [`docs/prd/PRD_v1.md`](./docs/prd/PRD_v1.md) · [`docs/mrd/MRD_v1.md`](./docs/mrd/MRD_v1.md) |
+
+### 最短路径（概要）
 
 ```bash
-git clone https://github.com/Peterwong666/comfyui-ecommerce-platform.git
-cd comfyui-ecommerce-platform
-# 见 docs/deploy.md
+# 0) 前置：本机装 sshpass，并从 autoDL 控制台取得实例密码（不要写进仓库）
+export SSHPASS='<实例密码>'
+
+# 1) autoDL 控制台：先看 GPU 空闲数，再开机（出图必须有卡模式）
+
+# 2) 启动 ComfyUI（生产配置，幂等）
+sshpass -e ssh -p 22910 root@connect.westc.seetacloud.com \
+  'bash /root/autodl-tmp/03_start_comfyui.sh'
+
+# 3) 本机建隧道（保持前台运行），然后浏览器打开 http://127.0.0.1:8188
+sshpass -e ssh -N -L 127.0.0.1:8188:127.0.0.1:8188 -p 22910 root@connect.westc.seetacloud.com
+
+# 4) 把 workflows/flux2_klein_t2i_v1.json 拖进画布 → Run
 ```
 
-前置条件：NVIDIA GPU（建议 24G 显存）、CUDA 12.x、Docker、Python 3.10+
+前置条件：autoDL 实例（RTX 4090 24G / CUDA 13 / Python 3.12）、本机 `sshpass`、Python 3.10+。
+
+当前环境基线见 [`deploy/versions.lock`](./deploy/versions.lock)：
+ComfyUI v0.36.0 + torch 2.13.0+cu130，生产启动参数 `--highvram`。
+实测稳态：SDXL 1024²/30 步 **4.59s**（地板）/ FLUX.2 klein 4 步 **1.52s**（地板）。
 
 ---
 
@@ -131,10 +154,11 @@ cd comfyui-ecommerce-platform
 |---|---|
 | 执行计划 | [`todolist.md`](./todolist.md) · [`项目进度.md`](./项目进度.md) |
 | **进展与问题处置纪实** | [`项目进展.md`](./项目进展.md) |
+| **环境操作手册** | [`docs/sop/quickstart.md`](./docs/sop/quickstart.md)（快速上手）· [`docs/sop/runbook.md`](./docs/sop/runbook.md)（详细说明） |
 | 产品文档 | `docs/mrd/` · `docs/prd/` · `docs/persona/` · `docs/flow/` · `docs/prototype/` |
 | 架构决策 | [`docs/adr/`](./docs/adr/) |
-| 工程 SOP | `docs/sop/`（工作流规范、控制矩阵、调优指南、排错手册、许可矩阵） |
-| 环境搭建 | [`deploy/autodl/`](./deploy/autodl/)（版本锁定、模型盘迁移脚本） |
+| 工程 SOP | `docs/sop/`（按下面第一份文档补齐工作流规范、控制矩阵、调优指南） |
+| 环境基线 | [`deploy/versions.lock`](./deploy/versions.lock) · [`deploy/autodl/`](./deploy/autodl/) |
 | 复盘 | `docs/review/` |
 
 ---
