@@ -499,6 +499,85 @@ def test_meta_models_is_empty_list_when_workflow_has_no_loader(
         session.close()
 
 
+def test_pruned_branch_loader_is_not_recorded_as_used_model(
+    session_factory, db, user, storage
+) -> None:  # type: ignore[no-untyped-def]
+    """被 bypass 裁掉的分支里的 loader **不能**出现在 `meta["models"]` 里（C1 / FR-5.4）。
+
+    这条测试钉住 `_finish_success` 里那句注释所承诺的事：模型清单必须从
+    `rendered.workflow`（已按 `_meta.switches` 裁剪、真正 `submit()` 给引擎的那张图）
+    提取，**不能**从 `workflow.definition`（原始定义，含被 bypass 的分支）提取。
+
+    在此之前那句注释只是**承诺**而非**保证**：仓库现有的工作流都没用 switches，
+    两种取法恰好得到同样的结果，所以没有任何测试能检出这个回归。
+    把 `extract_models(rendered.workflow)` 改成 `extract_models(workflow.definition)`
+    这条测试就会变红（已做变异验证，见 `nightly-20260916.log`）。
+
+    被裁剪的 loader 若被记进元数据，就是在写一个"引擎实际没加载过这个权重"的
+    假声明 —— 用户照元数据复现时反而会疑惑，破坏可复现性的可信度。
+    """
+    definition = {
+        "_meta": {
+            "switches": [
+                {
+                    "key": "hires_fix",
+                    "enabled_when": [True],
+                    "disabled": {
+                        "prune": ["4"],
+                        "rewire": {"5": {"images": ["3", 0]}},
+                    },
+                }
+            ]
+        },
+        # 保留分支的底模 loader：引擎确实加载了它，必须记进 models
+        "1": {
+            "class_type": "CheckpointLoaderSimple",
+            "inputs": {"ckpt_name": "sd_xl_base_1.0.safetensors"},
+        },
+        # 被 bypass 的分支：关掉 hires_fix 时这个 LoRA loader 会被裁掉，
+        # 引擎根本不会加载它，因此不能出现在 models 里
+        "4": {
+            "class_type": "LoraLoader",
+            "inputs": {
+                "model": ["1", 0],
+                "clip": ["1", 1],
+                "lora_name": "hires_detail.safetensors",
+            },
+        },
+        "3": {"class_type": "KSampler", "inputs": {"steps": 4, "model": ["1", 0]}},
+        "5": {"class_type": "SaveImage", "inputs": {"images": ["4", 0]}},
+    }
+    schema = minimal_schema(
+        [
+            {
+                "key": "hires_fix",
+                "label": "高清修复",
+                "type": "bool",
+                "default": False,
+                "targets": [],
+            },
+        ]
+    )
+    task_id = make_task_with_workflow(user.id, definition, schema, {})(session_factory)
+    driver = FakeDriver()
+    outcome = make_executor(session_factory, driver, storage).execute(task_id)
+    assert outcome is Outcome.SUCCEEDED
+
+    # 先证明"裁剪真的发生了"，否则这条测试什么也没证明：
+    # 原始定义里有节点 4，而提交给引擎的那张图里没有。
+    assert "4" in definition
+    assert "4" not in driver.submitted[0]
+
+    session = session_factory()
+    try:
+        models = session.query(Asset).one().meta["models"]
+    finally:
+        session.close()
+
+    assert [m["name"] for m in models] == ["sd_xl_base_1.0.safetensors"]
+    assert all(m["node"] != "4" for m in models)
+
+
 def test_malformed_definition_does_not_turn_success_into_failure(
     session_factory, db, user, storage
 ) -> None:  # type: ignore[no-untyped-def]
