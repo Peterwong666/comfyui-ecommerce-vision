@@ -206,6 +206,8 @@ export interface BatchOut {
 export interface AssetOut {
   id: number
   kind: AssetKind
+  /** 产物所属任务；上传素材为 `null`。画廊「来源」筛选与跳转任务详情用它。 */
+  task_id: number | null
   mime_type: string
   size_bytes: number
   width: number | null
@@ -213,15 +215,49 @@ export interface AssetOut {
   original_name: string | null
   is_adopted: boolean
   is_favorite: boolean
+  /**
+   * 可复现性元数据（FR-5.4 / C1）。**只在产物上非空**，上传素材是 `{}`。
+   *
+   * 已知键（由 `backend/app/worker/tasks.py` 写入，与后端逐字一致）：
+   * `seed` / `workflow`（形如 `t2i_v1@v3`）/ `engine_prompt_id` / `params`
+   * （本次**实际生效**的完整参数）/ `filename` / `node_id` / `sha256`。
+   *
+   * ⚠️ 这里**没有**「模型」字段 —— 取不到就不要在界面上编一个。
+   */
+  meta: Record<string, unknown>
   created_at: string
   // ⚠️ 没有 url / object_key（后端有意不返回，见 schemas/asset.py 的 docstring）。
-  // 因此**前端无法从 AssetOut 显示图片** —— 取图要走 P6-10 的下载接口，目前未实现。
+  // 取图只能走 `GET /assets/{id}/content`，且**必须带 Authorization 头**
+  // —— 所以不能写 `<img src>`，要用 `api.assets.content()` 取 Blob（见 http.ts 的说明）。
 }
 
 /** ⚠️ 唯一不是裸数组的列表响应（契约 §2.3）。 */
 export interface AssetListOut {
   total: number
   items: AssetOut[]
+}
+
+/**
+ * 标记采纳 / 收藏（后端 `AssetUpdateIn`）。
+ *
+ * 两个字段都可选，但**至少给一个** —— 后端校验器会拒掉空请求体
+ * （空请求体几乎总是调用方拼错了字段名，静默 200 会让前端以为标记成功）。
+ */
+export interface AssetUpdateIn {
+  is_adopted?: boolean
+  is_favorite?: boolean
+}
+
+/**
+ * 批量打包的选取方式（后端 `AssetPackIn`）。
+ *
+ * ⚠️ `asset_ids` / `task_id` / `batch_id` **三选一**，给两个或零个都是 422。
+ * 前端当前只用 `asset_ids`（勾选打包）；另外两种留给 P7-06 批量向导。
+ */
+export interface AssetPackIn {
+  asset_ids?: number[]
+  task_id?: number
+  batch_id?: number
 }
 
 // ---------------------------------------------------------------- 查询参数
@@ -252,8 +288,20 @@ export type ModelListQuery = {
 }
 
 export type AssetListQuery = {
+  /** 取值来自 `ASSET_KIND`（契约 §6：前端不得硬编码枚举取值）。 */
   kind?: AssetKind
+  /** 只看已采纳。⚠️ 后端**没有**「未采纳」参数 —— 见 `GalleryPage` 的说明。 */
   adopted_only?: boolean
+  favorite_only?: boolean
+  task_id?: number
+  batch_id?: number
+  /**
+   * 创建时间边界。⚠️ 必须传**带时区**的 ISO 串（如 `...Z`）：
+   * 库里存 UTC，而后端把 naive 串按 UTC 解释 —— 传本地裸时间会静默错 8 小时。
+   */
+  created_from?: string
+  created_to?: string
+  /** 1–200，后端默认 50。 */
   limit?: number
   offset?: number
 }

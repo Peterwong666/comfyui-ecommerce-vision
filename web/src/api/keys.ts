@@ -31,6 +31,12 @@ export const queryKeys = {
   batch: (batchId: number) => ['batches', 'detail', batchId] as const,
 
   // 素材
-  assets: (query?: AssetListQuery) => ['assets', query ?? null] as const,
+  /**
+   * 素材资源的**根前缀**。标记 / 删除后用它做前缀失效，
+   * 一次覆盖所有筛选组合的列表 + 详情 + 取图缓存。
+   */
+  assetsRoot: () => ['assets'] as const,
+  assets: (query?: AssetListQuery) => ['assets', 'list', query ?? null] as const,
   asset: (assetId: number) => ['assets', 'detail', assetId] as const,
+  assetContent: (assetId: number) => ['assets', 'content', assetId] as const,
 } as const

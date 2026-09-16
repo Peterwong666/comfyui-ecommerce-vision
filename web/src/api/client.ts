@@ -10,6 +10,8 @@ import type {
   AssetListOut,
   AssetOut,
   AssetListQuery,
+  AssetPackIn,
+  AssetUpdateIn,
   BatchOut,
   BatchSubmitIn,
   CancelOut,
@@ -121,15 +123,53 @@ export const api = {
 
     get: (assetId: number) => http.get<AssetOut>(`/api/v1/assets/${assetId}`),
 
-    /** 软删除（标记而物理保留）。 */
+    /**
+     * 取图片字节（P6-10，**唯一的取图入口**）。
+     *
+     * ⚠️ 返回 `Blob` 而不是 URL：鉴权走 `Authorization` **请求头**，
+     * 而 `<img src="...">` 不会带这个头 —— 直接写 src 在本机可能侥幸能显示，
+     * 上线后按用户隔离的图会全部裂掉，且不报错。
+     * 调用方拿到 Blob 后要 `URL.createObjectURL` 并负责 `revokeObjectURL`。
+     *
+     * `download: true` → 响应头是 `attachment`，**并计入 `image_downloaded` 埋点**；
+     * 画廊里的内联预览刻意不传（划过去看一眼不是"交付"，否则北极星指标被灌水）。
+     */
+    content: (assetId: number, options: { download?: boolean } = {}) =>
+      http.getBlob(`/api/v1/assets/${assetId}/content`, {
+        // false 时**不传该参数**：后端默认 inline，传 `download=false` 只是噪音
+        query: options.download ? { download: true } : undefined,
+      }),
+
+    /**
+     * 标记采纳 / 收藏（PATCH）。
+     *
+     * ⚠️ **只有 `kind=output` 的产物能标记采纳**，对上传素材会 409；
+     * 回收站里的素材同样 409。前端应在入口处就禁用，而不是靠 409 兜底。
+     */
+    update: (assetId: number, body: AssetUpdateIn) =>
+      http.patch<AssetOut>(`/api/v1/assets/${assetId}`, body),
+
+    /**
+     * 打包 zip（FR-5.2 Must）。返回 `application/zip` 的 `Blob`。
+     *
+     * ⚠️ 失败**不是静默少给**：超过 `max_pack_assets` 是 422，
+     * 选中的 id 里有不存在/不属于自己的是 404。
+     */
+    pack: (body: AssetPackIn) => http.postBlob('/api/v1/assets/pack', body),
+
+    /** 软删除（标记而物理保留）。重复删除是 409。 */
     remove: (assetId: number) => http.del<AssetOut>(`/api/v1/assets/${assetId}`),
   },
 }
 
-// ---------------------------------------------------------------- 已知缺口（P6 未做）
+// ---------------------------------------------------------------- 已知缺口
 //
 // 以下端点在契约 §2.3 里被标注为"尚未实现"，前端**不要假设它们存在**：
-//   · 产物下载 / 签名 URL（P6-10）—— 直接后果：**前端无法显示任何已上传或已生成的图**
+//   · 缩略图接口 —— `/assets/{id}/content` 返回的是**原图**（1-2MB/张），
+//     所以画廊必须做并发受限的懒加载，不能一页几十张一起拉（见 `api/concurrency.ts`）
 //   · WebSocket 进度推送（P6-04）—— 目前只能靠轮询 `GET /tasks/{id}`
 //   · 管理后台接口（P7-09）
 //   · API Key 鉴权（P6-07）
+//
+// ✅ P6-10 已补齐（不再属于缺口）：取图 `/assets/{id}/content`、标记 PATCH、
+//    打包 `POST /assets/pack`、软删除 DELETE。

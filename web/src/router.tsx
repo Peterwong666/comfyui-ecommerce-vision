@@ -2,6 +2,7 @@ import { Navigate, createBrowserRouter, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 
 import { AppShell } from './layout/AppShell'
+import { GalleryPage } from './pages/GalleryPage'
 import { LoginPage } from './pages/LoginPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
 import { WorkbenchPage } from './pages/WorkbenchPage'
@@ -62,13 +63,7 @@ export const router: ReturnType<typeof createBrowserRouter> = createBrowserRoute
       },
       {
         path: 'gallery',
-        element: (
-          <PlaceholderPage
-            title="画廊"
-            taskId="P7-05"
-            note="产物网格、筛选、对比、批量下载、元数据查看。依赖 P6-10 的取图接口。"
-          />
-        ),
+        element: <GalleryPage />,
       },
       {
         path: 'templates',

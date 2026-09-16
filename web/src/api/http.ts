@@ -16,6 +16,13 @@
  *
  * 3. **不做 snake_case ↔ camelCase 转换**。保持与后端逐字一致，
  *    转换层就是两套命名体系的开始。
+ *
+ * 4. **图片必须走 `getBlob`，不能写 `<img src="/api/v1/assets/1/content">`**。
+ *    鉴权靠 `Authorization: Bearer <JWT>` **请求头**，而浏览器发 `<img>` 请求时
+ *    **不会带任何自定义头** —— 这种写法在本地（若 URL 恰好可匿名访问）可能"看起来能跑"，
+ *    上线后按用户隔离的图会**全部变成裂图**，而且不会报任何错。
+ *    正确做法：`requestBlob` 取回 `Blob` → `URL.createObjectURL` → 交给 `<img src>`，
+ *    并在组件卸载时 `URL.revokeObjectURL`（见 `features/gallery/AssetImage.tsx`）。
  */
 
 import { useAuthStore } from '../stores/authStore'
@@ -88,12 +95,15 @@ async function readBody(res: Response): Promise<unknown> {
 }
 
 /**
- * 发一次请求。成功返回解析后的响应体；失败**一律抛 `ApiError`**。
+ * 发一次请求并完成**鉴权与错误信封**处理，返回原始 `Response`。
  *
- * 抛错而不是返回 `{ok, data}`：调用方（React Query）用异常区分
- * "请求成功但数据为空"与"请求失败"，返回联合类型会让人忘记检查。
+ * 抽出来的唯一理由是取图/打包这两条路径拿的是**字节**而不是 JSON：
+ * 它们必须在成功时用 `res.blob()`，而 `request` 会在成功时 `res.text()` ——
+ * 响应体只能被读一次，先 text 再 blob 必然拿到空内容。
+ *
+ * ⚠️ 这里刻意**只在失败时**读响应体：成功路径由调用方决定怎么解析。
  */
-export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+async function send(path: string, options: RequestOptions = {}): Promise<Response> {
   const url = buildUrl(path, options.query)
 
   let res: Response
@@ -105,9 +115,9 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     throw new ApiError(0, 'NETWORK')
   }
 
-  const body = await readBody(res)
-
   if (!res.ok) {
+    // 错误信封永远是 JSON（契约 §2.2 的三种形状），与成功体的类型无关
+    const body = await readBody(res)
     const error = toApiError(res.status, body)
     if (error.isUnauthorized && !options.anonymous) {
       // 令牌失效：清会话，由路由把用户送回登录页
@@ -116,7 +126,29 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     throw error
   }
 
-  return body as T
+  return res
+}
+
+/**
+ * 发一次请求。成功返回解析后的响应体；失败**一律抛 `ApiError`**。
+ *
+ * 抛错而不是返回 `{ok, data}`：调用方（React Query）用异常区分
+ * "请求成功但数据为空"与"请求失败"，返回联合类型会让人忘记检查。
+ */
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const res = await send(path, options)
+  return (await readBody(res)) as T
+}
+
+/**
+ * 发一次请求并把成功响应体当成**二进制**读回来（取图 / 打包 zip）。
+ *
+ * ⚠️ 不要退回 `request<T>` 再 `await res.blob()`：`request` 内部先 `text()`
+ * 读走了 body，之后 `blob()` 只会得到空内容 —— 这是一类**不报错**的错误。
+ */
+export async function requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
+  const res = await send(path, options)
+  return res.blob()
 }
 
 export const http = {
@@ -124,6 +156,14 @@ export const http = {
     request<T>(path, { ...options, method: 'GET' }),
   post: <T>(path: string, body?: unknown, options?: Omit<RequestOptions, 'method' | 'body'>) =>
     request<T>(path, { ...options, method: 'POST', body }),
+  patch: <T>(path: string, body?: unknown, options?: Omit<RequestOptions, 'method' | 'body'>) =>
+    request<T>(path, { ...options, method: 'PATCH', body }),
   del: <T>(path: string, options?: Omit<RequestOptions, 'method' | 'body'>) =>
     request<T>(path, { ...options, method: 'DELETE' }),
+
+  /** 取二进制（`res.blob()`），不是 JSON。 */
+  getBlob: (path: string, options?: Omit<RequestOptions, 'method' | 'body'>) =>
+    requestBlob(path, { ...options, method: 'GET' }),
+  postBlob: (path: string, body?: unknown, options?: Omit<RequestOptions, 'method' | 'body'>) =>
+    requestBlob(path, { ...options, method: 'POST', body }),
 }
