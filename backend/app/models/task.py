@@ -206,13 +206,18 @@ class Task(Base, TimestampMixin):
 
     @property
     def can_retry(self) -> bool:
-        """是否可重试。区分瞬时/致命错误是 PRD §5.4 T7 vs T11 的设计要点。"""
-        if self.status not in (TaskStatus.FAILED.value, TaskStatus.RETRYING.value):
-            return False
-        err = self.error
-        if err is None:
-            return True
-        return err.is_retryable
+        """用户是否可**手动触发**重试（FR-4.4）。
+
+        判据只有状态：`failed` / `canceled`（契约 §1.1 「可重试」列 + API `retry_task`）。
+        与 `error_type` **无关** —— 致命错误同样允许用户重试，因为用户可能已经
+        补上了缺失的模型、修好了工作流参数；把按钮藏掉反而堵死了这条自救路径。
+
+        ⚠️ 不要把它与「自动重试」混淆：自动重试的瞬时/致命判定在
+        `ErrorType.is_retryable`（PRD §5.4 T7 vs T11），那才是「重试一万次还是错」
+        该拦住的地方。两者语义不同，此前混在一个属性里导致前端拿到的值与
+        `POST /tasks/{id}/retry` 的实际行为不一致（`canceled` 明明可重试却返回 False）。
+        """
+        return self.status in (TaskStatus.FAILED.value, TaskStatus.CANCELED.value)
 
     @property
     def cost_yuan(self) -> float | None:

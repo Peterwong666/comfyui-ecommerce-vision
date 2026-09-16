@@ -35,6 +35,49 @@ celery_app.conf.update(
     # 长任务：出图可能几十秒到几分钟，软限要留够
     task_soft_time_limit=settings.task_timeout_seconds + 60,
     task_time_limit=settings.task_timeout_seconds + 120,
+    # GPU 并发 = 1 的第二重保证（第一重是 concurrency.GpuSlot 的 Redis 独占位）。
+    # 这里写明是让"默认行为"也正确：漏传 --concurrency 时不会变成按核数并发。
+    worker_concurrency=1,
+)
+
+# ---------- 不可达时必须**快速**失败，而不是慢慢等 ----------
+#
+# 背景（实测）：broker/结果后端不可达时，默认参数下的 `apply_async` 会阻塞
+# **19.3 秒**才放弃（实测值），报的是
+# "Retry limit exceeded while trying to reconnect to the Celery result store backend"。
+# 而 `dispatch.enqueue_task` 就在 `POST /tasks` 的返回路径上 ——
+# 于是"broker 挂掉"会把提交接口从 <200ms 拖成 19s（NFR-1 直接被击穿），
+# 批量提交 1000 张更是灾难。
+#
+# 设计意图本来就是"broker 不可用时不让提交失败，任务留在 queued 等兜底扫描补投"
+# （见 `services/dispatch.py`），这个意图只有在**快速失败**时才成立。
+celery_app.conf.update(
+    # 结果后端的重试是 19 秒的真凶（默认 max_retries=20 / interval_step=1s）
+    result_backend_transport_options={
+        "retry_policy": {
+            "max_retries": 1,
+            "interval_start": 0,
+            "interval_step": 0.1,
+            "interval_max": 0.3,
+        },
+        "socket_connect_timeout": 2,
+        "socket_timeout": 2,
+    },
+    broker_transport_options={"socket_connect_timeout": 2, "socket_timeout": 2},
+    redis_socket_connect_timeout=2,
+    redis_socket_timeout=2,
+    # 发布本身最多重试 1 次 —— 重试对"服务没起来"这种情况没有帮助，
+    # 只会把 API 的延迟堆上去；真正的兜底是 beat 里的 requeue_orphans。
+    task_publish_retry=True,
+    task_publish_retry_policy={
+        "max_retries": 1,
+        "interval_start": 0,
+        "interval_step": 0.1,
+        "interval_max": 0.3,
+    },
+    # worker 启动时不要无限重连（由部署层负责拉起与重启）
+    broker_connection_retry_on_startup=False,
+    broker_connection_max_retries=1,
 )
 
 # 优先级队列。数字越小越紧急（与 Task.priority 语义一致）。
@@ -47,5 +90,17 @@ celery_app.conf.task_queues = (
 )
 celery_app.conf.task_default_queue = "gen_default"
 
-# 定时任务（P9/P10 用）
-celery_app.conf.beat_schedule = {}
+# 定时兜底（P6-02 / AC-5.1「无任务永久停留非终态」）。
+# 两个任务互补：一个救"没被消费的排队任务"，一个救"Worker 挂掉留下的僵尸"。
+celery_app.conf.beat_schedule = {
+    "requeue-orphans": {
+        "task": "app.worker.tasks.requeue_orphans",
+        "schedule": 60.0,
+        "options": {"queue": "maintenance"},
+    },
+    "recover-zombies": {
+        "task": "app.worker.tasks.recover_zombies",
+        "schedule": 60.0,
+        "options": {"queue": "maintenance"},
+    },
+}

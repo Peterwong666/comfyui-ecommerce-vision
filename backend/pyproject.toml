@@ -44,6 +44,11 @@ target-version = "py310"
 select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["E501"]
 
+[tool.ruff.lint.isort]
+# ruff 会把仓库里的 `backend/alembic/`（迁移目录）误认成本地的一手包 `alembic`，
+# 于是要求把 `from alembic import op` 单独成组。声明为三方库即消除该误判。
+known-third-party = ["alembic"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

@@ -17,6 +17,7 @@ from sqlalchemy import BigInteger, create_engine, event
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.models import Base
 
@@ -42,7 +43,18 @@ def _bigint_as_integer(element, compiler, **kw):  # type: ignore[no-untyped-def]
 def engine():  # type: ignore[no-untyped-def]
     # 函数级作用域：每个测试用全新的内存库，避免 user/workflow fixture 提交的
     # 数据在 session 级 engine 上跨测试累积导致 IntegrityError（测试相互污染）。
-    eng = create_engine("sqlite+pysqlite:///:memory:", future=True)
+    #
+    # `StaticPool` + `check_same_thread=False` 是跑 API 测试的必要条件：
+    # `TestClient` 会在**另一个线程**里执行同步路由函数（anyio 的 portal），
+    # 而 SQLite 默认禁止跨线程使用连接；且内存库在默认池下每个线程各拿一条连接，
+    # 会各自看到一个**空库**（表都不存在）。StaticPool 让全进程共用同一条连接。
+    # 请求是串行处理的，因此这里不存在并发争用。
+    eng = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
 
     @event.listens_for(eng, "connect")
     def _fk_on(dbapi_conn, _record):  # type: ignore[no-untyped-def]
@@ -65,6 +77,58 @@ def db(engine) -> Generator[Session, None, None]:  # type: ignore[no-untyped-def
     finally:
         session.rollback()
         session.close()
+
+
+@pytest.fixture(autouse=True)
+def no_broker(monkeypatch):  # type: ignore[no-untyped-def]
+    """单测绝不连真实 broker（本机没有 Redis）。
+
+    API 在 commit 之后会调 `enqueue_task` 投递 Celery 任务。测试环境里 broker 不可达，
+    真实调用会走 Celery 的连接重试 —— 虽然已把重试收敛到 0.2s（见 celery_app.py），
+    但**单测就不该依赖外部服务**，也不该让每个提交用例都付一次网络等待。
+
+    这里在**API 模块的绑定处**替换掉它（`api/v1/tasks.py` 用的是 `from ... import`，
+    所以必须改它自己的模块属性，改 dispatch 里的名字是无效的）。
+    需要断言"确实投递过、投到哪个队列"的用例可以直接声明 `no_broker` 拿到调用记录。
+    """
+    from app.api.v1 import tasks as api_tasks
+
+    calls: list[tuple[int, int]] = []
+
+    def _fake_enqueue(task_id: int, priority: int = 5) -> bool:
+        calls.append((task_id, priority))
+        return True
+
+    monkeypatch.setattr(api_tasks, "enqueue_task", _fake_enqueue)
+    return calls
+
+
+@pytest.fixture
+def client(db: Session, user, workflow):  # type: ignore[no-untyped-def]
+    """带依赖覆盖的 FastAPI 测试客户端（跑真实路由，不启动网络服务）。
+
+    两个覆盖点：
+    - `get_db` → 直接用测试会话（内存库，跑完即弃）；
+    - `get_current_user` → 直接返回 `user` fixture，绕过 JWT。
+
+    必须依赖 `workflow` fixture —— 任务路由会按 name 查活跃工作流，库里没有就是 404。
+    """
+    from fastapi.testclient import TestClient
+
+    from app.api.deps import get_current_user
+    from app.db.session import get_db
+    from app.main import app
+
+    def _override_db():  # type: ignore[no-untyped-def]
+        yield db
+
+    app.dependency_overrides[get_db] = _override_db
+    app.dependency_overrides[get_current_user] = lambda: user
+    try:
+        with TestClient(app) as c:
+            yield c
+    finally:
+        app.dependency_overrides.clear()
 
 
 @pytest.fixture

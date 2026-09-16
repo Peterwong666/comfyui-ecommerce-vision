@@ -34,6 +34,20 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    """统一成带 UTC 时区的 datetime。
+
+    有些驱动**不保存时区**（SQLite 就是），`DateTime(timezone=True)` 读回来是 naive 的；
+    直接与 `datetime.now(timezone.utc)` 相减会 `TypeError`。而任务从库里读出来
+    再计算排队时长正是 worker 的常规路径 —— 所以这里必须兜住。
+
+    按契约 §2.1「数据库存 UTC」的约定补时区，而不是猜本地时区。
+    """
+    if value is None:
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
 # 允许的迁移表，直接映射 PRD §5.4 的 T1~T14。
 # 显式枚举而非「判断目标状态」，是为了让非法迁移立刻报错（fail fast）。
 _ALLOWED: dict[str, frozenset[str]] = {
@@ -108,8 +122,9 @@ def mark_running(db: Session, task: Task) -> None:
     now = _now()
     task.started_at = now
     task.heartbeat_at = now
-    if task.queued_at is not None:
-        task.wait_seconds = (now - task.queued_at).total_seconds()
+    queued_at = _as_utc(task.queued_at)
+    if queued_at is not None:
+        task.wait_seconds = (now - queued_at).total_seconds()
     log.info(
         "task.started",
         extra=bind_task(task_id=task.id, wait_s=task.wait_seconds),
@@ -278,6 +293,24 @@ def recompute_batch_counts(db: Session, batch: Batch) -> None:
 # ---------------------------------------------------------------- 恢复与清理
 
 
+def find_zombie_tasks(db: Session) -> list[Task]:
+    """T14 / EX-7：找出心跳超时的运行中任务。
+
+    与 `recover_zombie_tasks` 分开，是为了让调用方**先拿到 id 再恢复**：
+    恢复只是改状态，任务还要被**重新投递**才会真的继续跑（否则它会静静地
+    停在 queued 直到兜底扫描发现它）。worker 的 `recover_zombies` 就是这么用的。
+    """
+    deadline = _now() - timedelta(seconds=settings.task_heartbeat_timeout_seconds)
+    return list(
+        db.scalars(
+            select(Task).where(
+                Task.status == TaskStatus.RUNNING.value,
+                (Task.heartbeat_at.is_(None)) | (Task.heartbeat_at < deadline),
+            )
+        ).all()
+    )
+
+
 def recover_zombie_tasks(db: Session) -> int:
     """T14 / EX-7：Worker 崩溃后恢复。
 
@@ -287,13 +320,7 @@ def recover_zombie_tasks(db: Session) -> int:
 
     返回恢复的任务数。
     """
-    deadline = _now() - timedelta(seconds=settings.task_heartbeat_timeout_seconds)
-    zombies = db.scalars(
-        select(Task).where(
-            Task.status == TaskStatus.RUNNING.value,
-            (Task.heartbeat_at.is_(None)) | (Task.heartbeat_at < deadline),
-        )
-    ).all()
+    zombies = find_zombie_tasks(db)
 
     for task in zombies:
         # 僵尸恢复走 RUNNING → QUEUED（T14），而不是直接 failed，

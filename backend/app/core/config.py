@@ -76,6 +76,14 @@ class Settings(BaseSettings):
     max_image_side: int = 8192
 
     max_batch_size: int = 1000
+    # 单个批量的 **SKU 数**上限。与 max_batch_size（**总张数**上限）是两个维度：
+    # SKU 数 × images_per_sku = 总张数。契约 §5 #6 之前两者同名，已拆分。
+    #
+    # ⚠️ 取值说明：PRD §6.2 只定义了「单任务张数 1-1000」，**没有 SKU 维度的边界**。
+    # 因为 images_per_sku ≥ 1，SKU 数恒 ≤ 总张数，所以取 1000 不会比 PRD 更严
+    # （不需要为不存在的约束编一个业务值）。若 Business 后续要给 SKU 维度单独限流，
+    # 改这里即可，不必动校验代码。
+    max_sku_count: int = 1000
     min_prompt_length: int = 1
     max_prompt_length: int = 2000
     min_steps: int = 1
@@ -92,6 +100,22 @@ class Settings(BaseSettings):
     task_timeout_max: int = 600
     task_heartbeat_timeout_seconds: int = 300  # 僵尸任务判定（T14）
     queue_max_depth: int = 10000
+
+    # ---------- 队列与并发（P6-02 / NFR-2） ----------
+    # GPU 并发恒为 1。用 Redis 上的一个独占位来保证 —— 单 worker + concurrency=1
+    # 只是"配置上的保证"，而配置会被改错；锁是机制上的保证。
+    gpu_lock_key: str = "comfyui:gpu_slot"
+    gpu_lock_wait_seconds: int = 60  # 等不到就交回队列，稍后重投
+    gpu_lock_ttl_seconds: int = 900  # 必须 > 单任务超时上限；worker 被 kill -9 后靠它自动解锁
+    # 自动重试退避：第 n 次重试等 base * 2^(n-1) 秒，封顶 max
+    task_retry_backoff_seconds: int = 10
+    task_retry_backoff_max_seconds: int = 120
+    # 兜底扫描：把"已入队/等待重试但一直没有被消费"的任务重新投递
+    # （dispatch.py 设计的前提：broker 不可用时任务留在 queued，等恢复后补投）
+    orphan_requeue_seconds: int = 300
+    orphan_requeue_limit: int = 200
+    worker_poll_interval_seconds: float = 0.5
+    worker_vram_sample_seconds: float = 2.0  # 采样显存水位（AC-6.1 排障用）
 
     # ---------- 资源保护（PRD EX-4） ----------
     disk_min_free_gb: int = 5

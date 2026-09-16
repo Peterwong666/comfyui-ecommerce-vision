@@ -80,6 +80,27 @@ policy:
       · 不需要（运维/UI/安装类）→ 用「运维必需性 + 安全面 + 时机」判定
     source: "B 流（stream-b-workflow）在 G8 中提出并给出查法；C 流用 `deploy/schemas/object_info.v0.36.0.json`（L3，2530 节点）完成量化；team-lead 补充「适用范围」这一节"
 
+  # ==========================================================
+  # ⭐ 架构性反模式（本轮 review 收敛提炼出的可复用判据）
+  # ==========================================================
+  # 与 injectability_rule 互补：那条是「查得出来的硬判据」，这条是「看设计就知要避开的模式」。
+  # 关键区别：以下两个节点**技术状态 ok、许可也干净**（MIT / GPL-3.0），
+  #           禁用它们纯粹是**架构理由** —— 说明白名单不能只看"能不能跑、能不能商用"。
+  architectural_anti_patterns:
+    - pattern: "**把参数藏进 widget 属性**"
+      example: "`ComfyUI-Easy-Use`（一键封装，隐藏真实节点结构）；`Power Lora Loader (rgthree)`（LoRA 藏进动态 widget）"
+      why: "与 `contracts.md` §3.3「`targets` 必须指向真实存在的节点与入参」冲突 —— 后端注入不到，等于不可用（判例 G8）"
+      verdict: "出图链路上**禁用**"
+    - pattern: "**把参数藏进提示词文本**"
+      example: "`ComfyUI-Coziness`（`<lora:name:1.1>` 内联语法）"
+      why: "这些参数**绕过后端二次校验**（`contracts.md` §3.4），且产物元数据无法结构化记录「用了哪些 LoRA / 权重多少」→ 破坏 FR-5.4 可复现性"
+      verdict: "出图链路上**禁用**"
+    - pattern: "**「一键封装」式聚合层**"
+      example: "`ComfyUI-Easy-Use`（200 类）；同类风险：`efficiency-nodes-comfyui`（40 类，已据此收紧其用途，仅保留 P3-04 一个具名用途）"
+      why: "封装越厚，节点图与参数 Schema 的对应关系越间接；模板演进会连带 Schema 变更（对比 `Lora Loader Stack` 的「固定槽位 → 结构不变」优势）"
+      verdict: "无具名必需用途时**不保留**"
+    - general_rule: "→ **「把参数藏起来」的节点在自动化链路上都是负资产，即使它技术完好、许可干净。**<br>这是本项目与「交互式 ComfyUI 用户」的**根本取向差异**：UI 用户追求省事，本平台追求**可注入、可校验、可复现**。"
+
 # ============================================================
 # 1. 节点清单（32 个，与 deploy/versions.lock [custom_nodes] 一一对应）
 # ============================================================
@@ -572,20 +593,9 @@ summary:
   total: 32
   by_decision:
     keep: 11
-    disable: 19            # 收敛后：8 个 review 转 disable（理由见各节点 convergence 字段）
+    disable: 19            # 收敛后：8 个 review 转 disable（逐个理由见各节点 convergence 字段）
     review: 2              # ✅ 收敛完成：ADV_CLIP_emb / efficiency-nodes-comfyui（均有具名触发条件）
-  convergence_record:
-    date: "2026-09-16（切有卡模式前完成，供 L4 工作流选型使用）"
-    method: "用两条判据收敛 review 档：**① 可注入性（`required` 是否为空）② 是否 V1 关键路径（`v1_path`）**"
-    result: "review 10 → 2；keep 11 / disable 19 / review 2（共 32）"
-    transferred_to_disable: [ComfyUI-Easy-Use, ComfyUI-Inspire-Pack, comfyui-ollama, ComfyUI-Dev-Utils, ComfyUI_tinyterraNodes, PowerNoiseSuite, ComfyUI-Coziness, was-node-suite-comfyui]
-    rationale_summary:
-      - "**8 个转 disable 的节点里，有 6 个技术状态与许可都没问题** —— 禁用理由是「不在 V1 关键路径 + 与已保留节点重叠且无独有能力证据」或「设计方向与平台架构冲突」"
-      - "→ 这正是「**32 个节点太多太脆**」的裁剪核心：不是它们坏了，而是**它们不必要**"
-      - "**保留 2 个 review 都有具名触发条件**（P4 的 klein 权重方案 / P3-04 的高清修复选型），不是「待定」"
-    key_architectural_findings:
-      - "**`ComfyUI-Easy-Use` 与 `ComfyUI-Coziness` 的禁用是架构理由而非技术理由**：前者「一键封装」隐藏真实节点结构，与 `contracts.md` §3.3 的 `targets` 注入契约冲突；后者把 LoRA 参数藏进提示词文本，绕过后端校验（§3.4）并破坏产物元数据的结构化记录（FR-5.4）"
-      - "→ **可复用的判据：「把参数藏起来」的节点（藏进 widget / 藏进文本）在自动化链路上都是负资产**，即使它技术完好、许可干净"
+    # ⚠️ 收敛过程详表见**顶层 `convergence_record` 段**（唯一事实来源）—— 此处只保留计数，避免两处维护
     # ⚠️ 2026-09-16 变更：ComfyUI_ADV_CLIP_emb 由 keep → review（其 keep 依据「权重语法依赖它」被 B 流证伪，
     #    见该条目的 correction 字段与 docs/sop/debug_log.md G7）→ keep 12→11、review 9→10
   by_status:

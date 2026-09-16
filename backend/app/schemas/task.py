@@ -19,7 +19,12 @@ class TaskSubmitIn(BaseModel):
     workflow_name: str = Field(description="如 t2i_v1")
     template_id: int | None = None
 
-    prompt: str | None = Field(default=None, max_length=settings.max_prompt_length)
+    # 提示词的**唯一顶层通道**。与 params["prompt"] 同时传时，以此为准（契约 §3.4）。
+    prompt: str | None = Field(
+        default=None,
+        max_length=settings.max_prompt_length,
+        description="正向提示词；同时出现在 params['prompt'] 时本条优先",
+    )
     negative_prompt: str | None = Field(default=None, max_length=settings.max_prompt_length)
 
     params: dict[str, Any] = Field(default_factory=dict)
@@ -58,11 +63,17 @@ class BatchSubmitIn(BaseModel):
 
     @field_validator("sku_assets")
     @classmethod
-    def _check_batch_size(cls, v: dict[str, list[int]]) -> dict[str, list[int]]:
+    def _check_sku_count(cls, v: dict[str, list[int]]) -> dict[str, list[int]]:
+        """校验 **SKU 数**。
+
+        ⚠️ 这里只管 SKU 维度；「总张数」由 `submit_batch` 用 `max_batch_size` 校验。
+        契约 §5 #6 之前两者同名 `max_batch_size`，导致同一个名字在两处表达两个意思
+        （SKU 数 vs 总张数），已拆成 `max_sku_count` / `max_batch_size`。
+        """
         if not v:
             raise ValueError("sku_assets 不能为空")
-        if len(v) > settings.max_batch_size:
-            raise ValueError(f"SKU 数不能超过 {settings.max_batch_size}")
+        if len(v) > settings.max_sku_count:
+            raise ValueError(f"SKU 数不能超过 {settings.max_sku_count}")
         return v
 
     def total_images(self) -> int:
@@ -94,9 +105,10 @@ class TaskOut(BaseModel):
 
     created_at: datetime
 
-    @property
-    def can_retry(self) -> bool:  # pragma: no cover - 由 ORM 属性覆盖
-        return False
+    # 是否可手动重试（FR-4.4）。**显式字段**，值取自 ORM 的 `Task.can_retry`。
+    # 不能写成 `@property`：Pydantic v2 不序列化 property，前端实际拿不到该字段
+    # （契约 §5 #4 记录的就是这个坑）。
+    can_retry: bool = False
 
 
 class BatchOut(BaseModel):

@@ -35,14 +35,17 @@ def queue_for_priority(priority: int) -> str:
 def enqueue_task(task_id: int, priority: int = 5) -> bool:
     """把任务投入队列。返回是否投递成功。
 
-    P6 会实现 `app.worker.tasks.execute_task`；在那之前导入失败是预期的，
-    所以这里用 try/except 包住，并降级为「仅记录日志」。
+    `app.worker.tasks.execute_task` 已在 P6-02 落地；这里仍保留 try/except：
+    **API 进程不应该因为 worker 侧 import 出问题就起不来**（两者部署在不同进程，
+    依赖集也不同）。导入失败时降级为「仅记录日志」，任务留在 `queued`，
+    由 `app.worker.tasks.requeue_orphans` 在 broker/worker 恢复后补投。
     """
     try:
         from app.worker.tasks import execute_task
-    except ImportError:
-        log.info(
-            "dispatch.skipped (worker 未就绪，P6 实现)",
+    except ImportError as exc:
+        log.warning(
+            "dispatch.worker_unavailable err=%s（任务留在 queued，等待兜底扫描补投）",
+            str(exc)[:200],
             extra=bind_task(task_id=task_id, priority=priority),
         )
         return False

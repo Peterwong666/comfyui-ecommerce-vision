@@ -43,6 +43,9 @@
 > 4 个 active 模型的许可结论有 ADR-005 与上游仓库页面支撑，但**没有任何一份 LICENSE 原文进了归档**。
 > 这违反了铁律 1，且 P11-11 无法在此基础上复查。**列为 V1 发布前的必修项。**
 >
+> 🚩 **P11-11 门禁**：**`§7` 第 1 条（6 个模型的 LICENSE 原文入库，当前 0/6）不结清，P11-11 不得判定通过。**
+> 它是本文件唯一一条「已知不阻塞 V1、但**必须在上线前结清**」的项 —— 放在此处是为了**防止它因为"不阻塞"而被遗忘**。
+>
 > 🚩 **P11-11 必修标记（team-lead 2026-09-16 指定）**：本项**不阻塞 V1**（4 个 active 模型无 unknown 许可），
 > 但它**必须出现在 P11-11 的验收清单里，且不得被遗忘**。验收方式：6 条逐一给出 LICENSE 原文的归档路径。
 > **本行未结清 → P11-11 不得判定通过。**
@@ -215,6 +218,15 @@
 
 > **V1 的策略**：LoRA 只作为 **Should 级**（FR-8.5），且**优先走「自训练」路线**（E6）。
 > 在自训练闭环建成前，**V1 交付链路可以完全不含第三方 LoRA** —— 这是最省心的合规选择。
+>
+> ⚠️ **当前的硬阻塞是「零资产」而不是「选不对模型」**（B 流 `debug_log.md` G8.1 实测）：
+> `object_info` 里 `LoraLoader.lora_name` 的**枚举为空** → **服务器上一个 LoRA 权重都没有**。
+> 所以 FR-8.5 的真实前置依赖是「**先下载 LoRA 并过许可审查**」，不是「选对节点」。
+> **排查 FR-8.5 时先看模型有没有，别在节点接线里绕。**
+> 该阻塞已登记进 `engine/model_registry.yaml` 的 `planned` 段（LoRA 条目，含 `blocker` 与 `v1_policy`）。
+>
+> 💡 平台侧已就绪、只缺资产的部分：多 LoRA 的注入节点已定为 **`Lora Loader Stack (rgthree)`**
+> （4 槽位固定、10 个声明式入参、Schema 稳定）—— **资产一到即可接入，无需再改工作流结构**。
 
 ---
 
@@ -294,7 +306,7 @@ sha256sum model.safetensors && stat -c %s model.safetensors
 | 日期 | 复查范围 | 结论 | 处理 |
 |---|---|---|---|
 | 2026-09-15 | 建立矩阵初稿 | — | 待模型引入后逐条填充 |
-| **2026-09-16** | **6 个实际在用模型的许可逐条核对（P5-10 主体工作）** | 4 个结论可商用（SDXL / klein / flux2-vae / qwen3-4b）；2 个 unknown（`sdxl_vae_fp16fix` / `qwen_3_4b_fp4_flux2`），**均已 standby/disabled，不进交付链路 → 不阻塞 V1** | ① 新增 §0 总览（与 `model_registry.yaml` 联动）② 新增 §7 待核实清单 13 条（按优先级排序）③ 明确 §5 禁用清单（InstantID / InsightFace / FLUX dev 系 / CodeFormer）④ **暴露关键缺口：0/6 的 LICENSE 原文已入库** → 列为 P11-11 必修 |
+| **2026-09-16** | **6 个实际在用模型的许可逐条核对（P5-10 主体工作）** | 4 个结论可商用（SDXL / klein / flux2-vae / qwen3-4b）；2 个 unknown（`sdxl_vae_fp16fix` / `qwen_3_4b_fp4_flux2`），**均已 standby/disabled，不进交付链路 → 不阻塞 V1** | ① 新增 §0 总览（与 `model_registry.yaml` 联动）② 新增 §7 待核实清单 **13 条**（当时；后随节点侧与 P4/P5 计划模型核实**扩至 16 条**，权威数量以 §7 实际行数为准）③ 明确 §5 禁用清单（InstantID / InsightFace / FLUX dev 系 / CodeFormer）④ **暴露关键缺口：0/6 的 LICENSE 原文已入库** → 列为 P11-11 必修 |
 | 2026-09-16 | V1 计划引入模型（ControlNet / IP-Adapter / 放大器 / LoRA / SAM / PuLID） | 见 §3–§5；其中 **ControlNet 权重、IP-Adapter、放大器权重**为高风险待核实项 | 已排入 §7 清单 #7/#8/#9，要求在各阶段接入前核实完毕 |
 | **2026-09-16** | **32 个自定义节点的许可逐条实测登记（P2-05 与 P5-10 的交叉项）** | 来源为各仓库 `LICENSE*` 文件首行（`deploy/comfyui/evidence/custom_nodes_licenses.txt`）。结果：MIT 10 / Apache-2.0 5 / **GPL-3.0 13** / **CC BY-NC-SA 4.0（非商用）1** / **无 LICENSE 文件 3** | ① 新增 §1.1 节点许可表与红线条目 ② 新增 §1.2 **GPL-3.0 与交付形态的强关联结论**（约束 ADR-001）③ §7 #11/#12 标记完成、新增 #14/#15/#16（AGPL 传染性、face_yolov8n 权重、预处理器辅助权重）④ 禁用清单新增 4 项 ⑤ **发现 `ComfyUI-Upscaler-Tensorrt` 为非商用许可且当前装在环境里** → 已由 P2-05 白名单判定禁用 |
 | 2026-09-16 | 模型与磁盘的实测核对（`engine/model_registry.yaml` 配套） | ✅ 6 个已登记模型的 `file_size` 与 `versions.lock [models]` **逐条完全一致**；模型实际路径确认在 `/root/autodl-tmp/comfyui-data/models/` | 在 registry 头部登记实测结果；补登两类此前未登记的磁盘文件（`ultralytics/face_yolov8n.pt`、`insightface/buffalo_l/*.onnx`） |

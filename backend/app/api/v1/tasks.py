@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from app.api.deps import CurrentUser, DbSession
 from app.core.config import settings
 from app.core.logging import bind_task, get_logger
+from app.engine.injector import SEED_RANDOM
 from app.models.enums import BatchStatus, TaskStatus
 from app.models.event import AuditLog, EventName
 from app.models.task import Batch, Task
@@ -115,6 +116,14 @@ def submit_task(payload: TaskSubmitIn, user: CurrentUser, db: DbSession) -> Task
         params["cfg"] = payload.cfg
     if payload.seed is not None:
         params["seed"] = payload.seed
+    # 提示词收敛为**单通道**（契约 §3.4：顶层优先）。
+    # 此前顶层 prompt 只落到 Task.prompt 列、params["prompt"] 另行合并，
+    # 两条通道可以传出不同的值，注入工作流的那个与落库的那个会不一致。
+    # 现在以 params["prompt"] 为唯一事实来源，Task.prompt 只是它的冗余副本。
+    if payload.prompt is not None:
+        params["prompt"] = payload.prompt
+    if payload.negative_prompt is not None:
+        params["negative_prompt"] = payload.negative_prompt
     _validate_params(params)
 
     task = sm.create_task(
@@ -123,8 +132,9 @@ def submit_task(payload: TaskSubmitIn, user: CurrentUser, db: DbSession) -> Task
         workflow_id=wf.id,
         template_id=template.id if template else None,
         params=params,
-        prompt=payload.prompt,
-        negative_prompt=payload.negative_prompt,
+        # 从 params 回读，保证「落库的」与「注入图的」永远是同一个值
+        prompt=params.get("prompt"),
+        negative_prompt=params.get("negative_prompt"),
         seed=payload.seed,
         priority=settings.default_priority,
         idempotency_key=payload.idempotency_key,
@@ -192,6 +202,33 @@ def estimate(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> TaskEs
     )
 
 
+def _child_seed(base_seed: Any, idx: int) -> int | None:
+    """批量子任务的 seed（契约 §2.4「同批次内 seed 自动递增」）。
+
+    三种情况：
+
+    | base_seed | 结果 | 理由 |
+    |---|---|---|
+    | `None` | `None` | 用户没指定，交给工作流 Schema 的默认值（可能根本不是参数） |
+    | `-1`（随机哨兵） | `-1` | 用户要的是"每张都随机"，**不能**再叠加递增 —— 语义相矛盾 |
+    | 具体值 | `base + idx - 1` | 递增：风格一致但每张不同；固定 seed 则整批一致（FR-8.2 的取舍） |
+
+    ⚠️ **必须用全局序号 `idx` 而不是每个 SKU 内的序号**：
+    用后者时 `3 SKU × 2 张` 会得到 `100,101,100,101,100,101` ——
+    不同 SKU 的第 k 张撞到同一个 seed，同提示词会直接出同一张图，
+    "同批次内递增"形同失效（2026-09-16 由端到端测试发现）。
+    """
+    if base_seed is None:
+        return None
+    try:
+        numeric = int(base_seed)
+    except (TypeError, ValueError):
+        return None
+    if numeric == SEED_RANDOM:
+        return SEED_RANDOM
+    return numeric + (idx - 1)
+
+
 def _avg_seconds_per_image(db: DbSession, workflow_id: int) -> float | None:
     """从历史成功任务里算平均执行时长，让预估随实测数据收敛。"""
     row = db.execute(
@@ -238,18 +275,17 @@ def submit_batch(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> Ba
     # 子任务粒度 = 一张图（PRD §3.1 决策）：
     # 这样失败能精确隔离，断点续跑才能只重跑失败的那几张。
     idx = 0
+    base_seed = common.get("seed")
     for sku, asset_ids in payload.sku_assets.items():
-        for n in range(payload.images_per_sku):
+        for _ in range(payload.images_per_sku):
             idx += 1
             params = {
                 **common,
                 "sku": sku,
                 "upload_asset_ids": asset_ids,
-                # 同批次内用递增 seed，保证「风格一致但每张不同」；
-                # 若要严格一致则应固定 seed（FR-8.2 一致性锁定的取舍）。
-                "seed": (common.get("seed") or 0) + n if common.get("seed") is not None else None,
+                "seed": _child_seed(base_seed, idx),
             }
-            sm.create_task(
+            child = sm.create_task(
                 db,
                 user_id=user.id,
                 batch_id=batch.id,
@@ -259,6 +295,11 @@ def submit_batch(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> Ba
                 params=params,
                 priority=settings.default_priority,
             )
+            # T2：入队。**漏掉这一步会让整个批量功能失效** ——
+            # 子任务停在 `pending`，而 worker 只接受 `queued`（会直接跳过），
+            # 于是批量提交后一张图都不会跑。单任务路径（submit_task）一直是这么做的，
+            # 批量路径此前漏了（2026-09-16 由端到端测试发现）。
+            sm.enqueue(db, child)
 
     db.flush()
     sm.recompute_batch_counts(db, batch)
@@ -353,19 +394,36 @@ def cancel_task(task_id: int, user: CurrentUser, db: DbSession) -> CancelOut:
         )
 
     was_running = task.status == TaskStatus.RUNNING.value
+    engine_prompt_id = task.engine_prompt_id
     sm.mark_canceled(db, task)
     db.commit()
 
-    if was_running:
-        # 执行中的任务需要通知引擎中断。
+    if engine_prompt_id or was_running:
+        # 执行中的任务需要通知引擎停止。
+        #
+        # 用 `cancel()` 而不是裸 `interrupt()`：interrupt 只对"正在执行"的任务有效，
+        # 若任务已提交但还待在引擎队列里，它是**空操作** —— 那张图随后仍会被跑出来，
+        # 白烧一次 GPU。`cancel()` 会先判断在队列还是在执行，再决定"整条删除"
+        # 还是"步间隙中断"。
+        #
         # ComfyUI 的 /interrupt 是全局的；因为 GPU 并发固定为 1（NFR-2），
         # 语义上安全。若未来多实例并发（E10），必须改为按实例路由。
         from app.engine.driver import ComfyUIClient, ComfyUIError
 
         try:
             with ComfyUIClient() as client:
-                client.interrupt()
+                if engine_prompt_id:
+                    outcome = client.cancel(engine_prompt_id)
+                    log.info(
+                        "cancel.engine prompt_id=%s outcome=%s",
+                        engine_prompt_id,
+                        outcome.value,
+                    )
+                else:
+                    client.interrupt()
         except ComfyUIError as exc:
+            # 引擎不可达不应让取消操作失败：状态已落库为 canceled，
+            # worker 轮询时也会看到并主动停止。
             log.warning("cancel.interrupt_failed task_id=%s err=%s", task_id, exc)
 
     return CancelOut(task_id=task.id, status=task.status, message="已取消")

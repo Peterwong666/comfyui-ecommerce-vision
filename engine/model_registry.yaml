@@ -328,6 +328,29 @@ planned:
     license: {name: Apache-2.0, commercial_ok: unknown}
     note: "⚠️ 明确排除 InstantID —— 其依赖的 InsightFace 权重为非商用（license_matrix.md §3）"
 
+  # ---------- LoRA（FR-8.5：Should 级；当前**零资产**） ----------
+  # ⚠️ 登记动机：B 流在 G8.1 发现 `object_info` 里 `LoraLoader.lora_name` 的枚举**为空**
+  #    → **服务器上一个 LoRA 权重都没有** → FR-8.5 的阻塞不是「节点选型」，而是**模型资产缺失**。
+  #    排查 FR-8.5 时**先看模型有没有，别在节点接线里绕**（B 流沉淀）。
+  - name: "<待选：质感/光影/材质/风格 LoRA>"
+    kind: lora
+    for_workflow: [WF-STYLE, WF-IMG2IMG]
+    requirement: "FR-8.5（LoRA 加载与权重调节，Should）；P5-03（LoRA 筛选与评测，P0）"
+    status: pending_eval
+    planned_count: "P5-03 计划评测后入选，一期目标 3-5 个（质感 / 光影 / 材质 各若干）"
+    license: {name: 待核实, commercial_ok: unknown}
+    blocker: |
+      **当前零 LoRA 资产**（B 流 G8.1 实测：`LoraLoader.lora_name` 枚举为空）。因此 FR-8.5 的
+      **真实前置依赖是「先下载 LoRA + 过许可审查」，不是「选对节点」**。
+      下游若要用 `Lora Loader Stack (rgthree)`（已选定方案，4 槽位固定、可注入、Schema 稳定），
+      必须先有 LoRA 文件 —— 连 `None` 占位都只能验证「不报错」，无法验证「权重生效」。
+    v1_policy: |
+      ⚠️ **V1 的合规最优解是「完全不含第三方 LoRA」**（license_matrix.md §5）：
+      LoRA 是风险最高的一类资产（Civitai 大量条目禁商用/禁转售），而 FR-8.5 只是 Should 级。
+      **建议 V1 只走「自训练」路线（E6）；在自训练闭环建成前，不引入第三方 LoRA。**
+      这既避开许可风险，也不阻塞任何 Must 级功能。
+    how_to_fill: "① 先定 V1 是否真需要 LoRA（可由 team-lead 拍板）② 需要则按 license_matrix §5 的 5 条最小检查表逐个筛选 ③ 登记本表后才可进交付链路"
+
 # ============================================================
 # 明确禁用的模型（红线清单，不得出现在任何交付链路）
 # ============================================================
