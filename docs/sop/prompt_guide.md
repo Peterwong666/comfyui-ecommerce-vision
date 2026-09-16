@@ -86,6 +86,59 @@
 3. 情况 A/C/D 下，**"用权重调优"这条手法在 klein 上永久关闭** → 配方调优只能走
    「**增删词条**」（见 §2.2 的槽位策略），这与本库现有 16 条配方的写法一致。
 
+---
+
+### 1.1.2 ✅ 回填结果：**情况 C（字面污染）** —— 2026-09-16 实测定案
+
+> 本节是 §1.1.1 **预先约定**的口径被实际结果匹配后的落定，措辞按 C 行执行并**写实因果**。
+> 实测环境：RTX 4090 · 生产配置 `--highvram` · 固定 seed 20260916 · 探针 `engine/tools/probe_g7_weight.py`。
+
+**客观信号（IDAT 像素哈希）**
+
+| 模式 | baseline | weighted | 正对照（只改 seed） | 正对照检出差异？ |
+|---|---|---|---|---|
+| `klein-core` | `93ee6204b521c699` | `15f0d4d65e233446` | `a0744aa17526c041` | ✅ 是 |
+| `sdxl`（对照组） | `3f3f7ef2d250e02b` | `7c93a8cb14989b7c` | `784a994fa600b07c` | ✅ 是 |
+| `klein-bnk` | — | — | — | ⚠️ 三种变体**全部执行失败**（见下） |
+
+**判定：情况 C —— 字面污染（非空转）**
+
+`klein-core` 的 weighted 与 baseline **像素不同**，且正对照检出差异（说明"不同"这一信号可信）。
+结合源码证据，因果链完整：
+
+1. `KleinTokenizer.tokenize_with_weights()` 显式传 `disable_weights=True`（`comfy/text_encoders/flux.py:169`）
+   → `SD1Tokenizer` 走 `parsed_weights = [(text, 1.0)]` 分支（`comfy/sd1_clip.py:585`）
+   → **权重标注不被解析**
+2. 于是 `(white ceramic coffee mug:1.5)` 的**括号、冒号、数字作为字面 token 进入模型** —— 不是"无效"，是**污染**
+
+**⭐ 并且「换 `BNK_*` 节点也救不回来」已从推断升级为硬证据**
+
+`klein-bnk` 三种变体全部提交失败，根因定位到**文件行**：
+
+```
+ComfyUI_ADV_CLIP_emb/adv_encode.py:266
+    return advanced_encode_from_tokens(tokenized['l'], ...)
+KeyError: 'l'
+```
+
+该节点**硬编码了 SD1 的 `'l'`（CLIP-L）键**，而 klein 的 tokenizer 输出键是 `qwen3_4b`
+→ **该节点在 klein 链路上直接崩溃**，不是"效果未知"。
+
+**因此本文件的最终口径（措辞写实）：**
+
+> **klein 链路上写权重 = 污染，且换节点也救不回来。**
+> `(white ceramic coffee mug:1.5)` 里的括号/冒号/数字会作为**字面 token** 进入模型；
+> 而"改用 `BNK_CLIPTextEncodeAdvanced`"这条出路已被实测证伪（`adv_encode.py:266` 硬编码 `tokenized['l']`，klein 的键是 `qwen3_4b`，节点直接 `KeyError`）。
+> → **「用权重调优」在 klein 上永久关闭**；调优只能走**增删词条**。
+
+**替代写法（现在就可用，两条链路都有效）**：移除括号与冒号，改**陈述句**——
+`(white mug:1.5)` → `a prominently featured white mug`。可读、可审查、可统计。
+
+**⚠️ 关于 `ADV_CLIP_emb` 与 SDXL：本次只证伪了它在 klein 上的可用性，未测 SDXL。**
+上面那条 `KeyError` 来自 `tokenized['l']` 取不到键 —— 而 SDXL 链路的 tokenizer **正是产出 `'l'` 的那一个**，
+所以它在 SDXL 上**很可能可用**（未实测）。**不要因为 klein 上的失败就顺手把它判死**；
+它的定位应写成「**klein：已实测证伪**；SDXL：未测，保留可能」。
+
 ### 两条链路的反向词策略（务必分清）
 
 | 链路 | 采样参数 | 反向词 | 该怎么做 |

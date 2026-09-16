@@ -40,7 +40,76 @@ policy:
     how: "把节点目录重命名为 <name>.disabled（ComfyUI 加载时跳过该目录）"
     verify: "⚠️ 待验证：需在 v0.36.0 上确认跳过规则（ComfyUI 跳过以 . 开头或以 .disabled 结尾的目录）"
     fallback: "若该规则不成立，改为在节点目录内放置 .disabled 文件（ComfyUI-Manager 约定）"
-    must_check: "禁用后必须重启并确认 ① 目标节点类从 /object_info 消失 ② 节点类总数下降 ③ V1 关键节点仍在。<br>**基线口径**：当前 **2530**（`deploy/schemas/object_info.v0.36.0.json`，已复核）；升级前 2102（`evidence/object_info_v0.3.75_classnames.txt`）"
+    must_check: "禁用后必须重启并确认 ① 目标节点类从 /object_info 消失 ② 节点类总数下降 ③ V1 关键节点仍在（原 keep 档的节点类必须全部还在）。<br>**基线口径**：当前 **2530**（`deploy/schemas/object_info.v0.36.0.json`，已复核）；升级前 2102（`evidence/object_info_v0.3.75_classnames.txt`）"
+    # ⚠️ 验收也必须带「正对照」——否则一道验证失败会伪装成验证通过
+    positive_control:
+      requirement: "验收脚本必须包含**正对照**：断言**原 keep 档的节点类仍然全部存在**。"
+      why: |
+        ⚠️ **没有正对照时，最危险的失败模式是「查询失败被读成禁用成功」**：
+        若 `/object_info` 请求失败、服务未起、或返回空/被截断，那么
+        「目标节点类**不在**结果里」这个断言会**天然通过** ——
+        于是「全都禁用成功了」这个结论，实际是「什么都没读到」。
+      direction: "⭐ 注意这类假结果的方向**总是「看起来更成功/更安全」** —— 与 B 流在本项目里已发现的两例同族：<br>· `verify_render_path.py` 用字段 key 当入参名 → `{None, None}` 被判「一致」→ **假通过**<br>· `probe_g7_weight.py` 浅拷贝致 baseline 被污染 → 两图恒相同 → 被读成「提示词完全无影响」→ **假阴性，但方向是「更保守」**<br>→ 共同点：**错误结论不会报错，只会显得更稳妥。** 因此每道验证都要配一个「**已知必须被检出**」的对照。（已由 B 流沉淀为 `debug_log.md` **G9**）"
+      implementation: "在验收脚本里至少两条断言：① 目标节点类 ∈ 禁用前集合 **且** ∉ 禁用后集合 ② **keep 档节点类 ⊆ 禁用后集合**（正对照）。任一失败即判验收不通过，**不区分是「真没禁用」还是「没读到」**——先排查运行时再复验。"
+
+      # ---------- ⚠️ 前提核验：这套方法只对「在 /object_info 里可见」的节点有效 ----------
+      mapping_authority:
+        result: "✅ **目录 → 节点类 的映射是权威 1:1**（C 流用 L3 核验，2026-09-16）"
+        detail: "2530 个类分布在 **209 个 `python_module`**；32 个节点目录中 **27 个恰好匹配 1 个 module**，**且没有任何 module 被两个目录共享** → 不存在歧义归属，集合断言可用"
+        how: "把目录名归一化（小写、`_`→`-`）后与 `python_module` 比对（`endswith` 或相等）"
+        independent_evidence: |
+          **两条互不依赖的核验结果一致**：
+          ① 按目录名匹配 → 27/32 命中 1 个 module
+          ② **直接枚举全部 `custom_nodes.*` module** → 恰好 **28 个** = **27 个我们的目录** + `custom_nodes.websocket_image_save`
+             （后者是 ComfyUI 自带的单文件节点，**不是我们的节点**，两级审计的 `Import times` 段同为 33 行也印证了这一点）
+          → 两个角度都指向「**5 个目录不注册任何类**」，见下
+      # ⚠️ 类名撞车陷阱（会让验收脚本产生假警报）
+      classname_collision_trap:
+        trap: "`TeaCache` 这个词**同时出现在另一个包的类名里**：`WanVideoTeaCache` / `WanVideoTeaCacheKJ`"
+        owner: "它们属于 **`custom_nodes.ComfyUI-WanVideoWrapper`**，**不是** `ComfyUI-TeaCache`"
+        consequence: |
+          ⚠️ 若验收脚本用「**类名包含 TeaCache**」这种模糊匹配来确认禁用生效，会**误判为失败** ——
+          因为 `WanVideoWrapper` 仍提供 `WanVideoTeaCache*`，而它也在本次 disable 档里但**顺序在后**。
+          反向也一样：只按类名匹配可能把 **别人的类** 算到本节点头上，**虚增类数**。
+        discipline: |
+          ✅ **一律用 `python_module` 精确归属，不要用类名模糊匹配。**
+          （本次所有类数统计均已按 `python_module` 归属计算，未使用类名匹配。）
+        note: "这条属于同一族：**一个「看起来能查」的判据（类名 grep）实际指向了错误的归属** —— 与 policy.injectability_rule 里「报入参名 vs 报取值」是同类错误。"
+      # ⚠️ 这是本轮发现的、**会破坏验收方法本身**的问题
+      invisible_nodes:
+        count: 5
+        nodes:
+          - {name: ComfyUI-Manager, decision: keep, classes: 0, reason: "不注册任何节点类（纯运维工具）"}
+          - {name: ComfyUI-nunchaku, decision: disable, classes: 0, reason: "IMPORT FAILED → 本来就没注册任何类"}
+          - {name: ComfyUI-TeaCache, decision: disable, classes: 0, reason: "同上"}
+          - {name: ComfyUI_smZNodes, decision: disable, classes: 0, reason: "同上"}
+          - {name: comfyui-supersave, decision: disable, classes: 0, reason: "⚠️ **import 正常（status=ok）却注册 0 个类** —— 该包不在 `/object_info` 里留下任何痕迹，需在服务器侧核实它到底提供了什么（可能只是保存行为补丁，无独立节点）"}
+        consequence: |
+          ⚠️ **19 个 disable 档里有 4 个（nunchaku / TeaCache / smZNodes / supersave）对 `/object_info` 不可见**
+          → **禁用它们不会导致节点类数变化** → **仅靠"类数下降预期值"无法验证这 4 个是否真的生效**。
+          同理，keep 档里的 `ComfyUI-Manager` 也不贡献任何类。
+        complementary_check: |
+          对这 5 个节点改用**另一条证据链**（本文件已有的现成工具）：
+          ① **节点目录存在性**：`ls -d /root/ComfyUI/custom_nodes/<name>*`（禁用后应变成 `<name>.disabled`）
+          ② **启动日志的 `Import times` 段**：该段会**逐目录**列出加载耗时（两级审计均为 33 行 = 32 节点 + `websocket_image_save.py`）
+             → 禁用后该行应以 `IMPORT FAILED` 之外的形式**消失**，且总行数应减少
+          ③ 二者都是**只读**，CPU 模式即可
+        note: "⭐ 这条本身就是「检查通过 ≠ 检查真的在检查」的一个实例：**用一个对某对象不可观测的指标去验证它，结论永远是「通过」。**"
+
+      # ---------- 预期数值（从 L3 算出，供验收直接比对） ----------
+      expected_numbers:
+        baseline_total: 2530
+        keep_visible_classes: 689        # 10 个可见 keep 节点贡献的类数（正对照集合大小）
+        disable_visible_classes: 839     # 15 个可见 disable 节点贡献的类数
+        expected_total_after_disable: 1691   # = 2530 − 839
+        disjointness: "✅ keep ∩ disable = ∅（已核验）→ 正对照断言成立，不会与目标断言互相抵消"
+        caveat: |
+          ⚠️ **预期值 1691 只覆盖 15/19 个 disable 节点**（另外 4 个不可见，见上）。
+          因此验收判据应写成：
+          · **必过**：keep 正对照 ⊆ 结果（689 类必须全在）
+          · **必过**：类总数**下降**，且下降量 = 15 个可见 disable 节点的类数之和
+          · **单独核**：4 个不可见节点走「目录改名 + Import times 行数」证据链
+          · **不要求**：类总数**恰好等于** 1691 —— 若总数多了，说明有未登记的类来源；若少了，先查是否读全了响应
 
   dependency_rules:
     - "禁用节点**默认不卸载其 pip 依赖** —— 共享依赖（opencv / onnxruntime / pyyaml 等）被其它节点引用，卸载会连带破坏"
