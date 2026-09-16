@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import pathlib
 import struct
+from typing import Any
 
 import pytest
 
@@ -1222,6 +1223,117 @@ class TestVerifyRenderPathDryRun:
         for wf_id in ("t2i_v1", "flux2_klein_t2i_v1"):
             assert verify_main(["--workflow", wf_id, "--dry-run"]) == 0, wf_id
         assert "DRY-RUN 通过" in capsys.readouterr().out
+
+
+class TestVerifyRenderPathAssets:
+    """带参考图的工作流（`transform=ref_to_filename`）在 L4 工具里的处理。
+
+    这类工作流的 `reference_image` 是**必填**，而渲染器刻意不猜素材路径
+    （`engine/transforms.py`）——所以工具必须能把本地素材经 `/upload/image`
+    送进引擎。没有这条路，i2i/inpaint/upscale 三条**永远无法做渲染路径 L4**：
+    渲染阶段就会抛 RenderError，而不是"出图失败"。
+    """
+
+    REF_WORKFLOWS = ("i2i_v1", "inpaint_v1", "upscale_v1")
+
+    def test_needs_assets_finds_reference_image(self):
+        from engine.tools.verify_render_path import _needs_assets
+
+        registry = Registry.load()
+        for wf_id in self.REF_WORKFLOWS:
+            assert _needs_assets(registry.require(wf_id)) == ["reference_image"], wf_id
+
+    def test_needs_assets_empty_for_text_only_workflow(self):
+        """反面对照：不带参考图的工作流**不得**被要求提供素材。"""
+        from engine.tools.verify_render_path import _needs_assets
+
+        assert _needs_assets(Registry.load().require("t2i_v1")) == []
+
+    def test_parse_assets(self):
+        from engine.tools.verify_render_path import _parse_assets
+
+        parsed = _parse_assets(["1=a.png", "7=dir/b.png"])
+        assert {k: str(v) for k, v in parsed.items()} == {1: "a.png", 7: "dir/b.png"}
+        assert _parse_assets(None) == {}
+        for bad in (["1"], ["x=a.png"], ["=a.png"]):
+            with pytest.raises(ValueError):
+                _parse_assets(bad)
+
+    def test_missing_asset_is_a_loud_fatal_not_a_silent_wrong_image(self, capsys):
+        """不给 --asset 时必须**响亮失败**（退出码 2 + 说明），不能静默用错图。
+
+        这正是 registry 里 `default: 0` 那条契约缺口的立场：
+        「响亮失败优于静默用错图」。
+        """
+        from engine.tools.verify_render_path import main as verify_main
+
+        for wf_id in self.REF_WORKFLOWS:
+            assert verify_main(["--workflow", wf_id, "--seed", "20260916"]) == 2, wf_id
+        out = capsys.readouterr().out
+        assert "--asset" in out and "ref_to_filename" in out
+
+    def test_dry_run_works_for_reference_workflows(self, capsys):
+        """DRY-RUN 用桩 resolver：离线预检不能被"缺素材"堵死。
+
+        否则这三条工作流在无卡模式下**连离线预检都跑不了**，
+        结构性问题只能等到开机才发现 —— 那是纯烧机时。
+        """
+        from engine.tools.verify_render_path import main as verify_main
+
+        for wf_id in self.REF_WORKFLOWS:
+            assert verify_main(["--workflow", wf_id, "--dry-run"]) == 0, wf_id
+        assert "DRY-RUN 通过" in capsys.readouterr().out
+
+    def test_upload_resolver_rejects_undeclared_and_missing(self, tmp_path):
+        """resolver 的两条错误路径必须报错，而不是返回一个猜出来的文件名。"""
+        from engine.errors import RenderError
+        from engine.tools.verify_render_path import _upload_resolver
+
+        missing = tmp_path / "nope.png"
+        resolve = _upload_resolver(client=None, assets={3: missing})  # type: ignore[arg-type]
+        with pytest.raises(RenderError, match="不存在"):
+            resolve(3)
+        with pytest.raises(RenderError, match="未在 --asset 中声明"):
+            resolve(9)
+
+    def test_upload_image_builds_multipart_with_overwrite(self, monkeypatch):
+        """上传必须带 overwrite=true —— 否则重跑会堆出 `name (1).png`，
+        resolver 返回的名字与实际落盘的名字就可能不一致（幂等性要求）。
+        """
+        from engine.tools import verify_render_path as vrp
+
+        captured: dict[str, Any] = {}
+
+        class _Resp:
+            def read(self) -> bytes:
+                return b'{"name": "ref.png"}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def fake_urlopen(req, timeout=None):
+            captured["headers"] = dict(req.headers)
+            captured["body"] = req.data
+            captured["url"] = req.full_url
+            return _Resp()
+
+        monkeypatch.setattr(vrp.urllib.request, "urlopen", fake_urlopen)
+        client = vrp.ComfyClient("http://engine")
+        info = client.upload_image(b"\x89PNG-fake", "ref.png")
+
+        assert info == {"name": "ref.png"}
+        assert captured["url"].endswith("/upload/image")
+        ctype = captured["headers"]["Content-type"]
+        boundary = ctype.split("boundary=")[1]
+        body = captured["body"]
+        assert f"--{boundary}".encode() in body
+        assert b'name="image"' in body and b'filename="ref.png"' in body
+        assert b"overwrite" in body and b"true" in body
+        assert body.endswith(f"--{boundary}--\r\n".encode())
+        assert b"\x89PNG-fake" in body
 
 
 class TestG7WeightProbe:

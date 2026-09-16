@@ -6,6 +6,12 @@
     # 真实 L4（需要 ComfyUI 在跑 + GPU）
     python -m engine.tools.verify_render_path --workflow t2i_v1 --seed 20260916
 
+    # 带参考图的工作流（Schema 里有 transform=ref_to_filename）**必须**给 --asset：
+    #   i2i_v1 / inpaint_v1 / upscale_v1 的 reference_image 是「必填」，
+    #   而渲染器刻意不猜素材路径（engine/transforms.py），没有 resolver 会直接抛 RenderError。
+    python -m engine.tools.verify_render_path --workflow i2i_v1 --seed 20260916 \
+        --asset 1=render_l4_out/t2i_v1_seed20260916.png
+
 ---
 
 ### 为什么需要这个脚本
@@ -154,6 +160,50 @@ class ComfyClient:
         with urllib.request.urlopen(f"{self.base}/view?{q}", timeout=self.timeout) as r:
             return r.read()
 
+    def upload_image(self, data: bytes, filename: str, subfolder: str = "") -> dict[str, Any]:
+        """把一张图上传进引擎的 `input/`，返回 `{"name": <引擎侧文件名>, ...}`。
+
+        与 A 流生产路径的 `_asset_resolver`（`backend/app/worker/tasks.py`）**同构**：
+        两者都走 `POST /upload/image`。这样 L4 验到的就是「素材上传后在引擎里可见」
+        这条真实链路，而不是"文件名恰好存在"的巧合。
+
+        `overwrite=true` 是为了**幂等**：同名文件第二次上传不会被引擎改名成
+        `name (1).png`，否则重复跑会静默产生一堆副本，且 resolver 返回的名字与
+        实际提交的名字可能不一致。
+
+        保持零依赖（只用标准库），所以 multipart 体是手拼的。
+        """
+        boundary = "----engineL4" + hashlib.sha256(
+            filename.encode() + data[:64]
+        ).hexdigest()[:16]
+
+        def text_field(name: str, value: str) -> bytes:
+            return (
+                f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"'
+                f"\r\n\r\n{value}\r\n"
+            ).encode()
+
+        parts: list[bytes] = []
+        if subfolder:
+            parts.append(text_field("subfolder", subfolder))
+        parts.append(text_field("type", "input"))
+        parts.append(text_field("overwrite", "true"))
+        parts.append((
+            f'--{boundary}\r\nContent-Disposition: form-data; name="image"; '
+            f'filename="{filename}"\r\nContent-Type: image/png\r\n\r\n'
+        ).encode())
+        parts.append(data)
+        parts.append(f"\r\n--{boundary}--\r\n".encode())
+
+        body = b"".join(parts)
+        req = urllib.request.Request(
+            f"{self.base}/upload/image",
+            data=body,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+        )
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
     def first_image(self, entry: dict[str, Any]) -> dict[str, Any] | None:
         for _nid, out in (entry.get("outputs") or {}).items():
             if isinstance(out, dict):
@@ -206,6 +256,74 @@ def _multi_target_fields(entry: Any) -> dict[str, list[tuple[str, str, str | Non
     }
 
 
+def _needs_assets(entry: Any) -> list[str]:
+    """Schema 里所有声明了 `transform=ref_to_filename` 的字段 key。
+
+    这些字段的值经渲染器变成「引擎可见的文件名」，**必须**由调用方解析
+    （`engine/transforms.py` 刻意不猜路径）。
+    """
+    return [
+        f.key for f in entry.schema
+        if any(t.transform == "ref_to_filename" for t in f.targets)
+    ]
+
+
+def _parse_assets(items: list[str] | None) -> dict[int, pathlib.Path]:
+    """解析 `--asset ASSET_ID=本地文件`。"""
+    out: dict[int, pathlib.Path] = {}
+    for item in items or []:
+        key_raw, sep, path_raw = item.partition("=")
+        if not sep or not path_raw:
+            raise ValueError(f"--asset 需要 ASSET_ID=本地文件 形式，实际: {item}")
+        try:
+            key = int(key_raw)
+        except ValueError as exc:
+            raise ValueError(f"--asset 的 ASSET_ID 必须是整数，实际: {key_raw!r}") from exc
+        out[key] = pathlib.Path(path_raw)
+    return out
+
+
+def _upload_resolver(client: ComfyClient, assets: dict[int, pathlib.Path]):
+    """`asset_id` → 引擎侧文件名，走真实的 `POST /upload/image`（与生产同构）。"""
+    cache: dict[int, str] = {}
+
+    def resolve(asset_id: Any) -> str:
+        if isinstance(asset_id, bool) or not isinstance(asset_id, (int, str)):
+            raise RenderError(f"图片参数引用不是合法 asset_id：{asset_id!r}")
+        try:
+            key = int(asset_id)
+        except (TypeError, ValueError) as exc:
+            raise RenderError(f"图片参数引用不是合法 asset_id：{asset_id!r}") from exc
+        if key in cache:
+            return cache[key]
+        path = assets.get(key)
+        if path is None:
+            raise RenderError(
+                f"asset_id={key} 未在 --asset 中声明。已声明：{sorted(assets) or '（无）'}"
+            )
+        if not path.is_file():
+            raise RenderError(f"--asset {key}= 指向的文件不存在：{path}")
+        data = path.read_bytes()
+        info = client.upload_image(data, path.name)
+        name = info.get("name")
+        if not isinstance(name, str) or not name:
+            raise RenderError(f"素材 {key} 上传后未返回文件名：{info}")
+        print(f"  [asset] {key} → {name}（本地 {path}，{len(data)} bytes）")
+        cache[key] = name
+        return name
+
+    return resolve
+
+
+def _stub_resolver(asset_id: Any) -> str:
+    """DRY-RUN 专用：不碰引擎，只为让渲染走通。
+
+    ⚠️ 它产出的文件名**在引擎里不存在** —— 所以 dry-run 的结果只说明
+    「渲染器结构正确」，**不说明能出图**（与 `engine/validate.py` 的 L2 同性质）。
+    """
+    return f"dryrun_asset_{asset_id}.png"
+
+
 # ============================================================ 主流程
 
 
@@ -235,13 +353,54 @@ def run(args: argparse.Namespace) -> int:
     print(f"{'DRY-RUN（不提交，不需要 GPU）' if args.dry_run else '真实提交'}")
     print()
 
+    try:
+        assets = _parse_assets(args.asset)
+    except ValueError as exc:
+        print(f"[fatal] {exc}")
+        return 2
+
+    needs = _needs_assets(entry)
+    if needs and not assets and not args.dry_run:
+        print(
+            f"[fatal] 工作流 {entry.id} 的字段 {needs} 声明了 transform=ref_to_filename，"
+            "渲染器刻意不做路径猜测（engine/transforms.py）→ 必须用 "
+            "--asset <asset_id>=<本地图片> 提供素材，否则渲染会直接抛 RenderError。"
+        )
+        return 2
+
+    # ---------- 0. 引擎可达（必须在渲染之前：素材要经 /upload/image 上传）----------
+    client: ComfyClient | None = None
+    upload_resolver = None
+    if not args.dry_run:
+        print("— 0. 引擎可达 —")
+        client = ComfyClient(args.base_url)
+        try:
+            stats = client.health()
+            dev = (stats.get("devices") or [{}])[0]
+            print(f"  引擎: {dev.get('name')} · vram_total="
+                  f"{(dev.get('vram_total') or 0) / 1024**3:.1f}GiB")
+        except (urllib.error.URLError, OSError) as exc:
+            rep.add("ComfyUI 可达", False, f"{args.base_url} 连不上: {exc}")
+            return 1
+        rep.add("ComfyUI 可达", True, args.base_url)
+        if assets:
+            upload_resolver = _upload_resolver(client, assets)
+        print()
+
     # ---------- 1. 渲染 ----------
     print("— 1. 渲染（engine/render）—")
+    if args.dry_run:
+        resolver = _stub_resolver
+        if needs:
+            print(f"  ⚠ 参考图字段 {needs} 用 DRY-RUN 桩解析（引擎里不存在这些文件）")
+    else:
+        resolver = upload_resolver
     try:
         result = render(definition, entry.schema, params,
-                        options=RenderOptions(asset_resolver=None))
+                        options=RenderOptions(asset_resolver=resolver))
     except RenderError as exc:
         rep.add("渲染成功", False, str(exc))
+        _summary(rep)
         return 1
     for w in result.warnings:
         print(f"  ⚠ {w}")
@@ -305,17 +464,7 @@ def run(args: argparse.Namespace) -> int:
         _summary(rep, dry_run=True)
         return 0 if not rep.failed else 1
 
-    client = ComfyClient(args.base_url)
-    try:
-        stats = client.health()
-        dev = (stats.get("devices") or [{}])[0]
-        print(f"  引擎: {dev.get('name')} · vram_total="
-              f"{(dev.get('vram_total') or 0) / 1024**3:.1f}GiB")
-    except (urllib.error.URLError, OSError) as exc:
-        rep.add("ComfyUI 可达", False, f"{args.base_url} 连不上: {exc}")
-        return 1
-    rep.add("ComfyUI 可达", True, args.base_url)
-
+    assert client is not None  # dry_run 已在上面返回；此处 client 必已建立
     digests: list[str] = []
     first_png: bytes | None = None
     for i in range(args.runs):
@@ -431,6 +580,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--outdir", default="render_l4_out")
     ap.add_argument("--param", action="append", metavar="KEY=JSON",
                     help="覆盖参数，可重复。例：--param width=768")
+    ap.add_argument("--asset", action="append", metavar="ASSET_ID=本地文件",
+                    help="参考图素材：asset_id → 本地图片，会被上传到引擎 input/。"
+                         "Schema 里有 transform=ref_to_filename 时必需，可重复")
     ap.add_argument("--hash-salt", default=None,
                     help="提示词摘要盐；不传则摘要标注 salted=false")
     ap.add_argument("--dry-run", action="store_true",
