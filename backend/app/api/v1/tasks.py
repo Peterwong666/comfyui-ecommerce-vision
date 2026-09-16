@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from app.api.deps import CurrentUser, DbSession
 from app.core.config import settings
 from app.core.logging import bind_task, get_logger
-from app.models.enums import BatchStatus, TaskStatus
+from app.models.enums import BatchStatus, ErrorType, TaskStatus
 from app.models.event import AuditLog, EventName
 from app.models.task import Batch, Task
 from app.models.workflow import Template, Workflow
@@ -30,6 +30,7 @@ from app.schemas.task import (
     TaskOut,
     TaskSubmitIn,
 )
+from app.services import quota
 from app.services import state_machine as sm
 from app.services.dispatch import enqueue_task
 from app.services.events import track
@@ -55,13 +56,31 @@ def _get_active_workflow(db: DbSession, name: str) -> Workflow:
     return wf
 
 
-def _assert_quota(user: CurrentUser, needed: int) -> None:
-    """EX-12：配额耗尽时拒绝提交新任务。"""
-    if user.quota_remaining < needed:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=f"额度不足：需要 {needed}，剩余 {user.quota_remaining}",
-        )
+def _charge_quota(db: DbSession, user: CurrentUser, needed: int) -> None:
+    """EX-12：扣减额度，不足则 402。
+
+    **判定与扣减是同一条条件 UPDATE**（`app/services/quota.py`），不是
+    「先读 `quota_remaining` 比较、再 `+=`」—— 后者是两个并发请求各读各写时的
+    丢更新来源，会让额度被超发。这里只负责把「不够」翻译成 HTTP 错误，
+    **不要在本函数之外再判一次额度**（两套判据迟早分叉）。
+    """
+    if quota.charge(db, user_id=user.id, needed=needed):
+        return
+
+    # `charge()` 已经从库里回读过，这里拿到的是**真值**而不是内存里的旧值
+    remaining = user.quota_remaining
+    message = f"额度不足：需要 {needed}，剩余 {remaining}"
+    # 契约 §2.2：需要前端分支处理时用**对象形式**的 detail。
+    # `code` 取 `ErrorType` 的取值（唯一事实来源，见 models/enums.py），
+    # 不写字面量 —— 否则同一个码会出现第二个真相来源。
+    raise HTTPException(
+        status_code=status.HTTP_402_PAYMENT_REQUIRED,
+        detail={
+            "code": ErrorType.QUOTA_EXCEEDED.value,
+            "message": message,
+            "fields": [{"key": "count", "reason": f"需要 {needed}，剩余 {remaining}"}],
+        },
+    )
 
 
 def _validate_params(payload: dict[str, Any]) -> None:
@@ -108,7 +127,7 @@ def _merge_params(
     summary="提交单次生成（FR-2.5）",
 )
 def submit_task(payload: TaskSubmitIn, user: CurrentUser, db: DbSession) -> Task:
-    _assert_quota(user, 1)
+    _charge_quota(db, user, 1)
     wf = _get_active_workflow(db, payload.workflow_name)
 
     template = None
@@ -154,7 +173,6 @@ def submit_task(payload: TaskSubmitIn, user: CurrentUser, db: DbSession) -> Task
     )
 
     sm.enqueue(db, task)
-    user.quota_used += 1
 
     track(
         db,
@@ -282,7 +300,9 @@ def submit_batch(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> Ba
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"单任务最多 {settings.max_batch_size} 张，当前 {total}",
         )
-    _assert_quota(user, total)
+    # 批量是**整体成功或整体失败**：一条条件 UPDATE 扣 `total`，
+    # 剩余不足时 rowcount=0 → 402，不会出现「扣了一半」的中间态。
+    _charge_quota(db, user, total)
 
     template = db.get(Template, payload.template_id) if payload.template_id else None
     common = _merge_params(wf, template, payload.common_params)
@@ -335,7 +355,6 @@ def submit_batch(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> Ba
 
     db.flush()
     sm.recompute_batch_counts(db, batch)
-    user.quota_used += total
 
     track(
         db,
@@ -467,11 +486,10 @@ def retry_task(task_id: int, user: CurrentUser, db: DbSession) -> Task:
             status_code=status.HTTP_409_CONFLICT,
             detail=f"当前状态 {task.status} 不可重试",
         )
-    _assert_quota(user, 1)
+    _charge_quota(db, user, 1)
 
     sm.reset_for_retry(db, task)
     sm.enqueue(db, task)
-    user.quota_used += 1
     db.commit()
 
     enqueue_task(task.id, task.priority)
@@ -504,11 +522,10 @@ def retry_failed(batch_id: int, user: CurrentUser, db: DbSession) -> Batch:
     if not failed:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="没有失败的任务可重跑")
 
-    _assert_quota(user, len(failed))
+    _charge_quota(db, user, len(failed))
     for task in failed:
         sm.reset_for_retry(db, task)
         sm.enqueue(db, task)
-    user.quota_used += len(failed)
     sm.recompute_batch_counts(db, batch)
     db.commit()
 
