@@ -264,14 +264,15 @@ comfyui-platform/
 - [x] **P2-08** 后端骨架 FastAPI → ✅ 已落地并验证（`backend/`；补交时为 31 测试，至 2026-09-16 收尾已达 **200 passed** / ruff 全绿）。<br>　按 ADR-004：FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic + Celery/Redis；**补交时 18 条路由**（auth / tasks / batches / workflows / templates / models / health），`/health` 与 `/health/ready` 分离。启动实测通过（结构化 JSON 日志生效）。<br>　⚠️ 上述「18 条」是**当时的**路由数；经 P6-09 / P6-10 新增 assets 系列与模板写接口后，**当前实为 28 个路由**（登记为契约 §2.3 的 **26 行**，其中有合并行）。<br>　⚠️ 补记：该骨架为 09-15 所建但当时**未提交、未入文档**，2026-09-16 补交并修正 6 个 ruff 问题（含 2 处非纯风格隐患）
 - [ ] **P2-09** PostgreSQL + Redis + MinIO 的 docker-compose
 - [x] **P2-10** 前端骨架 → ✅ `web/`（**从 `.gitkeep` 到可运行**）。React 18 + TS + Vite 5 + antd 5 + TanStack Query + zustand，`corepack pnpm@12.4.2`。<br>　落地内容：① 契约层（`api/{enums,types,errors,http,client,hooks,keys}.ts`，含**三种错误信封**、402 按状态码判断、401 清会话、`/assets` 的 `{total,items}` 不对称）② 布局骨架（顶栏 56 + 侧栏 200 + 主区 1280，线框图 §0.1）③ 登录页 + 工作台页（打通全链路）+ 5 个占位页 ④ ESLint/Prettier/TS 严格模式。<br>　⚠️ **本轮顺带解掉两个后端硬阻塞**（不修则"前后端调通"无法成立）：**B1** 全仓库**没有任何代码把 `registry.yaml` 灌进 `workflows` 表**（`engine/registry.py:6` 明说"不做写库（那是 A 流的事）"，而 A 流从未实现）→ 新增 `backend/app/services/registry_loader.py` + `python -m app.cli.seed_workflows`；**B2** app 默认连 PG 而本机无 PG、SQLite 编译适配只存在于 `conftest.py`（测试专用）→ 抽出**唯一一份** `backend/app/db/sqlite_compat.py` + `python -m app.cli.init_db`。<br>　✅ **已实测**：后端 `256 passed`（基线 215 + 新增 41）、ruff 全绿；前端 `72 passed`（6 个文件）、typecheck/build 通过、eslint 0 error；`GET /api/v1/workflows` 由**恒为空**变为返回 2 条 active；CORS 预检 200 且 `allow-origin: http://localhost:5173`。<br>　⚠️ **未验证**（详见 `web/README.md` §6）：无 Redis 时任务停在 `queued`（出图/重试/取消往返**待 Redis+ComfyUI+GPU**）；图片上传**待 MinIO**；`str`/`bool`/`image_list` **待真实数据**（注册表 0 处）；浏览器人工走查**待人工验证**。
-- [~] **P2-11** CI 基础 → 🔵 **局部**：两道**防漂移门禁**已就绪且可进 CI —— `backend/tests/test_web_enum_parity.py`（前端 `enums.ts` 与后端枚举**双向**比对，含 terminal/cancellable/retryable 派生集合；已做**变异测试**确认有鉴别力）与 `test_web_form_fixtures.py`（前端夹具与注册表逐字节相等）。二者都是**纯 pytest**，不需要 Node 环境，将来直接进 CI 即可。<br>　❌ **仍未建真正的流水线**：仓库里没有 `.github/workflows/`，所以这个任务**不算完成**
+- [x] **P2-11** CI 基础 → ✅ **已完成**（2026-09-16 夜，commit `ba53354`）。产出 **`.github/workflows/ci.yml`** + **`backend/tests/test_repo_hygiene.py`**（仓库卫生门禁：被追踪的 `.env` / 权重 / 私钥、文本里形似真密钥的字符串、`.gitignore` 关键规则被删或失去根锚定、>5 MiB 误提交文件）。连同既有的两道**防漂移门禁** —— `backend/tests/test_web_enum_parity.py`（前端 `enums.ts` 与后端枚举**双向**比对，含 terminal/cancellable/retryable 派生集合；已做**变异测试**确认有鉴别力）与 `test_web_form_fixtures.py`（前端夹具与注册表逐字节相等）—— 以及 `test_env_example.py` 的 `.env.example` ↔ `Settings` 双向一致性，四道门禁全部是**纯 pytest**，不需要 Node 环境。<br>　⚠️ **如实注明：流水线本身从未运行过** —— `git remote -v` 为空（仓库无远端），`ci.yml` 顶部亦自述「Actions 侧未验证」。故「命令与 CI 逐条等价」成立，但「**CI 已通过**」**不成立**
 - [x] **P2-12** 配置与密钥管理 → ✅ **已完成**（2026-09-16 夜核实）。原记载的实质缺口 —— 「`.env.example` 的 30 个变量**全部对不上** `app/core/config.py`（两套命名体系 + pydantic-settings `extra="ignore"` 静默忽略）」—— **已不存在**：`.env.example` 已重写，现为 **68 个变量 ↔ `Settings` 的 68 个字段一一对应**，并由**双向漂移门禁**守住：<br>　`cd backend && .venv/bin/python -m pytest tests/test_env_example.py -q` → **5 passed in 2.11s**（用例：`test_example_has_no_unknown_variable` 防"示例里有假变量"、`test_every_setting_is_documented` 防"加了字段却没登记"、`test_env_example_covers_all_fields` 双向相等、`test_example_is_not_a_copy_of_runtime_env`（`JWT_SECRET` 必须是 `CHANGE_ME_IN_ENV`）、`test_secrets_are_placeholder_or_empty`）。<br>　本轮 P6-10 新增的 4 个配置项（`ASSET_TRASH_RETENTION_DAYS` / `ASSET_OUTPUT_RETENTION_DAYS` / `MAX_PACK_ASSETS` / `CLEANUP_BATCH_LIMIT`）即由这道门禁自动纳入 —— **门禁确实在起作用，不是一次性动作**。<br>　⚠️ **仍未做的部分**：R12 风险里写的「**pre-commit** 密钥泄露检查」这道门禁**不存在**（仓库无 `.pre-commit-config.yaml`），当前只有 pytest 级的哨兵检查。应另立任务，或并入 **P11-11 脱敏检查**。
 - [x] **P2-13** 数据库迁移方案与初始 schema → ✅ 初始迁移 `alembic/versions/20260916_1656_f9192eeddac1_initial_schema_11_tables.py`（11 张表 / 12 条外键 / 58 条索引 / CHECK 约束）+ `docs/prd/er_diagram.md`（Mermaid ER 图 + 逐表职责 + 8 条非显然设计决策）。<br>　⚠️ autogenerate 产物**不能直接用**，修了三处：外键内联在 `create_table` 里（模型有环 `batches→templates→assets→tasks→batches`，PG 上必然失败）→ 改为建表后再统一 `ADD CONSTRAINT`；`JSONB(astext_type=Text())` 的 `Text` 未定义；SQLite 方言残留的 `server_default` 会让以后每次 autogenerate 报假差异。<br>　验证：9 条迁移测试（用「记录器冒充 `alembic.op`」逐项比对表/外键/索引），并**做了变异测试**确认测试有鉴别力（删外键、改错表名均被抓到）。<br>　❌ 未做：真实 PostgreSQL 上 apply 一次（本机无 PG 二进制也无 docker daemon）→ 归入 P2-09
 
 **DoD**：环境可一键重建；`versions.lock` 存在；后端/前端/ComfyUI 三件套都能起来并互相调通一次。
-**阶段结果**：🔵 进行中（**9/13**，2026-09-16 夜复核）。已完成 P2-01/02/04/05/06/08/10/12/13。
-P2-03 有意推迟（先用自带环境跑主线）；剩 P2-07（复现脚本+重建验证）、P2-09（中间件 compose）、P2-11（CI 流水线）。
+**阶段结果**：🔵 进行中（**10/13**，2026-09-16 夜复核）。已完成 P2-01/02/04/05/06/08/10/11/12/13。
+P2-03 有意推迟（先用自带环境跑主线）；剩 P2-07（复现脚本+重建验证）、P2-09（中间件 compose）。
 ✅ **P2 的 DoD 中「三件套互相调通一次」本轮已兑现**：前端起得来（5173）+ 后端起得来（SQLite）+ CORS 预检通过 + `GET /api/v1/workflows` 返回真实数据。⚠️ 但 ComfyUI 与出图链路仍**待 GPU/Redis**，所以是"调通"而非"跑通"。
+⚠️ **P2-11 已建流水线但从未运行**：`.github/workflows/ci.yml` 存在，仓库却无远端（`git remote -v` 为空），所以"CI 绿"目前**没有任何一次真实执行**。
 ✅ **P2-12 的实质缺口已消除**（见上）：`.env.example` ↔ `Settings` 现由 `tests/test_env_example.py` 双向守住，68 ↔ 68。⚠️ 但「pre-commit 密钥泄露检查」这道门禁仍**不存在**（并入 P11-11 或另立任务）。
 **待办提示**：⚠️ `backend/.venv` 中 **mypy 未安装**（`pyproject.toml` 已声明为 dev 依赖），类型检查这条防线目前是空的，需补装后才能生效。
 
@@ -383,7 +384,7 @@ P2-03 有意推迟（先用自带环境跑主线）；剩 P2-07（复现脚本+�
 | P7-02 | **工作流驱动的动态表单**（由参数 Schema 自动生成 UI，新增工作流不改前端） | ✅ **已完成** `web/src/features/workflow-form/`：`controlRegistry`（9 种类型→控件，未知类型落 `FallbackControl` 不崩）+ `defaults`/`validate`/`WorkflowForm` + 9 个控件。<br>　**「不改前端」由构造与测试共同保证**：`WorkflowForm` 从不 `switch(field.type)`；同一引擎已渲染 **3 条真实工作流的 Schema**（klein 6 字段 / t2i 10 / inpaint 12，均取自注册表导出的夹具）而无任何工作流特判。<br>　⚠️ `str`/`bool`/`image_list` 三种类型在注册表里**出现 0 次**，仅合成夹具覆盖 → 状态是**待真实数据验证**，不得写成已验证 | 表单引擎 | P0 |
 | P7-03 | 生成工作台（左参数 / 中预览 / 右历史的三栏布局） | 页面 | P0 |
 | P7-04 | 任务中心（队列 / 实时进度 / 日志 / 失败原因 / 一键重试） | 页面 | P0 |
-| P7-05 | 画廊与素材库（网格 / 筛选 / 对比 / 批量下载 / 查看详情与元数据） | 页面 | P0 |
+| P7-05 | 画廊与素材库（网格 / 筛选 / 对比 / 批量下载 / 查看详情与元数据） | ✅ **已完成**（2026-09-16 夜，commit `ebf79c6`）`web/src/pages/GalleryPage.tsx`（**单份实现，无重复**）+ `web/src/features/gallery/MetadataDrawer.tsx`：筛选（全部 / 已采纳 / 未采纳 / 已收藏）、采纳、收藏、下载、打包、元数据抽屉。<br>　⚠️ **图片取图走 `GET /api/v1/assets/{id}/content`，前端必须用 `fetch`+`blob` 带 Bearer 头** —— `<img src>` **带不了**自定义 `Authorization` 头（`AssetOut` 刻意不返回 URL，见 `api/types.ts` 的说明）。<br>　⚠️ 「未采纳」是**前端侧过滤**（后端只有 `adopted_only`），翻页范围会随之变化，页面已明示；**浏览器人工走查未做** | 页面 | P0 |
 | P7-06 | 批量出图向导（CSV 导入 / 参数矩阵预览 / **预估时长与成本**） | 页面 | P0 |
 | P7-07 | 轻量图片编辑（上传参考图 / 画遮罩 / 裁剪 / 涂鸦） | 组件 | P0 |
 | P7-08 | 模板与提示词库页面（浏览 / 搜索 / 一键套用 / 收藏） | 页面 | P1 |
@@ -394,9 +395,9 @@ P2-03 有意推迟（先用自带环境跑主线）；剩 P2-07（复现脚本+�
 
 **DoD**：非技术用户无需指导即可完成「上传 → 选模板 → 批量出图 → 下载」全流程；新增一条工作流不需要改前端。
 
-**阶段结果**：🔵 进行中（**2/12**，2026-09-16 晚）。已完成 **P7-02**（动态表单引擎）与 **P2-10 附带的前端骨架**（含登录页 + 工作台页 + 布局 + 契约层 + 防漂移门禁）。
+**阶段结果**：🔵 进行中（**3/12**，2026-09-16 夜）。已完成 **P7-02**（动态表单引擎）、**P7-05**（画廊与素材库页）与 **P2-10 附带的前端骨架**（含登录页 + 工作台页 + 布局 + 契约层 + 防漂移门禁）。
 其余 P7-03~P7-12 仍是占位页（`web/src/pages/PlaceholderPage.tsx`），每个都标了归属任务号。
-⚠️ 受后端缺口影响的两项：**P7-05 画廊**原先依赖 P6-10 的取图接口（`GET /assets/{id}/content`）—— 该接口**已于 2026-09-16 夜交付，后端侧阻塞解除**；前端**尚未接入**（浏览器人工走查未做，见 `项目进展.md` §4）。**P7-04 任务中心**的实时进度仍依赖 P6-04 的 WebSocket（**未实现**，当前只能轮询）。
+⚠️ **P7-05 已接入取图接口**（`GET /assets/{id}/content` 经 `fetch`+blob 带 Bearer 头），后端阻塞（P6-10）已解除；⚠️ 但**浏览器人工走查未做**（见 `项目进展.md` §4）—— 即"图能显示出来"目前只有 jsdom 级证据，没有端到端证据。**P7-04 任务中心**的实时进度仍依赖 P6-04 的 WebSocket（**未实现**，当前只能轮询）。
 
 ---
 
@@ -672,3 +673,4 @@ P2 环境 → P3 工作流 → P6 服务化 → P7 前端 → P8 质量 → P12 
 |---|---|---|---|
 | 2026-09-15 | v1.0 | 初始计划建立 | 项目启动 |
 | **2026-09-16** | v1.1 | ① **P6-10 完成**（受控取图 / 标记采纳 / 打包下载 / 生命周期清理），并**显式记录方案偏离**：原措辞「签名 URL 下载」→ 受控代理接口（理由见 `docs/sop/contracts.md` §2.3 / §7）② **P2-12 完成**（核实后打勾：`.env.example` ↔ `Settings` 68↔68，由 `tests/test_env_example.py` 双向守住；⚠️ pre-commit 密钥门禁仍缺）③ P6-09 更新为**部分完成**（新增 task/batch/收藏/时间筛选，仍缺文件夹/标签/搜索/回收站恢复）④ P7 阶段结果更正：P7-05 依赖的取图接口**已交付**，后端阻塞解除、前端未接入 | P6-10 收口；P2-12 的原记载「30 个变量全部对不上」**已被门禁消除**，过期记载必须修正（否则与 `项目进度.md` 节点 49「`.env.example` 重写 63 项 + 防漂移测试」自相矛盾）。本次完成数 **54 → 56**（P6 6→7、P2 8→9） |
+| **2026-09-17** | v1.2 | ① **P7-05 完成**（画廊与素材库页，commit `ebf79c6`）：筛选 / 采纳 / 收藏 / 下载 / 打包 / 元数据抽屉；**取图走 `GET /api/v1/assets/{id}/content`，前端用 `fetch`+blob 带 Bearer 头**（`<img src>` 带不了自定义 `Authorization` 头）② **P2-11 完成**（`.github/workflows/ci.yml` + `backend/tests/test_repo_hygiene.py`；⚠️ **如实注明：流水线本身从未运行** —— `git remote -v` 为空，仓库无远端）③ 阶段计数：P2 **9/13 → 10/13**、P7 **2/12 → 3/12**，完成数 **56 → 58** | 夜间收口。此前 P2-11 记为「局部：只做了门禁、没做流水线」，`ba53354` 已补上流水线与卫生门禁；P7-05 记为「后端阻塞解除、前端未接入」，`ebf79c6` 已完成接入。⚠️ 由此新增两项未验证：**画廊页浏览器人工走查**、**CI 一次都没跑过** |
