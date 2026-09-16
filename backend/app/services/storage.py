@@ -164,6 +164,20 @@ def build_output_key(user_id: int, task_id: int, extension: str = "png") -> str:
     return f"outputs/{int(user_id)}/{int(task_id)}/{uuid.uuid4().hex}.{ext}"
 
 
+def build_upload_key(user_id: int, extension: str = "png") -> str:
+    """生成上传素材的 key（P6-09）。
+
+    与 `build_output_key` 同一条纪律：**路径里不含任何用户输入**
+    （原始文件名只存 DB 的 `original_name` 字段，不进存储路径）——
+    这是 NFR-4 的硬要求：用户可控的字符串一旦进对象键，就会出现
+    `../` 穿越、超长名、编码歧义这一整类问题。
+    """
+    ext = (extension or "png").lstrip(".").lower()
+    if ext not in _MIME_BY_EXT:
+        ext = "png"  # 同上：白名单外一律按 png，不让用户输入影响路径
+    return f"uploads/{int(user_id)}/{uuid.uuid4().hex}.{ext}"
+
+
 def mime_for_filename(filename: str) -> str:
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "png"
     return _MIME_BY_EXT.get(ext, "application/octet-stream")
