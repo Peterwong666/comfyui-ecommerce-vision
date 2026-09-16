@@ -154,9 +154,10 @@ TaskStatus.cancellable()  == {pending, queued, running, retrying}
 | 鉴权 | `Authorization: Bearer <JWT>`；**除 health 外全部需要**（NFR-4） |
 | 令牌 | `POST /api/v1/auth/{register,login}` 返回 `access_token` + `expires_in`（秒，默认 7 天） |
 | 时间 | ISO 8601 带时区；数据库存 UTC |
-| 分页 | `limit`（1-200，默认 50）+ `offset`（≥0，默认 0）；响应为**裸数组**，总数暂不透出 |
+| 分页 | `limit`（1-200，默认 50）+ `offset`（≥0，默认 0）；响应为**裸数组**，总数暂不透出。<br>⚠️ **唯一例外：`GET /api/v1/assets` 返回 `{total, items}`**（不对称响应）。理由是素材列表要驱动「已上传 N 张」与分页器，而 `total` 必须与列表**共用同一组 conditions（含同一个 join）** —— 两边不一致时用户会看到「说有 2 条、实际 0 条」，且再发一次专用 count 请求等于两次往返（还有竞态）|
 | 幂等 | 提交类接口支持 `idempotency_key`（≤128 字符），见 §2.5 |
 | 数据隔离 | 所有查询按 `user_id` 过滤；越权一律返回 **404 而非 403**（不泄露资源存在性） |
+| **回收站记录的响应码** | 判据：**属于你但已在回收站 → 409；不存在或不属于你 → 404**。<br>落法：**读接口一律 404**（`GET /assets` 列表 · `GET /assets/{id}` 详情 · `GET /assets/{id}/content` 取图）；**改状态接口一律 409**（`DELETE /assets/{id}` · `PATCH /assets/{id}`）。<br>理由：读接口要一致地表现为「不存在」（回收站里的图不该还能取到）；改状态接口给出「为什么不能改」比让调用方猜更有用，且与既有的「重复删除 → 409」自洽。⚠️ V1 没有回收站恢复接口 |
 
 ### 2.2 错误响应格式
 
@@ -197,7 +198,7 @@ TaskStatus.cancellable()  == {pending, queued, running, retrying}
 | 422 | 参数校验失败（EX-3） | 含边界值越界 |
 | 500 | 未预期错误 | 必须记日志并带 trace |
 
-### 2.3 接口清单（18 条，当前实现）
+### 2.3 接口清单（26 条，当前实现）
 
 | 方法 | 路径 | 用途 | 鉴权 |
 |---|---|---|---|
@@ -219,9 +220,33 @@ TaskStatus.cancellable()  == {pending, queued, running, retrying}
 | GET | `/api/v1/workflows` | 工作流列表 | ✅ |
 | GET | `/api/v1/workflows/{name}/schema` | **工作流参数 Schema**（驱动动态表单） | ✅ |
 | GET | `/api/v1/templates` · `/categories` · `/api/v1/models` | 模板与模型清单 | ✅ |
+| POST | `/api/v1/templates` | 新增模板（管理员，FR-6.5） | ✅ 管理员 |
+| POST | `/api/v1/assets` | 素材上传（P6-09） | ✅ |
+| GET | `/api/v1/assets` | 素材列表 + 筛选（P6-09 / P6-10 扩展） | ✅ |
+| GET | `/api/v1/assets/{asset_id}` | 素材详情 | ✅ |
+| GET | `/api/v1/assets/{asset_id}/content` | **受控取图**（P6-10，唯一取图入口） | ✅ |
+| PATCH | `/api/v1/assets/{asset_id}` | 标记采纳 / 收藏（P6-10） | ✅ |
+| DELETE | `/api/v1/assets/{asset_id}` | 软删除（送进回收站，非物理删除） | ✅ |
+| POST | `/api/v1/assets/pack` | 打包下载 zip（P6-10 / FR-5.2 · FR-3.7） | ✅ |
 
-**尚未实现（P6 补齐）**：素材上传（P6-09）、产物下载签名 URL（P6-10）、
-WebSocket 进度推送（P6-04）、管理后台接口（P7-09）、API Key 鉴权（P6-07）。
+> **计数口径**：上表 **26 行**。其中有**合并行**（`/templates` · `/categories` · `/models` 占一行），
+> 所以行数 ≠ 路径数（实际路由 28 个）。以「行」为准是为了可读；要逐路径核对请直接看 `GET /docs`。
+> 2026-09-16 本轮补入 assets 系列 7 行（P6-09 上传时漏登记 4 行）与 `POST /templates` 1 行（同样漏登记）。
+
+**尚未实现**：WebSocket 进度推送（P6-04）、管理后台接口（P7-09）、API Key 鉴权（P6-07）。
+
+> ✅ 本段原先列的前两项**已完成，已移出**：
+> - **素材上传（P6-09）** —— 已实现 4 条路由（见上表），此前只是没登记进本表。
+> - **产物下载（P6-10）** —— 已实现，但**有意偏离**原措辞「签名 URL 下载」：
+>   取图改走**受控代理接口** `GET /api/v1/assets/{asset_id}/content`（见上表）。
+>   三条理由：① **V1 经 SSH 隧道访问，浏览器根本到不了 MinIO** —— 预签名 URL 里的 host 是
+>   `127.0.0.1:9000`，是个打不开的地址，这是**功能性阻塞**而非偏好；② **对象键不该进接口契约**
+>   （`AssetOut` 刻意不返回 `object_key`，而预签名 URL 把 key 编码进了 URL）；
+>   ③ **预签名 URL 一旦签发，TTL 内无法撤销**，而软删除 / 过期必须立即生效。
+>   代价：产物字节要过一次 API 进程（V1 单机量级可忽略；V2 上 CDN 时是**新增**一条路径，不是改这条）。
+>
+> 同轮还补了 P6-10 的另两条接口：`PATCH /assets/{id}`（标记采纳 / 收藏）与
+> `POST /assets/pack`（打包下载），以及 `GET /assets` 的筛选参数扩展。
 
 ### 2.4 关键请求 / 响应体
 
@@ -296,6 +321,66 @@ WebSocket 进度推送（P6-04）、管理后台接口（P7-09）、API Key 鉴�
 > 单张耗时优先取该工作流**历史成功任务的平均值**，无历史时用保守经验值 20s。
 > GPU 并发恒为 1（NFR-2），所以总耗时 = 单张 × 张数（串行）。
 > `estimated_cost_yuan` 为 `null` 直到 `.env` 里配上 `GPU_COST_PER_HOUR`。
+
+#### `PATCH /api/v1/assets/{asset_id}` → 200
+
+请求（`AssetUpdateIn`）：两个字段都可选，但**至少要给一个**（空 body → 422）。
+
+```json
+{ "is_adopted": true, "is_favorite": false }
+```
+
+> ⚠️ `is_adopted` **只允许标在 `kind=output` 的产物上**，否则 409；回收站里的素材也是 409（见 §2.1）。
+> `image_adopted` 只在 **False→True 跃迁**时埋点（重复 PATCH `true` 不重复计数、取消采纳不埋点）。
+> 响应体是 `AssetOut`（见下）。
+
+#### `POST /api/v1/assets/pack` → 200（zip 流）
+
+请求（`AssetPackIn`）：三个选择器**必须且只能给一个**。
+
+```json
+{ "asset_ids": [11, 12] }        // 或 { "task_id": 123 } / { "batch_id": 7 }
+```
+
+| 情况 | 状态码 | 说明 |
+|---|---|---|
+| 正常 | 200 | `Content-Type: application/zip`，zip 内按 **SKU 分目录**（`params.sku`，空则回退 `task_{id}`），文件名 `{asset_id}.{ext}` |
+| `asset_ids` 里有找不到 / 不属于你的 | **404** | **绝不静默少给**（少一张图用户不会发现，但会毁掉交付的可信度）|
+| 结果 0 张 | 422 | 返回空 zip 会让用户分不清"还没出图"与"下载坏了" |
+| 超过 `MAX_PACK_ASSETS`（默认 200） | 422 | 内存/磁盘护栏，非业务规则 |
+
+> 埋点：`image_downloaded`，`pack=True`、`count=实际张数`、`scope` 由选择器推导
+> （`asset_ids` → `selected`；`task_id` / `batch_id` → `all`）。
+
+#### `AssetOut`（素材 / 产物共用；`GET /assets` 列表项、详情、PATCH 响应）
+
+```json
+{
+  "id": 11, "kind": "output", "task_id": 123,
+  "mime_type": "image/png", "size_bytes": 1085233,
+  "width": 1024, "height": 1024,
+  "original_name": null,
+  "is_adopted": true, "is_favorite": false,
+  "meta": {
+    "seed": 20260916,
+    "workflow": "flux2_klein_t2i_v1@v1",
+    "engine_prompt_id": "9f2c…",
+    "params": { "...本次实际生效的完整参数..." },
+    "filename": "flux2_klein_t2i_v1_00001_.png",
+    "node_id": "11",
+    "sha256": "…"
+  },
+  "created_at": "2026-09-16T03:00:00Z"
+}
+```
+
+> `meta` 的键由产物落盘时写入（`worker/tasks.py`）：`seed` 是**解析后的真实值**（`-1` 已实体化，
+> 否则事后复现不出这张图）、`params` 是本次**实际生效**的完整参数（含 Schema 默认值）。
+
+> ⚠️ **刻意不返回 `object_key` / URL**：取图一律走 §2.3 的 `GET /assets/{id}/content`。
+> ⚠️ `meta` 与 `task_id` **只在产物（`kind=output`）上有值** —— 上传素材没有可复现性元数据，
+> `meta` 是 `{}`、`task_id` 为 `null`。前端读之前先判 `kind`（或判空），别假设它总有值。
+> `meta` 是 FR-5.4「元数据查看（seed/模型/参数）」的**唯一数据源**，即可复现性（C1）的用户侧入口。
 
 ### 2.5 幂等（EX-6）
 
@@ -545,6 +630,16 @@ WebSocket 进度推送（P6-04）、管理后台接口（P7-09）、API Key 鉴�
 **关键约束**：`task_finished` **只在终态触发**（`TaskStatus.terminal()`）。
 单张成本用 `gpu_seconds` 而非挂钟时间。
 
+**触发位置（P6-10 起补记，只记本轮核实过的）**
+
+| 事件 | 触发位置 | 口径要点 |
+|---|---|---|
+| `image_adopted`（E10 ★ 良品率分子） | `PATCH /api/v1/assets/{asset_id}` 的 **False→True 跃迁** | 重复 PATCH `true` **不重复埋点**、取消采纳不埋点（否则良品率被重复计数灌水）。只有 `kind=output` 可标，否则 409 |
+| `image_downloaded`（E11 ★ 北极星分子） | ① `GET /api/v1/assets/{asset_id}/content?download=1`（`pack=False`、`count=1`、`scope=selected`）<br>② `POST /api/v1/assets/pack`（`pack=True`、`count=实际张数`、`scope`：`asset_ids`→`selected` / `task_id`·`batch_id`→`all`） | ⚠️ **inline 预览（`download=0`）不算有效交付、不埋点** —— 北极星是"交付给用户的图"，划过去看一眼不是交付 |
+
+> ⚠️ **这两个事件在 P6-10 之前是全仓库零处触发** —— 不是"看板还没做"，而是**指标连数据源都不存在**
+> （良品率恒为 0）。详见 `项目进展.md` #31。凡带埋点的路径都必须有测试钉死（本次已补）。
+
 ---
 
 ## 5. 既有实现里需要修的不一致
@@ -562,6 +657,7 @@ WebSocket 进度推送（P6-04）、管理后台接口（P7-09）、API Key 鉴�
 | 7 | `Task.seed` 列 与 `params["seed"]` | 与 #5 同类：两条输入通道可能发散 | ✅ 已裁定：**保留列，但取消"第二条输入通道"** —— `params` 是唯一事实来源，`Task.seed` 是派生投影（与 #5 的 prompt 同一模式）。不删列，因为它是可查询的一等属性 |
 | 8 | `backend/app/models/workflow.py:63` `param_bindings` | 是 `targets` 之前的**旧绑定机制**，与 `param_schema` 并存；`param_bindings={"steps": ["1","inputs","steps"]}` 与本契约 §3.3 的 `targets` 语义重叠。**两套绑定并存必出事**（前端读一套、后端读一套） | ⬜ 待办（A 流：**删除**，不做废弃标注 —— 仅测试 fixture 引用，删除成本极低） |
 | 9 | `backend/app/models/workflow.py:58` docstring | 示例写 `"visible": true` + `"group": "basic"`，与契约 §3.1 的 `advanced`（默认 false，true 折叠）冲突 | ⬜ 待办（A 流：docstring 按契约 §3.1 改写） |
+| 10 | `backend/app/schemas/asset.py` `AssetOut.meta` / `task_id` | 字段本身没问题，但**只在产物（`kind=output`）上非空**：上传素材是 `meta={}`、`task_id=null`。前端若一刀切地读 `meta.seed`，画廊卡片会**静默显示空值**，且看不出是"没数据"还是"读错了" | ✅ 已在本契约 §2.4 写明（前端先判 `kind` 或判空）。⚠️ 代码侧**不做**默认值填充 —— `{}` 就是「没有可复现性元数据」的诚实表达 |
 
 ---
 
@@ -585,3 +681,5 @@ WebSocket 进度推送（P6-04）、管理后台接口（P7-09）、API Key 鉴�
 | 2026-09-16 | **首次冻结**：任务状态机 / REST API / 参数 Schema / 埋点事件名 | 开发进入多流并行，跨流边界必须先唯一化，否则必然返工 | A · B · C · D |
 | 2026-09-16 | 明确 `canceled` 可重试（覆盖 PRD T13） | 代码与 API 已如此实现，且语义合理（用户取消后想再跑是常见需求） | A · D |
 | 2026-09-16 | 明确「提交后状态为 `queued`」 | 实现是提交时同步入队，前端若按 `pending` 写判断会出错 | A · D |
+| 2026-09-16 | **补齐 §2.3 接口清单**（18 → **26 条**）：登记 assets 系列 7 条（其中 4 条为 P6-09 漏登记）与 `POST /templates`；**取图由「MinIO 预签名 URL」改为受控代理接口** `GET /api/v1/assets/{asset_id}/content`；补 §2.4 的 `PATCH /assets/{id}` / `POST /assets/pack` / `AssetOut` 请求响应体 | P6-10 交付（受控取图 / 标记采纳 / 打包下载 / 生命周期清理）。取图改方案的三条理由（SSH 隧道下浏览器到不了 MinIO / 对象键不该进契约 / 预签名 URL 不可撤销）见 §2.3 下方说明 | A 后端（实现）· D 前端（调用）。⚠️ **参数 Schema（§3）与任务状态机（§1）未动** |
+| 2026-09-16 | 新增 §2.1「**回收站记录的响应码**」规则（读接口 404 / 改状态接口 409）与 `GET /assets` 的 `{total, items}` **不对称响应例外**；§4 补 `image_adopted` / `image_downloaded` 的**触发位置** | ① 回收站语义要在读与写两侧各自一致（读=不存在，写=说明为什么不能改）② `total` 必须与列表共用同一组 conditions ③ 这两个事件此前全仓库零处触发（良品率恒为 0），触发点必须进契约，否则前端不知道"什么时候才算一次交付" | A · D（埋点口径同时约束 P10 看板） |
