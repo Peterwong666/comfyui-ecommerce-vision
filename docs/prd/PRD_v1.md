@@ -421,7 +421,7 @@ BatchTask (父)  ──1:N──▶  Task (子，每个 = 一张图)
 | # | 当前 | 事件 | 目标 | 动作 | 备注 |
 |---|---|---|---|---|---|
 | T1 | — | 用户提交 | `pending` | 落库，返回 task_id | — |
-| T2 | `pending` | 调度器取任务 | `queued` | 入 Redis 队列 | 校验配额 |
+| T2 | `pending` | 入队 | `queued` | 入 Redis 队列 | 校验配额。**实现为提交时同步入队**（非独立调度器），故提交响应里的状态已是 `queued`，见 `docs/sop/contracts.md` §1.4 |
 | T3 | `pending` | 用户取消 | `canceled` | — | — |
 | T4 | `queued` | 用户取消 | `canceled` | 出队 | — |
 | T5 | `queued` | Worker 取任务 | `running` | 记录开始时间、显存 | — |
@@ -432,7 +432,7 @@ BatchTask (父)  ──1:N──▶  Task (子，每个 = 一张图)
 | T10 | `running` | 用户取消 | `canceled` | 步间隙中断，清理显存 | 不在采样中途硬杀 |
 | T11 | `running` | 致命错误（非法参数/模型缺失） | `failed` | **不重试** | 重试无意义 |
 | T12 | 子任务状态变更 | — | 重算父状态 | 更新进度 | §5.3 规则 |
-| T13 | `failed`/`partial` | 用户点重试 | `pending` | 仅重试失败子任务 | FR-3.5 |
+| T13 | `failed` / `canceled` | 用户点重试 | `pending` | 仅重试失败子任务 | FR-3.5。**`canceled` 亦可重试**（实现与 API 均支持，见 `contracts.md` §1.1） |
 | T14 | `running` | Worker 崩溃 | `queued` | 启动时扫描僵尸任务 | NFR-3 优雅重启 |
 
 > **T7 vs T11 的区分是设计要点**：OOM 值得重试（降级后可能成功），

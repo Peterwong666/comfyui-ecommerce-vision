@@ -1,0 +1,515 @@
+# 跨流接口契约（冻结）
+
+> **本文件的定位**：开发进入多流并行阶段后，**跨流共用**的边界必须唯一且稳定。
+> 一旦分头定义，就是并行开发最典型的事故来源（前端照会变的接口写、两套状态取值、两套错误格式）。
+>
+> **冻结日期**：2026-09-16 ｜ **冻结粒度**：只冻结跨流共用的硬边界（内部实现不限制）
+> **权威性**：本文与代码冲突时，**以本文为准**，并把代码改过来。
+
+---
+
+## 0. 冻结范围
+
+### 0.1 冻结了什么
+
+| # | 契约 | 谁依赖 |
+|---|---|---|
+| 1 | **任务状态枚举与状态机** | A 后端（实现）· D 前端（徽章/看板）· 埋点口径 |
+| 2 | **REST API 契约**（路径 / 请求响应体 / 错误格式 / 状态码） | A 后端（实现）· D 前端（调用） |
+| 3 | **工作流参数 Schema 格式** | B 工作流内核（产出）· A 后端（校验与注入）· D 前端（P7-02 动态表单） |
+| 4 | **埋点事件名** | A 后端（触发）· D 前端（触发）· P10 看板 |
+
+### 0.2 没有冻结什么（各流自由）
+
+- 各流内部的目录结构、类名、函数名、测试组织
+- A 流的 ORM 细节、SQL 语句、Celery 任务划分
+- B 流的工作流节点选型（只要参数经 Schema 暴露）
+- D 流的组件拆分、状态管理选型、样式方案
+- 日志文案、注释语言
+
+### 0.3 变更流程（改契约必须走）
+
+1. 在本文档里改，并更新 §7 变更记录（日期 / 改了什么 / 为什么 / 影响哪些流）
+2. 同步改代码里的对应常量（`backend/app/models/enums.py` 是**唯一事实来源**）
+3. 若影响其他流，**通知该流暂停相关部分**再改
+4. 改完跑：`cd backend && .venv/bin/python -m pytest -q && .venv/bin/ruff check app tests`
+
+> ⚠️ **不要在流内部私自增删枚举取值**。前端徽章、埋点、看板全部硬依赖这套取值。
+
+---
+
+## 1. 任务状态枚举与状态机
+
+**唯一事实来源**：`backend/app/models/enums.py`
+**业务依据**：`docs/prd/PRD_v1.md` §5
+
+### 1.1 TaskStatus —— 单张图（子任务）
+
+| 取值 | 语义 | 终态 | 可取消 | 可重试 |
+|---|---|---|---|---|
+| `pending` | 已创建，待调度入队 | ❌ | ✅ | — |
+| `queued` | 已入队，等待 GPU | ❌ | ✅ | — |
+| `running` | 正在执行 | ❌ | ✅（步间隙生效） | — |
+| `retrying` | 瞬时错误，退避等待重试 | ❌ | ✅ | — |
+| `succeeded` | 成功产出 | ✅ | — | — |
+| `failed` | 最终失败（重试耗尽 / 致命错误） | ✅ | — | ✅ |
+| `canceled` | 用户取消 | ✅ | — | ✅ |
+
+```python
+TaskStatus.terminal()     == {succeeded, failed, canceled}
+TaskStatus.cancellable()  == {pending, queued, running, retrying}
+```
+
+⚠️ **`canceled` 可重试** —— PRD §5.4 的 T13 只写了「failed/partial 可重试」，
+但代码与 API（`POST /tasks/{id}/retry`）都允许 `canceled` 重试。
+**以本契约为准**：`failed` 与 `canceled` 均可重试。PRD T13 待补。
+
+### 1.2 BatchStatus —— 批量父任务
+
+| 取值 | 语义 | 终态 |
+|---|---|---|
+| `pending` | 已创建 | ❌ |
+| `queued` | 已入队 | ❌ |
+| `running` | 有子任务在跑（进度 = 完成数/总数） | ❌ |
+| `succeeded` | 全部子任务成功 | ✅ |
+| `failed` | 全部子任务失败 | ✅ |
+| `canceled` | 全部子任务取消 | ✅ |
+| `partial` | **部分成功部分失败** | ✅ |
+
+> `partial` 是关键设计：500 张成功 3 张失败，标 `succeeded` 会掩盖问题，标 `failed` 会让用户以为全废。
+
+**父状态聚合规则**（`Batch.derive_status()`，单测 `test_batch_*` 全覆盖）
+
+| 子任务情况 | 父状态 |
+|---|---|
+| 存在 pending/queued/running/retrying | `running` |
+| 全部 succeeded | `succeeded` |
+| 全部 failed | `failed` |
+| 全部 canceled | `canceled` |
+| 部分 succeeded、部分 failed/canceled | `partial` |
+
+### 1.3 状态迁移表（**以实现为准**，比 PRD §5.4 更精确）
+
+| # | 当前 | 事件 | 目标 | 备注 |
+|---|---|---|---|---|
+| T1 | — | 用户提交 | `pending` | 落库 |
+| T2 | `pending` | **入队（提交时同步发生）** | `queued` | ⚠️ 见 §1.4 |
+| T3/T4 | `pending` / `queued` | 用户取消 | `canceled` | — |
+| T5 | `queued` | Worker 取任务 | `running` | 记录开始时间 |
+| T6 | `running` | 执行成功 | `succeeded` | 保存产物 + 元数据 |
+| T7 | `running` | 瞬时错误 | `retrying` | `retry_count += 1` |
+| T8 | `retrying` | 退避结束且 `retry_count < 3` | `queued` | 默认上限 3 |
+| T9 | `retrying` | `retry_count >= 3` | `failed` | — |
+| T10 | `running` | 用户取消 | `canceled` | 步间隙中断，不硬杀 |
+| T11 | `running` | 致命错误 | `failed` | **不重试** |
+| T12 | 子任务变更 | — | 重算父状态 | 见 §1.2 聚合规则 |
+| T13 | `failed` / `canceled` | 用户重试 | `pending` | 仅重试失败子任务 |
+| T14 | `running` | Worker 崩溃（心跳超时） | `queued` | 启动时扫僵尸任务 |
+
+**非法迁移**：除上表外的任何迁移都必须被 `_apply()` 拒绝。
+`SUCCEEDED` 是**绝对终态**（无出边），任何把它改走的操作都是 bug。
+
+### 1.4 ⚠️ 必须知道的行为事实（PRD 未写清，前端易踩）
+
+| 事实 | 说明 |
+|---|---|
+| **提交后返回的状态是 `queued`，不是 `pending`** | `submit_task` 在 commit 前就调用了 `sm.enqueue()`。所以 `POST /tasks` 的 202 响应里 `status == "queued"`。`pending` 只在「重试」路径短暂出现（T13）后立即转 `queued` |
+| 没有独立的调度器进程 | PRD §5.4 T2 写的是「调度器取任务」，实现里是**提交时同步入队**。若要改为异步调度，属于 §0.3 的契约变更 |
+| `retry_count` 上限来自配置 | `settings.task_max_retries = 3`，硬上限 5（`task_max_retries_hard_limit`） |
+
+### 1.5 ErrorType 与可重试判定
+
+`ErrorType` 取值与 PRD §6.1 的 EX 编号一一对应：
+
+| 取值 | 对应 | 可重试 | 说明 |
+|---|---|---|---|
+| `oom` | EX-1 | ✅ | 降级后可能成功 |
+| `timeout` | EX-2 | ✅ | — |
+| `disk_full` | EX-4 | ✅ | 清理后 |
+| `queue_full` | EX-5 | ✅ | — |
+| `worker_crash` | EX-7 | ✅ | — |
+| `engine_unresponsive` | EX-8 | ✅ | — |
+| `save_failed` | EX-13 | ✅ | — |
+| `invalid_param` | EX-3 | ❌ | 重试一万次还是错 |
+| `model_missing` | EX-9 | ❌ | — |
+| `quota_exceeded` | EX-12 | ❌ | — |
+| `duplicate` | EX-6 | — | 不新建任务，返回已有 id |
+| `invalid_upload` | EX-10 | — | 提交前就拒绝 |
+| `unknown` | — | ❌ | 兜底，按致命处理 |
+
+> **T7 / T11 的区分是设计要点**：混淆会导致「队列被必然失败的任务堵死」。
+> 判定入口：`ErrorType.is_retryable` / `ErrorType.retryable()`。
+
+---
+
+## 2. REST API 契约
+
+**实现**：`backend/app/api/v1/` ｜ **交互式文档**：`GET /docs`
+
+### 2.1 通用约定
+
+| 项 | 约定 |
+|---|---|
+| 前缀 | 业务接口统一 `/api/v1`；`/health` 与 `/health/ready` 在根路径 |
+| 鉴权 | `Authorization: Bearer <JWT>`；**除 health 外全部需要**（NFR-4） |
+| 令牌 | `POST /api/v1/auth/{register,login}` 返回 `access_token` + `expires_in`（秒，默认 7 天） |
+| 时间 | ISO 8601 带时区；数据库存 UTC |
+| 分页 | `limit`（1-200，默认 50）+ `offset`（≥0，默认 0）；响应为**裸数组**，总数暂不透出 |
+| 幂等 | 提交类接口支持 `idempotency_key`（≤128 字符），见 §2.5 |
+| 数据隔离 | 所有查询按 `user_id` 过滤；越权一律返回 **404 而非 403**（不泄露资源存在性） |
+
+### 2.2 错误响应格式
+
+统一使用 FastAPI 标准信封：
+
+```json
+{ "detail": "人类可读的原因" }
+```
+
+**需要前端分支处理**时，`detail` 用结构化对象：
+
+```json
+{
+  "detail": {
+    "code": "QUOTA_EXCEEDED",
+    "message": "额度不足：需要 10，剩余 3",
+    "fields": [ { "key": "images_per_sku", "reason": "超过单任务上限" } ]
+  }
+}
+```
+
+> 保留字符串形式是为了不破坏既有实现（现有 20+ 处简单的 `detail` 字符串）。
+> **新代码若需要机器可读码，一律用对象形式**，`code` 采用大写下划线命名。
+
+**HTTP 状态码 ↔ 场景映射**
+
+| 状态码 | 场景 | 备注 |
+|---|---|---|
+| 200 | 查询成功 | — |
+| 201 | 注册成功 | — |
+| 202 | **任务/批量已接受**（异步） | 不代表已完成 |
+| 400 | 请求格式错误 | — |
+| 401 | 缺少 / 无效 / 过期令牌 | 带 `WWW-Authenticate: Bearer` |
+| 402 | **额度不足**（EX-12） | 用 402 而非 403，语义更准 |
+| 403 | 权限不足（如非管理员访问管理接口） | — |
+| 404 | 资源不存在**或不属于当前用户** | 越权也用 404 |
+| 409 | 状态冲突（不可取消 / 不可重试 / 邮箱已注册 / 无失败项可重跑） | — |
+| 422 | 参数校验失败（EX-3） | 含边界值越界 |
+| 500 | 未预期错误 | 必须记日志并带 trace |
+
+### 2.3 接口清单（18 条，当前实现）
+
+| 方法 | 路径 | 用途 | 鉴权 |
+|---|---|---|---|
+| GET | `/health` | 存活探针 | 否 |
+| GET | `/health/ready` | 就绪探针（依赖项检查） | 否 |
+| POST | `/api/v1/auth/register` | 注册（送额度，不需信用卡） | 否 |
+| POST | `/api/v1/auth/login` | 登录 | 否 |
+| GET | `/api/v1/auth/me` | 当前用户 + 配额 | ✅ |
+| POST | `/api/v1/tasks` | 提交单次生成（FR-2.5） | ✅ |
+| GET | `/api/v1/tasks` | 任务列表（FR-4.1） | ✅ |
+| GET | `/api/v1/tasks/{task_id}` | 任务详情（FR-4.2） | ✅ |
+| POST | `/api/v1/tasks/{task_id}/cancel` | 取消（FR-4.3） | ✅ |
+| POST | `/api/v1/tasks/{task_id}/retry` | 重试（FR-4.4） | ✅ |
+| POST | `/api/v1/tasks/estimate` | 提交前预估张数/耗时/成本（FR-3.3） | ✅ |
+| POST | `/api/v1/batches` | 提交批量（FR-3.4） | ✅ |
+| GET | `/api/v1/batches` | 批量列表 | ✅ |
+| GET | `/api/v1/batches/{batch_id}` | 批量详情 | ✅ |
+| POST | `/api/v1/batches/{batch_id}/retry-failed` | 断点续跑，只重跑失败项（FR-3.5） | ✅ |
+| GET | `/api/v1/workflows` | 工作流列表 | ✅ |
+| GET | `/api/v1/workflows/{name}/schema` | **工作流参数 Schema**（驱动动态表单） | ✅ |
+| GET | `/api/v1/templates` · `/categories` · `/api/v1/models` | 模板与模型清单 | ✅ |
+
+**尚未实现（P6 补齐）**：素材上传（P6-09）、产物下载签名 URL（P6-10）、
+WebSocket 进度推送（P6-04）、管理后台接口（P7-09）、API Key 鉴权（P6-07）。
+
+### 2.4 关键请求 / 响应体
+
+#### `POST /api/v1/tasks` → 202
+
+请求（`TaskSubmitIn`）：
+
+```json
+{
+  "workflow_name": "flux2_klein_t2i_v1",
+  "template_id": null,
+  "prompt": "一只白色陶瓷咖啡杯，白色背景，柔光",
+  "negative_prompt": null,
+  "params": { "width": 1024, "height": 1024 },
+  "upload_asset_ids": [],
+  "steps": 4,
+  "cfg": 1.0,
+  "seed": 20260916,
+  "idempotency_key": "可选-客户端生成"
+}
+```
+
+响应（`TaskOut`，关键字段）：
+
+```json
+{
+  "id": 123, "batch_id": null, "idx": 0,
+  "status": "queued",
+  "workflow_id": 2, "template_id": null,
+  "params": { "...合并后的最终参数..." },
+  "seed": 20260916,
+  "retry_count": 0, "error_type": null, "error_message": null,
+  "started_at": null, "finished_at": null,
+  "wait_seconds": null, "duration_ms": null,
+  "gpu_seconds": null, "cost_yuan": null,
+  "created_at": "2026-09-16T03:00:00Z"
+}
+```
+
+> ⚠️ `status` 是 `queued`（不是 `pending`），理由见 §1.4。
+
+#### `POST /api/v1/batches` → 202
+
+请求（`BatchSubmitIn`）：`sku_assets` 为 `SKU → 素材 ID 列表`，`images_per_sku` 默认 1、上限 20。
+
+```json
+{
+  "workflow_name": "flux2_klein_t2i_v1",
+  "name": "2026春-陶瓷杯",
+  "sku_assets": { "SKU-A": [11, 12], "SKU-B": [13] },
+  "common_params": { "width": 1024, "height": 1024 },
+  "images_per_sku": 2
+}
+```
+
+**子任务粒度 = 一张图**（PRD §3.1 决策）—— 这样失败能精确隔离，断点续跑才能只重跑失败的那几张。
+同批次内 `seed` 自动递增（风格一致但每张不同）；要严格一致须显式固定 `seed`。
+
+#### `POST /api/v1/tasks/estimate` → 200
+
+```json
+{
+  "total_images": 6,
+  "estimated_seconds": 120.0,
+  "estimated_cost_yuan": null,
+  "gpu_concurrency": 1,
+  "queue_depth": 3,
+  "estimated_wait_seconds": 60.0
+}
+```
+
+> 单张耗时优先取该工作流**历史成功任务的平均值**，无历史时用保守经验值 20s。
+> GPU 并发恒为 1（NFR-2），所以总耗时 = 单张 × 张数（串行）。
+> `estimated_cost_yuan` 为 `null` 直到 `.env` 里配上 `GPU_COST_PER_HOUR`。
+
+### 2.5 幂等（EX-6）
+
+同用户 + 同 `idempotency_key` 重复提交 → **返回已有 task_id，不新建任务**。
+未传 `idempotency_key` 时不做去重。
+
+---
+
+## 3. 工作流参数 Schema 格式
+
+**用途**：一个格式同时驱动三件事 ——
+① 后端参数校验与注入 ② 前端动态表单（P7-02）③ 工作流注册表（P3-09）
+
+**存放位置**：`Workflow.param_schema`（JSONB）。经 `GET /api/v1/workflows/{name}/schema` 对外暴露。
+
+### 3.1 格式定义
+
+```json
+{
+  "schema_version": 1,
+  "fields": [
+    {
+      "key": "steps",
+      "label": "采样步数",
+      "type": "int",
+      "default": 30,
+      "min": 1,
+      "max": 100,
+      "step": 1,
+      "group": "采样",
+      "help": "klein 蒸馏版固定 4 步，调高无收益",
+      "advanced": false,
+      "targets": [ { "node_id": "3", "input": "steps" } ]
+    }
+  ]
+}
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `schema_version` | ✅ | 当前 `1`。破坏性改动必须递增 |
+| `fields` | ✅ | 参数数组。**后端 `_merge_params` 依赖 `fields[].key` 与 `fields[].default`** |
+| `key` | ✅ | 唯一，即 `params` 里的键名。命名用 `snake_case` |
+| `label` | ✅ | 表单显示名（中文） |
+| `type` | ✅ | 见 §3.2 |
+| `default` | ✅ | **必填** —— 参数合并的兜底值 |
+| `min` / `max` / `step` | type 为数值时必填 | 与 PRD §6.2 边界值一致 |
+| `options` | `type=enum` 时必填 | `[{"value": "...", "label": "..."}]` |
+| `group` | ➖ | 表单分组名，同组折叠在一起 |
+| `help` | ➖ | 字段下方提示文案 |
+| `advanced` | ➖ | 默认 `false`；`true` 则折叠进「高级设置」 |
+| `visible_when` | ➖ | 条件显隐：`{"key": "mode", "equals": "controlnet"}` |
+| `targets` | ✅ | 注入到 ComfyUI 图的位置，见 §3.4 |
+
+### 3.2 type 取值表
+
+| type | 前端控件 | 后端校验 | 备注 |
+|---|---|---|---|
+| `int` | 滑块 / 数字输入 | `min ≤ v ≤ max`，整数 | — |
+| `float` | 滑块 / 数字输入 | `min ≤ v ≤ max` | 需配 `step`（如 `0.05`） |
+| `str` | 单行文本 | `max_length` | 配 `max_length` 字段 |
+| `text` | 多行文本 | `max_length` | 提示词用 |
+| `bool` | 开关 | 布尔 | — |
+| `enum` | 下拉 / 单选 | 必须在 `options[].value` 内 | — |
+| `seed` | 数字 + 🎲 随机按钮 | 整数；`-1` 表示随机 | — |
+| `image` | 上传 / 素材选择 | 单张，受 §6.2 上传边界约束 | 值经 `asset_id` 传递 |
+| `image_list` | 多图上传 | 张数上限 | 同上 |
+
+### 3.3 `targets` 注入约定（B ↔ A 的硬边界）
+
+`targets` 声明「这个参数最终写到工作流 JSON 的哪个节点的哪个入参」：
+
+```json
+"targets": [ { "node_id": "3", "input": "steps" } ]
+```
+
+| 字段 | 必填 | 说明 |
+|---|---|---|
+| `node_id` | ✅ | ComfyUI API 格式里的节点 ID（**字符串**）。子图用运行时自身约定（如 `"13:5"`） |
+| `input` | ✅ | 该节点的入参名，必须与 `/object_info` 一致 |
+| `transform` | ➖ | 值适配方式，见下 |
+
+`transform` 取值（不填 = 原样注入）：
+
+| 取值 | 含义 |
+|---|---|
+| `ref_to_filename` | `asset_id` → ComfyUI 可见的文件名（用于图片类） |
+| `join_lines` | 数组 → 换行拼接的字符串 |
+| `json_str` | 对象 → JSON 字符串 |
+
+> **一个参数可映射到多个 target**（如 `width` 同时写给 `EmptyLatentImage.width` 和某个 `Resize.width`）。
+> `targets` 为空数组是**合法**的 —— 表示该参数只参与业务逻辑（如 `sku`、`upload_asset_ids`）而不注入图。
+
+### 3.4 参数优先级与校验责任
+
+**合并优先级（低 → 高）**
+
+```
+工作流 fields[].default  <  模板 preset_params  <  请求 body.params  <  顶层 steps / cfg / seed
+```
+
+> 顶层 `steps` / `cfg` / `seed` 是**便捷别名**，优先级最高。
+> 这是既有实现的行为（`_merge_params` + `submit_task` 的显式覆盖），已冻结。
+
+**校验责任划分**
+
+| 层 | 责任 | 依据 |
+|---|---|---|
+| D 前端 | 提交前校验（体验） | Schema 的 `type` / `min` / `max` / `options` |
+| A 后端 | **必须二次校验**（安全） | 前端校验可被绕过；非法参数会让 ComfyUI 报难以理解的错 |
+| A 后端 | 边界值统一取 `settings` | 保证「PRD §6.2」与「代码校验」不各说各话 |
+| B 工作流 | 保证 `targets` 指向真实存在的节点与入参 | 用 `08_probe_nodes.py` + `26_validate_workflow.py` 验证 |
+
+### 3.5 完整示例（FLUX.2 klein 文生图）
+
+```json
+{
+  "schema_version": 1,
+  "fields": [
+    {
+      "key": "prompt", "label": "正向提示词", "type": "text",
+      "default": "", "max_length": 2000, "group": "提示词",
+      "targets": [ { "node_id": "6", "input": "text" } ]
+    },
+    {
+      "key": "width", "label": "宽度", "type": "int",
+      "default": 1024, "min": 512, "max": 2048, "step": 64,
+      "group": "画布", "targets": [ { "node_id": "5", "input": "width" } ]
+    },
+    {
+      "key": "height", "label": "高度", "type": "int",
+      "default": 1024, "min": 512, "max": 2048, "step": 64,
+      "group": "画布", "targets": [ { "node_id": "5", "input": "height" } ]
+    },
+    {
+      "key": "steps", "label": "采样步数", "type": "int",
+      "default": 4, "min": 1, "max": 100, "step": 1,
+      "group": "采样", "advanced": true, "help": "klein 蒸馏版固定 4 步",
+      "targets": [ { "node_id": "3", "input": "steps" } ]
+    },
+    {
+      "key": "cfg", "label": "CFG", "type": "float",
+      "default": 1.0, "min": 1.0, "max": 20.0, "step": 0.1,
+      "group": "采样", "advanced": true,
+      "targets": [ { "node_id": "3", "input": "cfg" } ]
+    },
+    {
+      "key": "seed", "label": "随机种子", "type": "seed",
+      "default": -1, "group": "采样",
+      "targets": [ { "node_id": "3", "input": "seed" } ]
+    }
+  ]
+}
+```
+
+---
+
+## 4. 埋点事件名（冻结）
+
+**唯一事实来源**：`backend/app/models/event.py` 的 `EventName`
+**完整字段与口径**：`docs/prd/tracking_plan.md`
+
+| 取值 | 编号 | 说明 |
+|---|---|---|
+| `user_register` | E01 | 注册 |
+| `user_login` | E02 | 登录 |
+| `image_uploaded` | E03 | 上传完成 |
+| `template_selected` | E04 | ★ 关键转化点 |
+| `param_changed` | E05 | 参数改动 |
+| `task_submitted` | E06 | 提交（含 single/batch） |
+| `task_started` | E07 | 开始执行 |
+| `task_retry` | E08 | 重试 |
+| `task_finished` | E09 | ★ **最重要**（5 个指标依赖） |
+| `image_adopted` | E10 | ★ 良品率分子 |
+| `image_downloaded` | E11 | ★ 北极星分子 |
+| `image_regenerated` | E12 | 重新生成 |
+
+**关键约束**：`task_finished` **只在终态触发**（`TaskStatus.terminal()`）。
+单张成本用 `gpu_seconds` 而非挂钟时间。
+
+---
+
+## 5. 既有实现里需要修的不一致
+
+冻结时查出的问题。**已修的标 ✅，未修的登记为待办**（不影响三流启动）：
+
+| # | 位置 | 问题 | 状态 |
+|---|---|---|---|
+| 1 | `backend/app/models/enums.py` 文档字符串 | 写「8 个状态」，实际 `TaskStatus` 是 7 个（第 8 个 `partial` 属于 `BatchStatus`） | ✅ 已修 |
+| 2 | `docs/prd/PRD_v1.md` §5.4 T13 | 只写「failed/partial 可重试」，漏了 `canceled` | ✅ 已修（按本契约 §1.1 补齐） |
+| 3 | `docs/prd/PRD_v1.md` §5.4 T2 | 写「调度器取任务」，实际是**提交时同步入队** | ✅ 已修（补注并指向 §1.4） |
+| 4 | `backend/app/schemas/task.py` `TaskOut.can_retry` | 用 `@property` 且恒返回 `False`，Pydantic v2 下语义不清，前端拿到的可能是 `false` 常量 | ⬜ 待办（A 流：改为显式字段或删除） |
+| 5 | `TaskSubmitIn.prompt` 与 `params["prompt"]` | 两条通道都能传提示词，优先级未文档化 | ✅ 本契约 §3.4 已定：顶层优先；建议 A 流收掉重复通道 |
+| 6 | `BatchSubmitIn` 的 `max_batch_size` | 校验器检查的是 **SKU 数**，`submit_batch` 检查的是 **总张数**，同名不同义 | ⬜ 待办（A 流：拆成 `max_sku_count` / `max_batch_size`） |
+
+---
+
+## 6. 三流可动边界（防止互相踩）
+
+| 流 | 可自由改 | **不可动（须走契约变更）** |
+|---|---|---|
+| **A 后端** | `backend/` 下除枚举外的全部 | `app/models/enums.py` 的取值；API 路径与请求/响应字段名；错误格式 |
+| **B 工作流内核** | `workflows/`、`engine/`、`docs/sop/workflow_spec.md`、`docs/sop/debug_log.md` | 参数 Schema 的字段名与语义（§3） |
+| **C 资产与资料** | `assets/`、`engine/model_registry.yaml`、`deploy/` 下的下载脚本 | 不要改 `backend/`、`workflows/` |
+| **D 前端**（暂缓） | `web/` 全部 | 不得在前端硬编码状态取值、参数默认值、枚举选项 —— 一律从 Schema 与常量推导 |
+
+**跨流改动的唯一通道**：改本文档 → 通知对方流 → 双方同步。
+
+---
+
+## 7. 变更记录
+
+| 日期 | 改了什么 | 为什么 | 影响流 |
+|---|---|---|---|
+| 2026-09-16 | **首次冻结**：任务状态机 / REST API / 参数 Schema / 埋点事件名 | 开发进入多流并行，跨流边界必须先唯一化，否则必然返工 | A · B · C · D |
+| 2026-09-16 | 明确 `canceled` 可重试（覆盖 PRD T13） | 代码与 API 已如此实现，且语义合理（用户取消后想再跑是常见需求） | A · D |
+| 2026-09-16 | 明确「提交后状态为 `queued`」 | 实现是提交时同步入队，前端若按 `pending` 写判断会出错 | A · D |
