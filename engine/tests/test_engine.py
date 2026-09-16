@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import json
-import pathlib
 import struct
 from typing import Any
 
@@ -34,7 +33,7 @@ from engine.metadata import (
     read_png_text_chunks,
     write_png_metadata,
 )
-from engine.registry import Registry
+from engine.registry import REPO_ROOT, Registry
 from engine.render import (
     RenderOptions,
     derive_seed,
@@ -981,7 +980,7 @@ class TestObjectInfoCheck:
         """L3 的前提：object_info 缓存必须在仓库里，且节点数与审计记录一致。"""
         import json as _json
 
-        p = pathlib.Path("deploy/schemas/object_info.v0.36.0.json")
+        p = REPO_ROOT / "deploy" / "schemas" / "object_info.v0.36.0.json"
         if not p.exists():
             pytest.skip("object_info 缓存不在仓库里（L3 不可用）")
         with p.open(encoding="utf-8") as fh:
@@ -992,7 +991,7 @@ class TestObjectInfoCheck:
 
     def test_real_registry_passes_l3(self):
         """端到端：真实注册表 **渲染后** 的图必须通过 L3。"""
-        p = pathlib.Path("deploy/schemas/object_info.v0.36.0.json")
+        p = REPO_ROOT / "deploy" / "schemas" / "object_info.v0.36.0.json"
         if not p.exists():
             pytest.skip("object_info 缓存不在仓库里（L3 不可用）")
         report = validate_registry(object_info=str(p))
@@ -1003,7 +1002,7 @@ class TestObjectInfoCheck:
         """负向对照：故意破坏 object_info，L3 必须报错（证明它真的在跑）。"""
         import json as _json
 
-        p = pathlib.Path("deploy/schemas/object_info.v0.36.0.json")
+        p = REPO_ROOT / "deploy" / "schemas" / "object_info.v0.36.0.json"
         if not p.exists():
             pytest.skip("object_info 缓存不在仓库里（L3 不可用）")
         with p.open(encoding="utf-8") as fh:
@@ -1390,7 +1389,7 @@ class TestG7WeightProbe:
         from engine.tools.probe_g7_weight import BNK_DEFAULTS, _build_bnk_variant
         from engine.validate import _load_object_info, check_object_info
 
-        info_path = pathlib.Path("deploy/schemas/object_info.v0.36.0.json")
+        info_path = REPO_ROOT / "deploy" / "schemas" / "object_info.v0.36.0.json"
         if not info_path.exists():
             pytest.skip("object_info 缓存不在仓库里（L3 不可用）")
         info = _load_object_info(str(info_path))
