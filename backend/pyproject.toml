@@ -11,11 +11,13 @@ dependencies = [
     # 配置与校验
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
-    # `app/schemas/user.py` 用了 `EmailStr`，而 pydantic 校验邮箱时会 import
-    # email_validator —— 缺了它，任何带 email 字段的请求都会在运行期报 ImportError
-    # （不是启动时报，所以本地"能起服务"会掩盖它）。
+    # `app/schemas/user.py` 用了 `EmailStr`，而 pydantic 在**构建模型 schema 时**
+    # （即 `import app.schemas.user` 的那一刻）就会 import email_validator。
+    # 缺了它不是"运行期才暴露"的小问题，而是**导入期/启动期直接失败**：
+    # `import app.main` 当场抛 `ImportError: email-validator is not installed`，
+    # 服务根本起不来（已用 MetaPathFinder 屏蔽 email_validator 复现过）。
     # 这条是补 P2-11 建 CI 时暴露的欠声明：本地 venv 里是手工装过才一直没露馅，
-    # 换台机器按文档 `pip install -e ./backend` 就会在跑测试时炸出 63 个 ImportError。
+    # 换台机器按文档 `pip install -e ./backend` 就会在测试收集（导入）阶段炸出 63 个 ImportError。
     "email-validator>=2.2",
     # 数据库
     "sqlalchemy>=2.0.36",
