@@ -220,9 +220,18 @@ export interface AssetOut {
    *
    * 已知键（由 `backend/app/worker/tasks.py` 写入，与后端逐字一致）：
    * `seed` / `workflow`（形如 `t2i_v1@v3`）/ `engine_prompt_id` / `params`
-   * （本次**实际生效**的完整参数）/ `filename` / `node_id` / `sha256`。
+   * （本次**实际生效**的完整参数）/ `models` / `filename` / `node_id` / `sha256`。
    *
-   * ⚠️ 这里**没有**「模型」字段 —— 取不到就不要在界面上编一个。
+   * `models` 是「这张图**实际加载**了哪些权重」的清单（C1 / FR-5.4），
+   * 由 `backend/app/services/workflow_models.py` 的 `extract_models` 从
+   * **提交给引擎的那张图**（已按 `_meta.switches` 裁掉 bypass 分支）提取，
+   * 每项形如 `{ node, class_type, input, name }`（列表而非字典：
+   * 多 LoRA 时字典的 `lora_name` 只能留下最后一个，会丢信息）。
+   * 顺序 = 节点 id 数值序，同一输入跑两次结果一致。
+   *
+   * ⚠️ **后端已提供，但前端尚未展示**：`MetadataDrawer.tsx` 目前只渲染
+   * `seed` / `workflow` / `params` / 标量键，还没消费 `models`（那是另一项工作）。
+   * 在那之前**不要**在界面上编一个模型名 —— 要么不显示，要么如实显示这个字段。
    */
   meta: Record<string, unknown>
   created_at: string
