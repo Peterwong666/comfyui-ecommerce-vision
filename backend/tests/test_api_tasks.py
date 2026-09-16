@@ -194,19 +194,39 @@ def test_batch_seed_increments_across_skus(client, db: Session) -> None:
     assert len(set(seeds)) == len(seeds)  # 无重复
 
 
-def test_batch_random_seed_stays_random(client, db: Session) -> None:
-    """`seed=-1` 是「随机」哨兵：不能叠加递增（语义相矛盾）。"""
+def test_batch_random_seed_uses_kernel_semantics(client, db: Session) -> None:
+    """`seed = -1` 的批内语义**由内核 `derive_seed()` 定义**：先随机出基准，再递增。
+
+    即「整批随机，但批内递增」——不是「每张都塞 -1」。
+    这条口径写在 `docs/sop/workflow_spec.md` §7.1（强制级）：
+    `-1` 只是"随机"的哨兵，**最终落库必须是具体整数**，否则产物元数据里只有 `-1`，
+    用户再也复现不出那一批图（FR-5.4 / FR-5.5 静默失效）。
+
+    ⚠️ 我上一版自己实现了「`-1` 保持 `-1` 不递增」，并写了条测试把它钉住 ——
+    **测试断言的是实现当时的行为，而实现本身错了**。这条测试改为断言内核语义。
+    """
     resp = client.post(
         "/api/v1/batches",
         json={
             "workflow_name": "t2i_v1",
-            "sku_assets": {"A": [1], "B": [2]},
+            "sku_assets": {"A": [1], "B": [2], "C": [3]},
             "common_params": {"seed": -1},
+            "images_per_sku": 2,
         },
     )
     assert resp.status_code == 202, resp.text
-    children = db.scalars(select(Task).where(Task.batch_id == resp.json()["id"])).all()
-    assert {c.params["seed"] for c in children} == {-1}
+    children = sorted(
+        db.scalars(select(Task).where(Task.batch_id == resp.json()["id"])).all(),
+        key=lambda t: t.idx,
+    )
+    seeds = [c.params["seed"] for c in children]
+
+    assert len(seeds) == 6
+    assert all(isinstance(s, int) and s != -1 for s in seeds), f"哨兵未被实体化：{seeds}"
+    assert len(set(seeds)) == 6, f"批内 seed 撞车（会出同一张图）：{seeds}"
+    # 批内递增：相邻两张差 1。用模运算表达，避免 base 落在取值域末尾时回绕导致 flaky
+    space = 2**32
+    assert [(b - a) % space for a, b in zip(seeds, seeds[1:], strict=False)] == [1] * 5
 
 
 def test_batch_without_seed_leaves_it_unset(client, db: Session) -> None:

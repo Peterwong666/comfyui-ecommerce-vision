@@ -76,13 +76,18 @@ class Settings(BaseSettings):
     max_image_side: int = 8192
 
     max_batch_size: int = 1000
-    # 单个批量的 **SKU 数**上限。与 max_batch_size（**总张数**上限）是两个维度：
+    # 单个批量的 **SKU 数**上限。与 `max_batch_size`（**总张数**上限）是两个维度：
     # SKU 数 × images_per_sku = 总张数。契约 §5 #6 之前两者同名，已拆分。
     #
-    # ⚠️ 取值说明：PRD §6.2 只定义了「单任务张数 1-1000」，**没有 SKU 维度的边界**。
-    # 因为 images_per_sku ≥ 1，SKU 数恒 ≤ 总张数，所以取 1000 不会比 PRD 更严
-    # （不需要为不存在的约束编一个业务值）。若 Business 后续要给 SKU 维度单独限流，
-    # 改这里即可，不必动校验代码。
+    # ⚠️ **它的定位是「冗余的显式护栏」，不是一条独立的业务规则。**
+    # PRD §6.2 只定义了「单任务张数 1-1000」，没有 SKU 维度的边界；而因为
+    # `images_per_sku ≥ 1`，SKU 数恒 ≤ 总张数 —— 也就是说**总张数校验已经覆盖了它**。
+    # 那为什么还要它？因为拦在 SKU 维度上时**错误信息更准**：
+    # 「1000 个 SKU 各出 1 张」用 SKU 维度拒绝，比用总张数拒绝更容易让用户看懂问题。
+    #
+    # ⚠️ **不要把它设得比 PRD 更严**（即不要低于 max_batch_size）。无依据地收紧边界
+    # 会让用户莫名其妙被拒 —— 而"莫名其妙"正是最消耗信任的一类报错。
+    # 将来若 Business 真的要给 SKU 维度单独限流，改这里即可，不必动校验代码。
     max_sku_count: int = 1000
     min_prompt_length: int = 1
     max_prompt_length: int = 2000

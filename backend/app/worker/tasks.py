@@ -25,6 +25,15 @@ from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+# 渲染（参数注入）**一律用 B 流的工作流内核**，A 流只负责「把参数合并好」交给它。
+#
+# ⚠️ 这里曾经有一份 A 流自己写的 `app/engine/injector.py`，它只实现了渲染流水线的
+# 第 ⑤ 步（targets 注入），缺 ②（seed 解析）③（bypass 裁剪）④（占位符替换）——
+# 单独用它会导致：seed=-1 不被实体化 → 元数据里只有 -1 → 用户永远复现不出那张图；
+# bypass 分支不被裁剪 → 关掉的分支照样执行；`{{}}` 占位符不生效。
+# 已按裁定删除（契约 §3.3 只允许一份实现）。
+from engine import ParamSchema, RenderError, RenderOptions, RenderResult
+from engine import render as render_workflow
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -38,7 +47,6 @@ from app.engine.driver import (
     ExecutionResult,
     ProgressWatcher,
 )
-from app.engine.injector import InjectionError, InjectionResult, inject_params
 from app.models.asset import Asset
 from app.models.enums import AssetKind, ErrorType, TaskStatus
 from app.models.event import AuditLog, EventName
@@ -69,6 +77,20 @@ class Outcome(str, enum.Enum):
     MISSING = "missing"  # 任务不存在（被删了）
     LOCK_BUSY = "lock_busy"  # 没抢到 GPU 独占位，退回队列
     TIMED_OUT = "timed_out"  # Celery 软超时兜底
+
+
+class AssetResolutionError(Exception):
+    """素材解析失败（读存储 / 上传引擎时出错）。
+
+    带 `ErrorType` 是为了让执行层能沿用既有的重试判定：
+    「存储读不到」是瞬时故障（可重试），「上传被拒」是素材本身的问题（不可重试）。
+    素材**不存在或越权**不归这里 —— 那是调用方引用错了，用内核的 `RenderError`
+    （EX-3 / 不可重试）更贴切。
+    """
+
+    def __init__(self, message: str, error_type: ErrorType = ErrorType.INVALID_UPLOAD):
+        super().__init__(message)
+        self.error_type = error_type
 
 
 class TaskExecutor:
@@ -186,20 +208,14 @@ class TaskExecutor:
                 f"工作流 {task.workflow_id} 不存在（workflow 被删或 id 失效）",
             )
 
-        # 参数注入要在标 running **之前**做完：
-        # 注入错误是"这张图根本没法跑"，不该占用排队时长统计，也不该显示成"跑过"。
-        # 但状态机不允许 queued → failed（契约 §1.3 的迁移表里没有这条边），
-        # 所以必须先 running 再立刻 failed —— 见 _fail_immediately 的说明。
+        # Schema 合法性检查放在标 running **之前**：它不碰 GPU、也不读素材，
+        # 纯配置问题就该在"排队统计"开始之前失败（见 _fail_immediately 的说明）。
         try:
-            injection = inject_params(
-                workflow.definition,
-                workflow.param_schema,
-                task.params,
-                workflow.param_bindings,
-                seed=task.seed,
+            schema = ParamSchema.load(workflow.param_schema)
+        except Exception as exc:  # engine.SchemaError（参数 Schema 本身不合契约）
+            return self._fail_immediately(
+                db, task, ErrorType.INVALID_PARAM, f"工作流的参数 Schema 非法：{exc}"
             )
-        except InjectionError as exc:
-            return self._fail_immediately(db, task, ErrorType.INVALID_PARAM, f"参数注入失败：{exc}")
 
         sm.mark_running(db, task)
         db.commit()
@@ -219,7 +235,16 @@ class TaskExecutor:
         watcher: ProgressWatcher | None = None
         vram_samples: list[float] = []
         try:
-            prompt_id = client.submit(injection.definition)
+            # 渲染（含 seed 实体化、bypass 裁剪、占位符、targets 注入）由 B 流内核完成。
+            # 图片类参数会在这里触发素材上传（A 流的 asset_resolver）。
+            rendered = self._render(db, task, workflow, schema, client)
+
+            # 把渲染期**实际生效的参数**回写：params 是唯一事实来源，Task.seed 是它的投影。
+            # 必须回写，否则库里留着的 `seed=-1` 与真正跑的那张图对不上，
+            # 可复现性（FR-5.4/5.5）就只是一句口号。
+            self._persist_resolved_seed(db, task, rendered)
+
+            prompt_id = client.submit(rendered.workflow)
             # 立刻落库：取消要按它去引擎里删/中断（T3/T4/T10），
             # trace 也要靠它把平台与引擎两侧的日志串起来（FR-4.5）。
             task.engine_prompt_id = prompt_id
@@ -250,9 +275,17 @@ class TaskExecutor:
                 workflow,
                 client,
                 result,
-                injection,
+                rendered,
                 max(vram_samples) if vram_samples else None,
             )
+
+        except (RenderError, AssetResolutionError) as exc:
+            # 渲染期失败：参数越界 / targets 指向不存在的节点 / 素材不存在或越权。
+            # 这些**重试一万次还是错**（EX-3 语义），所以按致命处理，不进重试队列 ——
+            # 否则必然失败的任务会把 GPU 队列堵死（PRD §5.4 T7 vs T11 的设计要点）。
+            error_type = getattr(exc, "error_type", ErrorType.INVALID_PARAM)
+            self._best_effort_cancel(client, prompt_id, task.id)
+            return self._fail_after_run(db, task, error_type, f"渲染失败：{exc}")
 
         except ExecutionCanceled:
             # T10：状态已由 API 改成 canceled（或马上就会）。
@@ -371,6 +404,130 @@ class TaskExecutor:
             log.debug("task.vram_sample_failed err=%s", str(exc)[:120])
         return None
 
+    # ---------------------------------------------------------------- 渲染
+
+    def _render(
+        self,
+        db: Session,
+        task: Task,
+        workflow: Workflow,
+        schema: ParamSchema,
+        client: ComfyUIClient,
+    ) -> RenderResult:
+        """调用 B 流工作流内核渲染，返回可直接提交的节点图。
+
+        A 流在这条链路上的职责只有两件：
+        ① **参数合并**（`default < 模板预设 < body.params < 顶层别名`，契约 §3.4）——
+           已在 API 层完成，落到 `task.params`；
+        ② **`asset_resolver`** —— 把 `asset_id` 变成引擎可见的文件名
+           （内核刻意不猜素材路径，见 B 流 `engine/transforms.py` 的说明）。
+        其余（seed 解析、bypass 裁剪、占位符、targets 注入）全部由内核负责。
+        """
+        resolver = self._asset_resolver(db, task, client)
+        rendered = render_workflow(
+            workflow.definition,
+            schema,
+            task.params,
+            options=RenderOptions(asset_resolver=resolver),
+        )
+        # 内核的 pruned / rewired / warnings 是排查「参数没生效」的关键线索，
+        # 不记日志的话，这类问题只能靠猜。
+        if rendered.pruned or rendered.rewired:
+            log.info(
+                "task.rendered pruned=%s rewired=%s",
+                list(rendered.pruned),
+                list(rendered.rewired),
+                extra=bind_task(task_id=task.id),
+            )
+        for warning in rendered.warnings:
+            log.warning("task.render_warning %s", warning, extra=bind_task(task_id=task.id))
+        return rendered
+
+    def _asset_resolver(
+        self, db: Session, task: Task, client: ComfyUIClient
+    ) -> Callable[[Any], str]:
+        """`asset_id` → ComfyUI 可见的文件名（按需把素材上传到引擎的 input 目录）。
+
+        ⚠️ **这是 V1 首发场景的必需路径，不是可选项**：电商商品图的核心输入就是
+        参考图（商品主体）。缺了它，带参考图的工作流会在渲染期报错。
+
+        **Per-task 缓存是必需的**：一个 1000 张的批次里，同一件商品的参考图会被
+        引用 1000 次；不缓存就是 1000 次「读存储 + 上传引擎」，
+        IO 会直接变成比 GPU 推理更长的瓶颈。
+
+        ⚠️ **仍未闭环的部分（属 P6-09）**：本回调只负责"把素材从存储搬到引擎"。
+        真正让 `Asset(kind=upload)` 存在的**用户上传接口**还没实现 ——
+        也就是说，在 P6-09 完成前，这条路径只能被手工造出来的素材走到。
+        P6-09 还要接管：素材入桶的 bucket 配置（现在读的是
+        `minio_bucket_outputs` 对应的存储实例）、去重、以及素材生命周期清理。
+        """
+        cache: dict[int, str] = {}
+
+        def resolve(asset_id: Any) -> str:
+            try:
+                key = int(asset_id)
+            except (TypeError, ValueError) as exc:
+                raise RenderError(f"图片参数引用不是合法 asset_id：{asset_id!r}") from exc
+            if key in cache:
+                return cache[key]
+
+            asset = db.get(Asset, key)
+            if asset is None:
+                raise RenderError(f"素材 {key} 不存在（可能已被删除）")
+            # 数据隔离（FR-1.3）：只能引用自己的素材。越权一律当"不存在"处理，
+            # 不泄露"该素材存在但不属于你"。
+            if asset.user_id != task.user_id:
+                raise RenderError(f"素材 {key} 不属于当前用户")
+
+            try:
+                with self._storage_factory() as storage:
+                    data = storage.get(asset.object_key)
+            except Exception as exc:
+                # 存储不可达是**瞬时**故障（与产物落盘失败同类，EX-13），值得重试
+                raise AssetResolutionError(
+                    f"读取素材 {key} 失败：{exc}", ErrorType.SAVE_FAILED
+                ) from exc
+
+            filename = asset.original_name or f"asset_{key}.png"
+            info = client.upload_image(data, filename, subfolder=f"task_{task.id}")
+            name = info.get("name")
+            if not isinstance(name, str) or not name:
+                raise AssetResolutionError(
+                    f"素材 {key} 上传后未返回文件名：{info}", ErrorType.INVALID_UPLOAD
+                )
+            cache[key] = name
+            log.info(
+                "task.asset_uploaded asset_id=%s name=%s",
+                key,
+                name,
+                extra=bind_task(task_id=task.id),
+            )
+            return name
+
+        return resolve
+
+    def _persist_resolved_seed(self, db: Session, task: Task, rendered: RenderResult) -> None:
+        """把渲染期**实际生效**的 seed 回写。
+
+        `params` 是唯一事实来源（契约 §3.4），`Task.seed` 只是它的**投影** ——
+        两者必须一致，否则：
+
+        - 库里留着 `seed = -1`（随机哨兵），而真正跑的是某个具体整数 →
+          用户按记录的参数再跑一次，永远得不到同一张图（FR-5.4 / FR-5.5 静默失效）；
+        - `Task.seed` 是一等可查询属性（列表筛选、看板统计要用），
+          它若不是真值，基于它的统计就是错的。
+
+        `params` 需要**整体替换**而不是就地改键：JSONB 列的原地修改不会被
+        SQLAlchemy 感知，改了也不会落库。
+        """
+        if rendered.seed is None:
+            return
+        task.params = {**(task.params or {}), "seed": rendered.seed}
+        task.seed = rendered.seed
+        db.flush()
+
+    # ---------------------------------------------------------------- 成功收尾
+
     def _finish_success(
         self,
         db: Session,
@@ -378,7 +535,7 @@ class TaskExecutor:
         workflow: Workflow,
         client: ComfyUIClient,
         result: ExecutionResult,
-        injection: InjectionResult,
+        rendered: RenderResult,
         vram_peak: float | None,
     ) -> Outcome:
         """成功后：取图 → 落存储 → 记 Asset → 标 succeeded。"""
@@ -422,13 +579,15 @@ class TaskExecutor:
                             mime_type=stored.mime_type,
                             size_bytes=stored.size_bytes,
                             # 可复现性元数据（FR-5.4 / C1）：客户追单时要能复现同一张图。
-                            # seed 用的是**实体化之后**的值 —— 用 -1 记下来的话，
-                            # 事后根本复现不出这张图。
+                            # 两处值都来自渲染内核：
+                            # - seed 是**解析后**的真实值（`-1` 已实体化）——
+                            #   记 -1 的话事后根本复现不出这张图；
+                            # - params 是本次**实际生效**的完整参数（含 Schema 默认值）。
                             meta={
-                                "seed": injection.seed,
+                                "seed": rendered.seed,
                                 "workflow": f"{workflow.name}@v{workflow.version}",
                                 "engine_prompt_id": result.prompt_id,
-                                "params": injection.resolved,
+                                "params": rendered.params,
                                 "filename": image["filename"],
                                 "node_id": image.get("node_id"),
                                 "sha256": stored.sha256,

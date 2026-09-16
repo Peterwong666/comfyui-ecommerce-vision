@@ -28,18 +28,19 @@
     POST /upload/mask                → 同上，另需 `original_ref`
     WS   /ws?clientId=<client_id>    → 进度事件流
 
-⚠️ **实测状态**（务必与代码一起读）：
-`/prompt`、`/history`、`/view`、`/system_stats` 已在 v0.36.0 的 4090 上实测可用
-（`deploy/autodl/27_gpu_verify.sh` 走的就是这条路径）。
-`GET /queue`、`POST /queue`（删除）、`/upload/image`、`/upload/mask`、`/ws` 五组
-**尚未在真机验证** —— 当前实例处于无卡模式（无 GPU，ComfyUI 不启动），
-无法联调。参数与事件名按官方源码约定实现，真机联调时若发现出入，
-**优先改这里而不是在 worker 里打补丁**。
+⚠️ **实测状态**（务必与代码一起读，别只看"能跑"就当成全验过）：
 
-失败影响面（已按"出错也不致命"设计，但仍需真机确认）：
-`queue_depth()` 失败返回 -1（只影响"预计等待"）；`ProgressWatcher` 失败只记 warning
-（权威状态在 `/history` 轮询）；`upload_*` 失败会抛 `INVALID_UPLOAD` ——
-**这一条是真会挡住业务的**，联调时优先验证。
+| 端点 | 状态 | 证据 |
+|---|---|---|
+| `/prompt` · `/history` · `/view` · `/system_stats` | ✅ 真机通过 | v0.36.0 + 4090，`deploy/autodl/04_api_smoke_test.py` / `27_gpu_verify.sh` |
+| `GET /queue` · `POST /queue`(delete) | ✅ 真机通过 | `33_verify_comfyui_endpoints.py`，2026-09-16 |
+| `POST /upload/image`（字段名 `image`） | ✅ 真机通过 | 同上 —— 这条曾是最高风险项（错了会挡住 P6-09） |
+| `POST /upload/mask`（`original_ref` 为 JSON 字符串） | ✅ 真机通过 | 同上；顺带查实"裸文件名会让引擎回 500"，已在 `_normalize_original_ref` 本地拦截 |
+| `WS /ws?clientId=...` | ❌ **未真机验证** | 只做了纯函数解析与假连接测试（`tests/test_driver.py`） |
+| 端到端 `execute_task`（经我们的渲染器真出一张图） | ❌ **未真机验证** | 需要 worker + Redis + ComfyUI 同时就绪 |
+
+进度事件的**事件名**尤其只有测试兜底：真机若发现出入，**优先改这里**，
+不要在每个调用点分别打补丁。
 """
 
 from __future__ import annotations
@@ -655,14 +656,22 @@ class ComfyUIClient:
 
         与 `upload_image` 的差别是必须带 `original_ref` —— ComfyUI 用它把遮罩
         与"被编辑的那张原图"绑定起来，缺了会 400。
+
+        ⚠️ **`original_ref` 必须是 JSON 对象，或其 JSON 字符串**（形如
+        `{"filename":"orig.png","subfolder":"","type":"input"}`）。
+        传**裸文件名**会让引擎侧 `json.loads` 抛 JSONDecodeError、端点回 **500** ——
+        这是真机实测踩到的（`deploy/autodl/33_verify_comfyui_endpoints.py`，
+        2026-09-16，RTX 4090）。所以这里在**本地**就拒绝，给出能指到问题的报错，
+        而不是把一个 500 留给调用方去猜。
         """
-        extra = {
-            "original_ref": original_ref
-            if isinstance(original_ref, str)
-            else json.dumps(original_ref)
-        }
         return self._upload(
-            "/upload/mask", data, filename, subfolder, folder_type, overwrite, extra
+            "/upload/mask",
+            data,
+            filename,
+            subfolder,
+            folder_type,
+            overwrite,
+            {"original_ref": _normalize_original_ref(original_ref)},
         )
 
     def _upload(
@@ -709,9 +718,7 @@ class ComfyUIClient:
 
     # ---------- 取图 ----------
 
-    def fetch_image(
-        self, filename: str, subfolder: str = "", folder_type: str = "output"
-    ) -> bytes:
+    def fetch_image(self, filename: str, subfolder: str = "", folder_type: str = "output") -> bytes:
         """取图片二进制（FR-5.2）。"""
         params = {"filename": filename, "type": folder_type}
         if subfolder:
@@ -745,6 +752,34 @@ def _strip_meta(workflow: dict[str, Any]) -> dict[str, Any]:
     `deploy/autodl/04_api_smoke_test.py` 也是这么处理的。
     """
     return {k: v for k, v in workflow.items() if not str(k).startswith("_")}
+
+
+def _normalize_original_ref(original_ref: str | dict[str, Any]) -> str:
+    """把 `original_ref` 规范成 ComfyUI 要的 **JSON 字符串**。
+
+    接受两种输入：JSON 对象（自己序列化）或已经是 JSON 字符串（原样透传）。
+    **拒绝裸文件名** —— 真机实测（`33_verify_comfyui_endpoints.py`）传裸文件名会让
+    引擎侧 `json.loads` 抛 JSONDecodeError 并回 500，而那看起来像"服务器坏了"，
+    实际是调用方对契约的假设错了。这种错应该在我们这里就报清楚。
+    """
+    if isinstance(original_ref, dict):
+        return json.dumps(original_ref, ensure_ascii=False)
+    text = str(original_ref)
+    try:
+        parsed = json.loads(text)
+    except ValueError as exc:
+        raise ComfyUIError(
+            f"original_ref 必须是 JSON 对象或其 JSON 字符串，"
+            f"收到的是裸字符串 {original_ref!r}（传裸文件名会让引擎 500）",
+            ErrorType.INVALID_UPLOAD,
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise ComfyUIError(
+            f"original_ref 解析出的不是对象：{parsed!r}（应为 "
+            '{"filename":..., "subfolder":..., "type":...}）',
+            ErrorType.INVALID_UPLOAD,
+        )
+    return text
 
 
 def _extract_error_detail(resp: httpx.Response) -> str:

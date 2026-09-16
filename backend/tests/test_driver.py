@@ -358,19 +358,50 @@ def test_upload_image_uses_image_field_name() -> None:
     assert body["name"] == "sku-a.png"
 
 
-def test_upload_mask_carries_original_ref() -> None:
-    """缺 original_ref 会被 ComfyUI 拒 —— 遮罩必须与"被编辑的原图"绑定。"""
-    seen: dict = {}
+def test_upload_mask_accepts_dict_and_json_string() -> None:
+    """`original_ref` 两种写法都要能work：JSON 对象、或已经是 JSON 字符串。"""
+    seen: list[bytes] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen["body"] = request.content
+        seen.append(request.content)
         return json_response({"name": "m.png", "subfolder": "", "type": "input"})
 
-    make_client(handler).upload_mask(
-        b"MASK", "m.png", original_ref={"filename": "orig.png", "subfolder": "", "type": "input"}
-    )
-    assert b'name="original_ref"' in seen["body"]
-    assert b"orig.png" in seen["body"]
+    client = make_client(handler)
+    ref = {"filename": "orig.png", "subfolder": "", "type": "input"}
+    client.upload_mask(b"MASK", "m.png", original_ref=ref)
+    client.upload_mask(b"MASK", "m.png", original_ref=json.dumps(ref))
+
+    for body in seen:
+        assert b'name="original_ref"' in body
+        assert b"orig.png" in body
+
+
+def test_upload_mask_rejects_bare_filename() -> None:
+    """传**裸文件名**必须在本地就被拒。
+
+    真机实测（`deploy/autodl/33_verify_comfyui_endpoints.py`，2026-09-16）：
+    引擎侧对 `original_ref` 做 `json.loads`，裸文件名会让它抛 JSONDecodeError 并回 **500**。
+    那个 500 看起来像"服务器坏了"，实际是调用方对契约的假设错了 ——
+    这种错必须在我们这里就报清楚，而不是留给调用方去猜。
+    """
+    called: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        called.append(request.url.path)
+        return json_response({})
+
+    client = make_client(handler)
+    with pytest.raises(ComfyUIError) as exc:
+        client.upload_mask(b"MASK", "m.png", original_ref="orig.png")
+    assert exc.value.error_type is ErrorType.INVALID_UPLOAD
+    assert called == [], "不应把注定 500 的请求发出去"
+
+
+def test_upload_mask_rejects_json_scalar() -> None:
+    """是合法 JSON 但不是对象（如 `"123"`、`"null"`）同样要拦。"""
+    client = make_client(lambda req: json_response({}))
+    with pytest.raises(ComfyUIError):
+        client.upload_mask(b"MASK", "m.png", original_ref='["not", "an", "object"]')
 
 
 def test_upload_failure_is_invalid_upload_not_retryable() -> None:

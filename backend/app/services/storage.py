@@ -50,6 +50,15 @@ class AssetStorage(abc.ABC):
     def put(self, key: str, data: bytes, content_type: str) -> StoredObject:
         """写入并返回对象的元信息。失败应抛异常（不返回 False）。"""
 
+    @abc.abstractmethod
+    def get(self, key: str) -> bytes:
+        """读回对象字节。
+
+        用途是「把用户上传的素材取出来、转交给 ComfyUI」（参考图类工作流的必需路径）。
+        **bucket 由具体实现自己决定**（见 `MinioAssetStorage.__init__`），
+        因此 `object_key` 是**与存储实现无关**的，可以安全地存进数据库。
+        """
+
     def close(self) -> None:  # pragma: no cover - 默认无资源可释放
         return None
 
@@ -61,7 +70,13 @@ class AssetStorage(abc.ABC):
 
 
 class MinioAssetStorage(AssetStorage):
-    """MinIO（S3 兼容）实现。客户端**懒创建**，避免 import 期就连外部服务。"""
+    """MinIO（S3 兼容）实现。客户端**懒创建**，避免 import 期就连外部服务。
+
+    ⚠️ **`Object_key` 刻意不带 bucket 前缀**：bucket 是部署配置（`outputs` / `uploads`
+    由设置决定），不是对象标识的一部分。若把 bucket 写进 key，`asset.object_key`
+    就绑定了具体存储实现 —— 换后端（S3 / OSS）或多桶布局时全表数据都得迁移，
+    而这正是抽象层本该挡住的。需要不同桶时，按用途构造不同实例即可。
+    """
 
     def __init__(
         self,
@@ -102,11 +117,22 @@ class MinioAssetStorage(AssetStorage):
             content_type=content_type,
         )
         return StoredObject(
-            object_key=f"{self._bucket}/{key}",
+            object_key=key,
             size_bytes=len(data),
             mime_type=content_type,
             sha256=hashlib.sha256(data).hexdigest(),
         )
+
+    def get(self, key: str) -> bytes:
+        client = self._ensure_bucket()
+        response = None
+        try:
+            response = client.get_object(self._bucket, key)
+            return response.read()
+        finally:
+            if response is not None:
+                response.close()
+                response.release_conn()
 
 
 class InMemoryAssetStorage(AssetStorage):
@@ -123,6 +149,11 @@ class InMemoryAssetStorage(AssetStorage):
             mime_type=content_type,
             sha256=hashlib.sha256(data).hexdigest(),
         )
+
+    def get(self, key: str) -> bytes:
+        if key not in self.objects:
+            raise KeyError(f"对象不存在：{key}")
+        return self.objects[key]
 
 
 def build_output_key(user_id: int, task_id: int, extension: str = "png") -> str:

@@ -150,20 +150,52 @@ def user(db: Session):  # type: ignore[no-untyped-def]
 
 @pytest.fixture
 def workflow(db: Session):  # type: ignore[no-untyped-def]
+    """一个契约合规的最小工作流（`param_schema` 必须能被 `engine.ParamSchema.load` 接受）。
+
+    合规要求（契约 §3.1 / B 流 `engine/schema.py`）：`schema_version` 必填；
+    每个 field 的 `key` / `label` / `type` / `default` / `targets` 都必填；
+    `int` / `float` 需要 `min` / `max`，`float` 还要 `step`。
+    **`targets` 即使在语义上为空也必须显式写 `[]`** —— 缺失会被判为配置错误。
+    """
     from app.models.workflow import Workflow
 
     wf = Workflow(
         name="t2i_v1",
         version=1,
         display_name="文生图",
-        definition={"1": {"class_type": "KSampler", "inputs": {}}},
-        param_schema={
-            "fields": [
-                {"key": "steps", "type": "int", "default": 25, "min": 1, "max": 100},
-                {"key": "cfg", "type": "float", "default": 7.0, "min": 1.0, "max": 20.0},
-            ]
+        # `_meta` 段是必填的（B 流 `workflow_spec.md` §2.1：节点图与仓库元数据的隔离带），
+        # 渲染时会整段剥离，不提交给 ComfyUI。
+        definition={
+            "_meta": {},
+            "1": {"class_type": "KSampler", "inputs": {"steps": 20, "cfg": 7.0}},
         },
-        param_bindings={"steps": ["1", "inputs", "steps"]},
+        param_schema={
+            "schema_version": 1,
+            "fields": [
+                {
+                    "key": "steps",
+                    "label": "采样步数",
+                    "type": "int",
+                    "default": 25,
+                    "min": 1,
+                    "max": 100,
+                    "step": 1,
+                    "targets": [{"node_id": "1", "input": "steps"}],
+                },
+                {
+                    "key": "cfg",
+                    "label": "CFG",
+                    "type": "float",
+                    "default": 7.0,
+                    "min": 1.0,
+                    "max": 20.0,
+                    "step": 0.1,
+                    "targets": [{"node_id": "1", "input": "cfg"}],
+                },
+                # 只参与业务逻辑、不进图的参数：targets 显式写 []
+                {"key": "sku", "label": "SKU", "type": "str", "default": "", "targets": []},
+            ],
+        },
         is_active=True,
     )
     db.add(wf)

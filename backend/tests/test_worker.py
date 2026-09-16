@@ -31,6 +31,17 @@ from app.services.storage import InMemoryAssetStorage
 from app.worker.concurrency import GpuLockUnavailable, GpuSlot, LockBackend
 from app.worker.tasks import Outcome, TaskExecutor, retry_backoff_seconds
 
+
+def minimal_schema(fields: list[dict] | None = None) -> dict:
+    """契约合规的最小 `param_schema`。
+
+    `schema_version` 与每个 field 的 `key`/`label`/`type`/`default`/`targets` 都是
+    必填，`int`/`float` 还要 `min`/`max`（float 另需 `step`）—— B 流 `engine/schema.py`
+    会严格校验，漏了就直接抛错。**构造测试数据时也必须守契约**，否则测的就不是生产路径。
+    """
+    return {"schema_version": 1, "fields": fields or []}
+
+
 # ---------------------------------------------------------------- 测试替身
 
 
@@ -69,6 +80,7 @@ class FakeDriver:
         wait_error: Exception | None = None,
         images: list[dict] | None = None,
         wait_cancel: bool = False,
+        upload_error: Exception | None = None,
     ) -> None:
         self.client_id = "fake"
         self.submit_error = submit_error
@@ -79,8 +91,11 @@ class FakeDriver:
             else [{"filename": "out.png", "subfolder": "", "type": "output", "node_id": "9"}]
         )
         self.wait_cancel = wait_cancel
+        self.upload_error = upload_error
         self.submitted: list[dict] = []
         self.cancels: list[str] = []
+        #: 每次 upload_image 的 filename，用于验证 "同一素材只上传一次" 的缓存
+        self.uploads: list[str] = []
         self.watchers_started = 0
         self.heartbeat_seen = False
 
@@ -93,6 +108,21 @@ class FakeDriver:
 
     def close(self) -> None:
         return None
+
+    def upload_image(
+        self,
+        data: bytes,
+        filename: str,
+        subfolder: str = "",
+        folder_type: str = "input",
+        overwrite: bool = False,
+    ) -> dict:
+        if self.upload_error is not None:
+            raise self.upload_error
+        self.uploads.append(filename)
+        # 引擎会返回它自己命名后的文件名（内部会去重/加后缀），
+        # 所以注入图里的值必须用**返回值**而不是我们传的 filename。
+        return {"name": f"engine-{filename}", "subfolder": subfolder, "type": folder_type}
 
     def submit(self, workflow: dict, client_id: str | None = None) -> str:
         if self.submit_error is not None:
@@ -210,7 +240,6 @@ def make_task_with_workflow(user_id: int, definition: dict, param_schema: dict, 
                 display_name="test",
                 definition=definition,
                 param_schema=param_schema,
-                param_bindings={},
                 is_active=True,
             )
             session.add(wf)
@@ -308,24 +337,36 @@ def test_success_path_full_lifecycle(session_factory, db, queued_task, storage) 
 
 
 def test_success_saves_asset_with_reproducible_meta(session_factory, db, user, storage) -> None:  # type: ignore[no-untyped-def]
-    """产物必须带上可复现性元数据（FR-5.4 / C1）—— 客户追单时要能复现同一张图。"""
-    definition = {"3": {"class_type": "KSampler", "inputs": {"steps": 4, "seed": 12345}}}
-    schema = {
-        "fields": [
+    """产物必须带上可复现性元数据（FR-5.4 / C1）—— 客户追单时要能复现同一张图。
+
+    seed 的实体化由 B 流内核在**渲染期**完成（`RenderResult.seed`），
+    A 流负责把它回写进 `params` / `Task.seed` / 产物元数据。
+    """
+    definition = {
+        "_meta": {},
+        "3": {"class_type": "KSampler", "inputs": {"steps": 4, "seed": 12345}},
+    }
+    schema = minimal_schema(
+        [
             {
                 "key": "steps",
+                "label": "采样步数",
                 "type": "int",
                 "default": 4,
+                "min": 1,
+                "max": 100,
+                "step": 1,
                 "targets": [{"node_id": "3", "input": "steps"}],
             },
             {
                 "key": "seed",
+                "label": "随机种子",
                 "type": "seed",
                 "default": -1,
                 "targets": [{"node_id": "3", "input": "seed"}],
             },
         ]
-    }
+    )
     task_id = make_task_with_workflow(user.id, definition, schema, {"steps": 8, "seed": -1})(
         session_factory
     )
@@ -384,7 +425,7 @@ def test_injection_is_applied_to_workflow(session_factory, db, queued_task, stor
     driver = FakeDriver()
     make_executor(session_factory, driver, storage).execute(queued_task.id)
     submitted = driver.submitted[0]
-    # workflow fixture 的 param_bindings 是 {"steps": ["1","inputs","steps"]}
+    # conftest 的 workflow fixture 里，steps 的 targets 指向节点 "1" 的 steps 入参
     assert submitted["1"]["inputs"]["steps"] == 25
     # 业务参数（有 targets 为空）不应被塞进图
     assert "sku" not in submitted["1"]["inputs"]
@@ -651,9 +692,8 @@ def test_missing_workflow_fails_via_running(session_factory, db, user) -> None: 
             name="will_be_deleted",
             version=1,
             display_name="x",
-            definition={"1": {"class_type": "KSampler", "inputs": {}}},
-            param_schema={"fields": []},
-            param_bindings={},
+            definition={"_meta": {}, "1": {"class_type": "KSampler", "inputs": {}}},
+            param_schema=minimal_schema(),
             is_active=True,
         )
         session.add(wf)
@@ -686,18 +726,21 @@ def test_injection_error_fails_with_invalid_param(session_factory, db, user) -> 
             name="bad_targets",
             version=1,
             display_name="x",
-            definition={"1": {"class_type": "KSampler", "inputs": {}}},
-            param_schema={
-                "fields": [
+            definition={"_meta": {}, "1": {"class_type": "KSampler", "inputs": {}}},
+            param_schema=minimal_schema(
+                [
                     {
                         "key": "steps",
+                        "label": "采样步数",
                         "type": "int",
                         "default": 4,
+                        "min": 1,
+                        "max": 100,
+                        "step": 1,
                         "targets": [{"node_id": "999", "input": "steps"}],
                     }
                 ]
-            },
-            param_bindings={},
+            ),
             is_active=True,
         )
         session.add(wf)
@@ -738,9 +781,8 @@ def test_requeue_orphans_picks_up_stale_queued(session_factory, db, engine, monk
             name="o",
             version=1,
             display_name="o",
-            definition={"1": {"class_type": "X"}},
-            param_schema={"fields": []},
-            param_bindings={},
+            definition={"_meta": {}, "1": {"class_type": "X"}},
+            param_schema=minimal_schema(),
             is_active=True,
         )
         session.add_all([u, wf])
@@ -794,9 +836,8 @@ def test_recover_zombies_requeues_immediately(session_factory, db, engine, monke
             name="z",
             version=1,
             display_name="z",
-            definition={"1": {"class_type": "X"}},
-            param_schema={"fields": []},
-            param_bindings={},
+            definition={"_meta": {}, "1": {"class_type": "X"}},
+            param_schema=minimal_schema(),
             is_active=True,
         )
         session.add_all([u, wf])
@@ -838,6 +879,156 @@ def test_recover_zombies_noop_when_none(session_factory, db, engine, monkeypatch
     assert called == []
 
 
+# ---------------------------------------------------------------- asset_resolver（P6-09 接缝）
+
+
+def _image_workflow(user_id: int, storage: InMemoryAssetStorage, asset_ids: list[int]):
+    """建一条「带参考图」的工作流 + 已入队任务，返回 (task_id 构建器, 定义)。
+
+    参考图是 V1 首发场景（电商商品图）的核心输入 —— 没有 resolver，
+    这类工作流会在渲染期直接报错。
+    """
+    definition = {
+        "_meta": {},
+        "10": {"class_type": "LoadImage", "inputs": {"image": "placeholder.png"}},
+    }
+    schema = minimal_schema(
+        [
+            {
+                "key": "image_list",
+                "label": "参考图",
+                "type": "image_list",
+                "default": [],
+                "targets": [{"node_id": "10", "input": "image", "transform": "ref_to_filename"}],
+            }
+        ]
+    )
+    return definition, schema, asset_ids
+
+
+def _make_asset(session_factory, user_id: int, storage, name: str) -> int:
+    """往存储里放一张「上传素材」并登记 Asset 行，返回 asset_id。"""
+    from app.services.storage import build_output_key
+
+    key = build_output_key(user_id, 0, name)
+    storage.put(key, f"bytes-of-{name}".encode(), "image/png")
+    session = session_factory()
+    try:
+        asset = Asset(
+            user_id=user_id,
+            kind=AssetKind.UPLOAD.value,
+            object_key=key,
+            mime_type="image/png",
+            size_bytes=len(f"bytes-of-{name}".encode()),
+            original_name=name,
+        )
+        session.add(asset)
+        session.commit()
+        return asset.id
+    finally:
+        session.close()
+
+
+def test_resolver_uploads_asset_once_for_whole_batch(session_factory, db, user, storage) -> None:  # type: ignore[no-untyped-def]
+    """**缓存是必需的**：同一张商品图在一个批次里会被引用很多次。
+
+    不缓存就是「读存储 + 上传引擎」重复 N 次 —— 1000 张的批次下，
+    这个 IO 会比 GPU 推理本身还长，直接把量产的吞吐打回去。
+    """
+    asset_id = _make_asset(session_factory, user.id, storage, "sku-a.png")
+    definition, schema, _ = _image_workflow(user.id, storage, [asset_id])
+    task_id = make_task_with_workflow(user.id, definition, schema, {"image_list": [asset_id]})(
+        session_factory
+    )
+
+    driver = FakeDriver()
+    make_executor(session_factory, driver, storage).execute(task_id)
+
+    # 只上传一次（缓存生效），且注入的是**引擎返回的文件名**而不是 asset_id
+    assert driver.uploads == ["sku-a.png"]
+    assert driver.submitted[0]["10"]["inputs"]["image"] == ["engine-sku-a.png"]
+
+
+def test_resolver_rejects_foreign_asset(session_factory, db, user, storage) -> None:  # type: ignore[no-untyped-def]
+    """数据隔离（FR-1.3）：不能引用别人的素材。按「不存在」处理，不泄露存在性。"""
+    session = session_factory()
+    try:
+        from app.models.enums import UserRole
+        from app.models.user import User
+
+        other = User(
+            email="other@example.com",
+            password_hash="x",
+            role=UserRole.USER.value,
+            quota_total=10,
+            quota_used=0,
+        )
+        session.add(other)
+        session.commit()
+        other_id = other.id
+    finally:
+        session.close()
+
+    foreign_asset = _make_asset(session_factory, other_id, storage, "theirs.png")
+    definition, schema, _ = _image_workflow(user.id, storage, [foreign_asset])
+    task_id = make_task_with_workflow(user.id, definition, schema, {"image_list": [foreign_asset]})(
+        session_factory
+    )
+
+    driver = FakeDriver()
+    outcome = make_executor(session_factory, driver, storage).execute(task_id)
+
+    assert outcome is Outcome.FAILED  # 越权是致命错误，不重试
+    assert driver.uploads == []  # 绝不把别人的素材传给引擎
+    assert read_task(session_factory, task_id).error_type == ErrorType.INVALID_PARAM.value
+
+
+def test_resolver_missing_asset_is_fatal(session_factory, db, user, storage) -> None:  # type: ignore[no-untyped-def]
+    """引用了不存在的素材（已被删）→ 致命，重试无意义。"""
+    definition, schema, _ = _image_workflow(user.id, storage, [999999])
+    task_id = make_task_with_workflow(user.id, definition, schema, {"image_list": [999999]})(
+        session_factory
+    )
+
+    driver = FakeDriver()
+    outcome = make_executor(session_factory, driver, storage).execute(task_id)
+    assert outcome is Outcome.FAILED
+    assert read_task(session_factory, task_id).error_type == ErrorType.INVALID_PARAM.value
+
+
+def test_resolver_storage_failure_is_retryable(session_factory, db, user, storage) -> None:  # type: ignore[no-untyped-def]
+    """存储读不到素材是**瞬时**故障（EX-13 同类），应重试而不是判死。"""
+    asset_id = _make_asset(session_factory, user.id, storage, "flaky.png")
+    definition, schema, _ = _image_workflow(user.id, storage, [asset_id])
+    task_id = make_task_with_workflow(user.id, definition, schema, {"image_list": [asset_id]})(
+        session_factory
+    )
+
+    class FlakyStorage(InMemoryAssetStorage):
+        def get(self, key: str) -> bytes:
+            raise OSError("MinIO 连接被重置")
+
+    outcome = make_executor(session_factory, FakeDriver(), FlakyStorage()).execute(task_id)
+    assert outcome is Outcome.RETRYING
+    task = read_task(session_factory, task_id)
+    assert task.error_type == ErrorType.SAVE_FAILED.value
+    assert task.status == TaskStatus.RETRYING.value
+
+
+def test_resolver_reports_engine_upload_failure(session_factory, db, user, storage) -> None:  # type: ignore[no-untyped-def]
+    """上传被引擎拒绝 → INVALID_UPLOAD（EX-10），不重试。"""
+    asset_id = _make_asset(session_factory, user.id, storage, "bad.png")
+    definition, schema, _ = _image_workflow(user.id, storage, [asset_id])
+    task_id = make_task_with_workflow(user.id, definition, schema, {"image_list": [asset_id]})(
+        session_factory
+    )
+
+    driver = FakeDriver(upload_error=ComfyUIError("unsupported format", ErrorType.INVALID_UPLOAD))
+    outcome = make_executor(session_factory, driver, storage).execute(task_id)
+    assert outcome is Outcome.FAILED
+    assert read_task(session_factory, task_id).error_type == ErrorType.INVALID_UPLOAD.value
+
+
 # ---------------------------------------------------------------- API ↔ Worker 端到端
 
 
@@ -849,7 +1040,7 @@ def test_api_submit_then_worker_execute_batch(
     这条测试的价值在于它同时覆盖了三个层各自都对、但拼起来可能错的接口：
 
     - API 把参数写进 `Task.params`（含模板预设与默认值的合并结果）；
-    - worker 从库里读出来、按 `param_schema` / `param_bindings` 注入节点图；
+    - worker 从库里读出来，交给 B 流内核按 `param_schema.targets` 渲染成节点图；
     - 子任务逐张落 `Asset`，最后由状态机聚合出父任务状态（T12）。
 
     2026-09-16 的三流并行里，`PromptLibrary` 之类的接口错配如果只靠单层测试，

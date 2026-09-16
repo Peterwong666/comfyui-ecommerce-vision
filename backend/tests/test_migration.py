@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import sqlalchemy as sa
 
 from app.models import Base
 
@@ -32,6 +33,8 @@ class _OpRecorder:
         self.foreign_keys: list[tuple[str, str, str]] = []  # (约束名, 源表, 目标表)
         self.indexes: list[tuple[str, str]] = []  # (索引名, 表名)
         self.index_options: dict[str, dict[str, Any]] = {}  # 索引名 → 建索引时的 kwargs
+        # 列级清单：表名 → {列名: (类型字符串, 是否可空)}
+        self.columns: dict[str, dict[str, tuple[str, bool]]] = {}
         self.dropped_tables: list[str] = []
         self.dropped_constraints: list[tuple[str, str | None]] = []
         # 调用顺序：用来验证「外键一律在全部建表之后才添加」
@@ -44,6 +47,11 @@ class _OpRecorder:
 
     def create_table(self, name: str, *args: Any, **kwargs: Any) -> None:
         self.tables.append(name)
+        self.columns[name] = {
+            arg.name: (str(arg.type), bool(arg.nullable))
+            for arg in args
+            if isinstance(arg, sa.Column)
+        }
         self.sequence.append("create_table")
 
     def create_index(self, name: str, table: str, *args: Any, **kwargs: Any) -> None:
@@ -138,6 +146,39 @@ def test_every_table_created_exactly_once(applied: _OpRecorder) -> None:
 def test_table_count_is_eleven(applied: _OpRecorder) -> None:
     """钉住 P2-13 的交付量（11 张表），异常增减时强制人工确认。"""
     assert len(applied.tables) == 11, sorted(applied.tables)
+
+
+# --- 列（表级对照还不够：字段增删改不会改变表集合） ----------------------------
+
+
+def test_columns_match_metadata(applied: _OpRecorder) -> None:
+    """**列级**对照：列名、类型、可空性都要与模型一致。
+
+    只对照「表 / 外键 / 索引」是不够的 —— 模型里增删一个普通列（例如删掉
+    `Workflow.param_bindings`）时，上面那些断言**全部照旧通过**，
+    而真实数据库会与代码不一致。这类漂移正是 #21「工作区绿 ≠ 仓库完整」的同型问题。
+    """
+    expected = {
+        table.name: {
+            column.name: (str(column.type), bool(column.nullable)) for column in table.columns
+        }
+        for table in Base.metadata.tables.values()
+    }
+    assert applied.columns == expected, (
+        f"迁移缺列：{ {t: sorted(set(expected[t]) - set(applied.columns.get(t, {}))) for t in expected if set(expected[t]) - set(applied.columns.get(t, {}))} }；"
+        f"迁移多列：{ {t: sorted(set(applied.columns.get(t, {})) - set(expected[t])) for t in applied.columns if set(applied.columns[t]) - set(expected.get(t, {}))} }"
+    )
+
+
+def test_dropped_binding_mechanism_stays_dropped(applied: _OpRecorder) -> None:
+    """`param_bindings` 不得复活（契约 §5）。
+
+    它是 `targets` 之前的旧绑定机制，与 `param_schema` 表达同一件事。
+    两套并存的后果是「前端读一套、后端读一套」，且**分叉时不报错** ——
+    所以这里在列级上钉死：模型与迁移都不得再有这个列。
+    """
+    assert "param_bindings" not in applied.columns.get("workflows", {})
+    assert "param_bindings" not in Base.metadata.tables["workflows"].columns
 
 
 # --- 外键 ---------------------------------------------------------------------

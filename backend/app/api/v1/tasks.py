@@ -9,13 +9,15 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
+# seed 的递增口径由工作流内核统一定义（契约 §2.4），A 流不自己算 ——
+# 两边各有一套取模/边界语义迟早分叉。
+from engine import RenderError, derive_seed
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
 from app.api.deps import CurrentUser, DbSession
 from app.core.config import settings
 from app.core.logging import bind_task, get_logger
-from app.engine.injector import SEED_RANDOM
 from app.models.enums import BatchStatus, TaskStatus
 from app.models.event import AuditLog, EventName
 from app.models.task import Batch, Task
@@ -82,7 +84,9 @@ def _validate_params(payload: dict[str, Any]) -> None:
         )
 
 
-def _merge_params(wf: Workflow, template: Template | None, payload: dict[str, Any]) -> dict[str, Any]:
+def _merge_params(
+    wf: Workflow, template: Template | None, payload: dict[str, Any]
+) -> dict[str, Any]:
     """参数优先级：工作流默认 < 模板预设 < 用户显式传入。"""
     merged: dict[str, Any] = {}
     for field in (wf.param_schema or {}).get("fields", []):
@@ -97,8 +101,12 @@ def _merge_params(wf: Workflow, template: Template | None, payload: dict[str, An
 # ---------------------------------------------------------------- 单次生成
 
 
-@router.post("/tasks", response_model=TaskOut, status_code=status.HTTP_202_ACCEPTED,
-             summary="提交单次生成（FR-2.5）")
+@router.post(
+    "/tasks",
+    response_model=TaskOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="提交单次生成（FR-2.5）",
+)
 def submit_task(payload: TaskSubmitIn, user: CurrentUser, db: DbSession) -> Task:
     _assert_quota(user, 1)
     wf = _get_active_workflow(db, payload.workflow_name)
@@ -135,7 +143,12 @@ def submit_task(payload: TaskSubmitIn, user: CurrentUser, db: DbSession) -> Task
         # 从 params 回读，保证「落库的」与「注入图的」永远是同一个值
         prompt=params.get("prompt"),
         negative_prompt=params.get("negative_prompt"),
-        seed=payload.seed,
+        # ⚠️ `Task.seed` 是 `params["seed"]` 的**派生投影，不是第二条输入通道**
+        # （契约 §3.4：params 是唯一事实来源）。
+        # 它保留成独立列，是因为它是一等可查询属性（列表筛选、看板统计要用）；
+        # 但**任何写入都必须来自 params**，不要再往它写别的值 ——
+        # 曾经 `Task.seed` 与 `params["seed"]` 是两条独立通道，可以传出不一致的结果。
+        seed=params.get("seed"),
         priority=settings.default_priority,
         idempotency_key=payload.idempotency_key,
     )
@@ -202,31 +215,42 @@ def estimate(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> TaskEs
     )
 
 
-def _child_seed(base_seed: Any, idx: int) -> int | None:
-    """批量子任务的 seed（契约 §2.4「同批次内 seed 自动递增」）。
+def _batch_seed_base(base_seed: Any) -> int | None:
+    """把批次的 seed 基准解析成**具体整数**（`None` = 不指定，交给 Schema 默认值）。
 
-    三种情况：
+    递增口径**由 B 流内核的 `derive_seed()` 定义，A 流不自己算** ——
+    否则两边各有一套取模/边界语义，迟早分叉（本项目已多次踩这个坑型）。
 
-    | base_seed | 结果 | 理由 |
-    |---|---|---|
-    | `None` | `None` | 用户没指定，交给工作流 Schema 的默认值（可能根本不是参数） |
-    | `-1`（随机哨兵） | `-1` | 用户要的是"每张都随机"，**不能**再叠加递增 —— 语义相矛盾 |
-    | 具体值 | `base + idx - 1` | 递增：风格一致但每张不同；固定 seed 则整批一致（FR-8.2 的取舍） |
+    | 输入 | 结果 |
+    |---|---|
+    | `None` | `None`，不生成 |
+    | `-1` | 内核随机出一个基准 |
+    | 具体值 | 校验取值域后原样返回 |
 
-    ⚠️ **必须用全局序号 `idx` 而不是每个 SKU 内的序号**：
-    用后者时 `3 SKU × 2 张` 会得到 `100,101,100,101,100,101` ——
-    不同 SKU 的第 k 张撞到同一个 seed，同提示词会直接出同一张图，
-    "同批次内递增"形同失效（2026-09-16 由端到端测试发现）。
+    ⚠️ **`-1` 必须在整批上只随机一次**。`derive_seed(base, idx)` 在 `base == -1` 时
+    会**每次都重新随机**，若逐张调用就得到一批互不相关的随机 seed ——
+    「同批次风格一致但每张不同」（契约 §2.4）会**静默失效**：产物看着正常，
+    但批内不再有任何递增关系，用户无法按 seed 复现某一批。
+    （2026-09-16 由测试发现：`derive_seed(-1, idx-1)` 逐张调用得到 3.3e9 级别的乱序值。）
+
+    这里借 `derive_seed(x, 0)` 取基准（`idx=0` 时结果就是基准本身），
+    保证与内核共用同一套取值域与随机源口径，而不是自己 `randrange`。
     """
     if base_seed is None:
         return None
     try:
         numeric = int(base_seed)
-    except (TypeError, ValueError):
-        return None
-    if numeric == SEED_RANDOM:
-        return SEED_RANDOM
-    return numeric + (idx - 1)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"seed 必须是整数，实际 {base_seed!r}",
+        ) from exc
+    try:
+        return derive_seed(numeric, 0)
+    except RenderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"seed 非法：{exc}"
+        ) from exc
 
 
 def _avg_seconds_per_image(db: DbSession, workflow_id: int) -> float | None:
@@ -244,8 +268,12 @@ def _avg_seconds_per_image(db: DbSession, workflow_id: int) -> float | None:
 # ---------------------------------------------------------------- 批量
 
 
-@router.post("/batches", response_model=BatchOut, status_code=status.HTTP_202_ACCEPTED,
-             summary="提交批量任务（FR-3.4）")
+@router.post(
+    "/batches",
+    response_model=BatchOut,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="提交批量任务（FR-3.4）",
+)
 def submit_batch(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> Batch:
     wf = _get_active_workflow(db, payload.workflow_name)
     total = payload.total_images()
@@ -275,7 +303,8 @@ def submit_batch(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> Ba
     # 子任务粒度 = 一张图（PRD §3.1 决策）：
     # 这样失败能精确隔离，断点续跑才能只重跑失败的那几张。
     idx = 0
-    base_seed = common.get("seed")
+    # 整批共用一个 seed 基准（`-1` 只在这里随机一次，见 _batch_seed_base 的说明）
+    seed_base = _batch_seed_base(common.get("seed"))
     for sku, asset_ids in payload.sku_assets.items():
         for _ in range(payload.images_per_sku):
             idx += 1
@@ -283,7 +312,8 @@ def submit_batch(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> Ba
                 **common,
                 "sku": sku,
                 "upload_asset_ids": asset_ids,
-                "seed": _child_seed(base_seed, idx),
+                # 全局序号 idx（不是 SKU 内序号）递增：用后者会让不同 SKU 的第 k 张撞同一 seed
+                "seed": None if seed_base is None else derive_seed(seed_base, idx - 1),
             }
             child = sm.create_task(
                 db,
@@ -293,6 +323,8 @@ def submit_batch(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> Ba
                 workflow_id=wf.id,
                 template_id=template.id if template else None,
                 params=params,
+                # 同单任务：`Task.seed` 是 params 的派生投影，不是第二条通道
+                seed=params.get("seed"),
                 priority=settings.default_priority,
             )
             # T2：入队。**漏掉这一步会让整个批量功能失效** ——
@@ -373,9 +405,7 @@ def list_batches(
 
 @router.get("/batches/{batch_id}", response_model=BatchOut, summary="批量任务详情")
 def get_batch(batch_id: int, user: CurrentUser, db: DbSession) -> Batch:
-    batch = db.scalar(
-        select(Batch).where(Batch.id == batch_id, Batch.user_id == user.id)
-    )
+    batch = db.scalar(select(Batch).where(Batch.id == batch_id, Batch.user_id == user.id))
     if batch is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="批量任务不存在")
     return batch
@@ -448,8 +478,11 @@ def retry_task(task_id: int, user: CurrentUser, db: DbSession) -> Task:
     return task
 
 
-@router.post("/batches/{batch_id}/retry-failed", response_model=BatchOut,
-             summary="断点续跑：只重跑失败项（FR-3.5）")
+@router.post(
+    "/batches/{batch_id}/retry-failed",
+    response_model=BatchOut,
+    summary="断点续跑：只重跑失败项（FR-3.5）",
+)
 def retry_failed(batch_id: int, user: CurrentUser, db: DbSession) -> Batch:
     """批量失败后只重跑失败的那些。
 

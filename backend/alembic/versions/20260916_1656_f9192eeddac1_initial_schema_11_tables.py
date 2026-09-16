@@ -355,7 +355,6 @@ def upgrade() -> None:
         sa.Column("description", sa.Text(), nullable=True),
         sa.Column("definition", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("param_schema", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("param_bindings", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False),
         sa.Column("eval_score", sa.Float(), nullable=True),
         sa.Column("good_rate", sa.Float(), nullable=True),
