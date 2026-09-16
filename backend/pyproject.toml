@@ -11,6 +11,12 @@ dependencies = [
     # 配置与校验
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
+    # `app/schemas/user.py` 用了 `EmailStr`，而 pydantic 校验邮箱时会 import
+    # email_validator —— 缺了它，任何带 email 字段的请求都会在运行期报 ImportError
+    # （不是启动时报，所以本地"能起服务"会掩盖它）。
+    # 这条是补 P2-11 建 CI 时暴露的欠声明：本地 venv 里是手工装过才一直没露馅，
+    # 换台机器按文档 `pip install -e ./backend` 就会在跑测试时炸出 63 个 ImportError。
+    "email-validator>=2.2",
     # 数据库
     "sqlalchemy>=2.0.36",
     "alembic>=1.14",

@@ -1,0 +1,191 @@
+# ============================================================
+# CI 基线（todolist P2-11）
+#
+# 这个文件解决什么问题
+# --------------------
+# 仓库里此前**一道流水线都没有**。已有的两道防漂移门禁
+# （`backend/tests/test_web_enum_parity.py`、`test_web_form_fixtures.py`）
+# 与新增的密钥/卫生门禁（`backend/tests/test_repo_hygiene.py`）
+# 全部是**纯 pytest**，文档里写着"将来直接进 CI 即可"—— 但从没进过。
+# 纯 pytest 的代价是：它只在**有人记得跑**的时候才存在。
+# 本文件把那句"将来"兑现成"每次 push / PR 都跑"。
+#
+# CI 覆盖什么（这些是本机能跑通、且**不需要 GPU 与中间件**的检查）
+# ----------------------------------------------------------------
+#   backend   ruff check（仓库根口径）+ 后端全量 pytest（含防漂移门禁与密钥卫生门禁）
+#   engine    工作流内核的纯标准库单测
+#   frontend  类型检查 + ESLint + Vitest + 生产构建
+#
+# CI **不覆盖**什么（**请勿把"CI 绿"读成"功能都验过了"**）
+# ---------------------------------------------------
+#   ✗ 真实出图：需要 GPU + ComfyUI 进程，CI runner 没有
+#   ✗ 真实存储：需要 MinIO / S3
+#   ✗ 真实数据库：需要 PostgreSQL（后端单测用 SQLite/夹具替代）
+#   ✗ 真实队列：需要 Redis + Celery worker
+#   ✗ golden set 回归（P8-08）：需要 GPU，且耗时长
+#   ✗ 部署脚本（deploy/**）：只在目标机（autoDL 4090）上有意义
+#   ✗ 模型权重与商用许可：CI 只能证明"权重没被误提交"，不能证明许可合规
+#
+#   换句话说：CI 绿 = "代码级契约没漂移"，≠ "产品可交付"。
+#   出图链路是否真的通，只有 `deploy/autodl/` 下的实机脚本 + `项目进展.md`
+#   台账里的证据能回答。
+#
+# 为什么 ruff 那一步必须写 `working-directory: 仓库根`
+# ---------------------------------------------------
+# 根目录与 `backend/` 各有一份 pyproject.toml，各自带一份 [tool.ruff.lint]。
+# `ruff check .` 的结论**取决于在哪执行**：在 backend/ 下跑，engine/ 会用 ruff
+# 默认规则集；在根下跑则会套用根 pyproject 的规则集。本项目已经因踩这个坑栽过，
+# 所以这里显式钉死 CWD=仓库根，与 `pyproject.toml` 顶部那段说明保持一致。
+#
+# 哪些东西是"本机验证过"的、哪些不是
+# --------------------------------
+# 本机验证过：下面每一条 run 命令都在开发机上按原样执行过（见交付报告）。
+# **未验证**：GitHub Actions 侧的 runner 行为 —— action 版本是否存在、pip/pnpm
+#           缓存是否命中、`fail-fast` 的实际效果。本仓库 `git remote -v` 为空、
+#           没有远端，这部分只能等真正接上 GitHub 才能确认。
+# ============================================================
+
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - "feat/**"
+  pull_request:
+
+# 同一分支上连推两次时，取消上一次尚未跑完的运行（省额度，也省得等两个结果）。
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# 流水线只读仓库，不需要写权限。
+permissions:
+  contents: read
+
+jobs:
+  # ------------------------------------------------------------------
+  # 后端：仓库根 ruff + backend 全量 pytest
+  # ------------------------------------------------------------------
+  backend:
+    name: backend（ruff + pytest）
+    runs-on: ubuntu-latest
+    strategy:
+      # 三个 job 之间本来就是互相独立的（GitHub 不会因为一个 job 失败就取消兄弟 job），
+      # 这里显式写出来是为了把"前端与后端不该互相拖"这条意图钉在文件里；
+      # 若将来给某个 job 加上 matrix，这个语义也不会被悄悄改回 true。
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            backend/pyproject.toml
+
+      # 两个包都要装：
+      #   -e ".[yaml]"        → 仓库根的 comfy-engine（后端运行期 import engine），
+      #                          并带上 pyyaml（registry 读 workflows/registry.yaml 要用）
+      #   -e "./backend[dev]" → 后端 + 其 dev extra（pytest / pytest-asyncio / ruff / mypy）
+      # engine 的 extra 不能省：后端 dev extra 里没有 pyyaml，而后端测试要读 YAML registry。
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "./backend[dev]" -e ".[yaml]"
+
+      # ⚠️ CWD 必须是仓库根，理由见文件顶部注释。
+      - name: ruff check（仓库根口径，覆盖 backend/ 与 engine/）
+        run: ruff check .
+
+      - name: pytest（后端全量，含防漂移与密钥卫生门禁）
+        working-directory: backend
+        run: python -m pytest -q
+
+  # ------------------------------------------------------------------
+  # 工作流内核：engine/ 是刻意零运行时依赖的纯标准库包
+  # ------------------------------------------------------------------
+  engine:
+    name: engine（pytest）
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      # 从仓库根跑，并显式给出路径：不依赖 pytest 的 rootdir 推断。
+      - name: pytest（engine）
+        run: python -m pytest engine/tests -q
+
+  # ------------------------------------------------------------------
+  # 前端：typecheck / lint / test / build
+  # ------------------------------------------------------------------
+  frontend:
+    name: frontend（typecheck / lint / test / build）
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    env:
+      # 首次运行 corepack 需要联网把 pnpm@12.4.2 下载下来。非交互环境下不该出现
+      # 确认提示，这里显式关掉，避免"CI 卡在等输入"这种最耗时的失败形态。
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+    defaults:
+      run:
+        # 下面所有 run 都在 web/ 下执行 —— pnpm 会据此读到 web/pnpm-workspace.yaml，
+        # 也会据此发现 web/package.json 里的 packageManager 声明。
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # pnpm 的版本从哪来：`web/package.json` 声明了 `packageManager: pnpm@12.4.2`，
+      # corepack 据此决定跑哪个 pnpm —— 于是"本机跑通的版本"与"CI 跑的版本"是同一个，
+      # 这是可复现性的来源，不是可选的美化项。
+      #
+      # 为什么每条命令都写成 `corepack pnpm <script>`，而不是先 `corepack enable`
+      # 再用裸 `pnpm`：`corepack enable` 做的事只是往 node 的 bin 目录写 shim，
+      # 本机 `/usr/bin` 不可写（没有 sudo）时它直接报 EACCES；而 `corepack pnpm …`
+      # 的版本锁定效果完全相同，**且能在本机被真实验证**（`web/README.md` 记录的
+      # 也正是这个写法）。未验证的写法不写进 CI —— 这是本项目的纪律。
+      # `--frozen-lockfile`：lockfile 与 package.json 不一致时直接失败，
+      # 而不是"顺手帮你改 lockfile 然后假装 CI 绿"。
+      #
+      # ⚠️ pnpm 10+ 起默认**禁止依赖执行安装脚本**（供应链防护）。esbuild 依赖
+      # postinstall 落地平台二进制，被拦住时 vite/vitest 会以"找不到二进制"失败。
+      # 放行声明在 `web/pnpm-workspace.yaml` 的 `allowBuilds` 里；因为 pnpm 是在
+      # web/ 下被调用的，该文件会被读到。若哪天这一步报 esbuild 二进制缺失，
+      # 先查那个文件 —— 不要去改 package.json 的 `pnpm` 字段：pnpm 10+ 已不再
+      # 从那里读配置，写了等于没写。
+      - name: pnpm install（--frozen-lockfile）
+        run: corepack pnpm install --frozen-lockfile
+
+      - name: typecheck（tsc -b）
+        run: corepack pnpm typecheck
+
+      - name: lint（eslint .）
+        run: corepack pnpm lint
+
+      # vitest 单独运行时默认进 watch 模式（会一直挂着直到超时）；`--run` 是
+      # "跑一遍就退出"。本机验证过 pnpm 会把 `--run` 原样转发给 vitest。
+      - name: test（vitest run）
+        run: corepack pnpm test --run
+
+      - name: build（tsc -b && vite build）
+        run: corepack pnpm build

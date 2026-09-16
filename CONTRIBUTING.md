@@ -58,9 +58,28 @@ Closes P6-01
 
 ## 提交前自检
 
-- [ ] 代码可运行，未破坏既有功能
-- [ ] 未提交模型权重（`.safetensors` / `.ckpt` 等，已被 `.gitignore` 拦截）
-- [ ] 未提交密钥（`.env`、token、内网地址）
+先跑这几条（与 `.github/workflows/ci.yml` 里的命令逐条对应，本地跑通＝CI 跑通）：
+
+```bash
+# 除特别标注外，都在**仓库根**执行
+backend/.venv/bin/ruff check .          # 必须在仓库根跑：根目录与 backend/ 各有一份
+                                        # pyproject.toml，换了 CWD 结论就会变
+backend/.venv/bin/python -m pytest engine/tests -q
+(cd backend && .venv/bin/python -m pytest -q)      # 后端全量（含防漂移 + 密钥/卫生门禁）
+(cd web && corepack pnpm typecheck && corepack pnpm lint \
+        && corepack pnpm test --run && corepack pnpm build)
+```
+
+其中密钥与卫生那一道是纯 pytest（`backend/tests/test_repo_hygiene.py`），它会拦住：
+被追踪的 `.env` / 权重 / 私钥文件、文本里形似真密钥的字符串、`.gitignore` 关键规则被删
+或被去掉根锚定、>5 MiB 的误提交文件。注意它问的是**追踪状态**：
+
+- `.gitignore` **不是防线** —— `git add -f` 能绕过，且已被追踪的文件不再受它约束；
+- 万一密钥真的进过库，正确处置是**吊销并轮换**，不是把文件删掉（历史里还在）。
+
+- [ ] 上述命令全绿
+- [ ] 未提交模型权重（`.safetensors` / `.ckpt` 等，由卫生门禁 R2 拦截）
+- [ ] 未提交密钥（`.env`、token、内网地址，由卫生门禁 R1/R3/R4 拦截）
 - [ ] 新增模型已登记到 `model_registry` 并核对商用许可
 - [ ] 相关文档已同步更新
 - [ ] `todolist.md` 中对应任务已打勾
