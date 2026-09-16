@@ -38,6 +38,9 @@ OUT="${L4_OUTDIR:-$RD/l4_out}"
 REF_IMAGE="${L4_REF_IMAGE:-$RD/l4_assets/ref_product.png}"
 SEED="${L4_SEED:-20260916}"
 COMFY_START_SH="${COMFY_START_SH:-$RD/03_start_comfyui.sh}"
+#: 参考图在「素材 id」空间里的编号。**必须同时**用于 `--param reference_image`
+#: 与 `--asset`，两处对不上就等于没给素材（见 run_l4 里的说明）。
+ASSET_ID=1
 PORT=8188
 BASE="http://127.0.0.1:$PORT"
 T_QUICK=60     # 简单命令（curl / 文件检查）
@@ -141,12 +144,19 @@ run_l4() {
   local log="$EVID/36_l4_${wf}.log"
   echo
   echo "-------------------- L4: $wf --------------------"
+  # ⚠️ `--param reference_image=` 与 `--asset` 必须**同时**给，且 id 相同。
+  #    只给 `--asset 1=…` 是不够的：工具的 params 起点是 Schema 的 default，
+  #    而这三条的 `reference_image` 默认值是 **0**（image 类型无法表达"必填"，
+  #    见 registry 的契约缺口注释）。于是渲染器会拿 0 去查素材表 →
+  #    `RenderError: asset_id=0 未在 --asset 中声明` → 三条全部渲染失败。
+  #    这条耦合由 ASSET_ID 单一来源保证；改动时不要只改一处。
   (
     cd "$REPO" && timeout $T_HEAVY "$PY" -m engine.tools.verify_render_path \
       --workflow "$wf" \
       --seed "$SEED" \
       --launch-args "--highvram" \
-      --asset "1=${REF_IMAGE}" \
+      --param "reference_image=$ASSET_ID" \
+      --asset "$ASSET_ID=${REF_IMAGE}" \
       --outdir "$OUT"
   ) > "$log" 2>&1
   local rc=$?
@@ -177,7 +187,7 @@ run_l4() {
 }
 
 report "1. 渲染路径 L4：三条工作流逐条跑"
-echo "显式 seed = $SEED（确定性验证不能用 -1）· 参考图 asset_id = 1 → $REF_IMAGE"
+echo "显式 seed = $SEED（确定性验证不能用 -1）· 参考图 asset_id = $ASSET_ID → $REF_IMAGE"
 run_l4 i2i_v1
 run_l4 inpaint_v1
 run_l4 upscale_v1
