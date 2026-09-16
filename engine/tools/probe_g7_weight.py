@@ -25,6 +25,23 @@
 「两次产物是否相同」+ 产物存放路径，把语义判断留给人工评审。
 把"像素不同"说成"权重生效"，就是 G7 里已经犯过两次的那类机制推断。
 
+---
+
+### ⚠️ 两道自证：否则「相同」可能是个假通过
+
+「像素相同 = 完全无影响」这个**决定性结论**有一个隐含前提 ——
+**两次确实都真的执行了、而且输入确实不同**。前提不成立时，
+「相同」仍会被读成决定性结论，**这是方向最危险的一类假通过**
+（与 `verify_render_path.py` 里 `{None, None}` 判"一致"同族）。所以本脚本加了两道自证：
+
+| # | 自证 | 在哪一步 | 不通过意味着什么 |
+|---|---|---|---|
+| 1 | **输入确实不同** | 离线（构造后立刻） | baseline 与 weighted 的图**逐字节相同** → 等于"拿自己跟自己比"，比对毫无意义 |
+| 2 | **执行确实发生**（正对照） | GPU 上 | 同提示词、**只改 seed** 的对照若像素仍相同 → 根本没真跑（缓存/提前返回/提交了同一份），**本模式所有"相同"结论作废** |
+
+第 2 道是正对照（positive control）：改 seed **必然**改变像素输出，所以它"必须不同"。
+**判据本身也要能被检出** —— 与本项目在 `verify_render_path.py`、G8 用的是同一招。
+
 ### 用法
 
     # 先离线预检（不需要 GPU）：确认三种模式的图都能渲染 + 通过 L3
@@ -115,6 +132,16 @@ def _write_prompt(graph: dict[str, Any], node_id: str, prompt: str) -> None:
     graph[node_id].setdefault("inputs", {})["text"] = prompt
 
 
+def _set_seed(graph: dict[str, Any], entry: Any, value: int) -> None:
+    """把 seed 写进该工作流声明的 seed 目标节点（同样走 Schema 的 targets）。"""
+    field = next((f for f in entry.schema if f.type == "seed"), None)
+    if field is None or not field.targets:
+        raise RenderError(f"工作流 {entry.id} 的 Schema 里没有带 targets 的 seed 字段")
+    for t in field.targets:
+        if t.node_id in graph:
+            graph[t.node_id].setdefault("inputs", {})[t.input] = value
+
+
 def _klein_core_variant(definition: dict[str, Any], prompt: str, node_id: str) -> dict[str, Any]:
     _meta, graph = dict(definition.get("_meta") or {}), {
         k: v for k, v in definition.items() if k != "_meta"
@@ -202,7 +229,12 @@ def run(args: argparse.Namespace) -> int:
             return 2
 
         built: dict[str, dict[str, Any]] = {}
-        for tag, prompt in (("baseline", BASELINE_PROMPT), ("weighted", WEIGHTED_PROMPT)):
+        for tag, prompt, seed_value in (
+            ("baseline", BASELINE_PROMPT, args.seed),
+            ("weighted", WEIGHTED_PROMPT, args.seed),
+            # 正对照：同提示词、**只改 seed** —— 它必须产生不同的像素
+            ("control", BASELINE_PROMPT, args.seed + 1),
+        ):
             g = _variant(mode, prompt, definition, entry)
             # 把生产渲染出来的参数（width/height/steps/cfg/seed）搬进变体，
             # 保证「除提示词外全部一致」——否则比对的是两个变量，结论无效
@@ -215,6 +247,13 @@ def run(args: argparse.Namespace) -> int:
                         if key == "text":
                             continue  # 提示词归探针控制
                         graph[nid]["inputs"][key] = val
+            _set_seed(graph, entry, seed_value)
+            # ---- 自证 1：输入确实不同（防"拿自己跟自己比"）----
+            if tag == "weighted" and graph == built.get("baseline"):
+                print(f"  ❌ {mode}: weighted 与 baseline 的图**逐字节相同** —— "
+                      "提示词没被写进去，比对无意义")
+                fatal = True
+                continue
             if info is not None:
                 errs = _l3_check(graph, info, f"{mode}/{tag}")
                 if errs:
@@ -224,6 +263,14 @@ def run(args: argparse.Namespace) -> int:
                     fatal = True
                     continue
             built[tag] = graph
+        # 正对照必须是干净的单变量：只在 seed 所在节点上与基线不同
+        if "control" in built and "baseline" in built:
+            b, c = built["baseline"], built["control"]
+            changed = {k for k in set(b) | set(c) if b.get(k) != c.get(k)}
+            unexpected = changed - _seed_nodes(entry)
+            if unexpected:
+                print(f"  ⚠ {mode}: 正对照除 seed 外还有节点不同 {sorted(unexpected)}，"
+                      "它不是干净的单变量对照，结论会被削弱")
         variants_for[mode] = built
 
     if fatal:
