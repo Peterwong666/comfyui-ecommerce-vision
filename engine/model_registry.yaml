@@ -1,0 +1,363 @@
+# ============================================================
+# 模型注册表（P5-06 / FR-9.1 / C9 合规）
+#
+# 定位：**商用红线的守门人**。本文件是「内部标准化模型库」的唯一事实来源，
+#       由 P5-07 归档工具与后台管理界面共同读写（DB 表 model_registry）。
+#
+# 纪律（三条铁律，见 docs/sop/license_matrix.md）：
+#   ① 下载即登记   ② 未知即不用   ③ 发布前复查
+#
+# ⚠️ 字段与 DB 表 `model_registry` 一一对应（backend/app/models/registry.py:24），
+#    改动字段名等于改数据库契约，须同步通知 A 流。
+# ⚠️ sha256 / file_size 引用自 deploy/versions.lock 的 [models] 段，
+#    **不要手工重算**（模型权重在远端数据盘，本地没有）。
+#
+# 最后核实：2026-09-16（**已在服务器实测核对：6 个文件的 file_size 与 versions.lock 逐条一致**）
+# 环境权威：deploy/versions.lock（ComfyUI v0.36.0 + torch 2.13.0+cu130）
+# 实测证据：deploy/comfyui/evidence/README.md（2026-09-16 无卡模式只读采集）
+# ============================================================
+schema_version: 1
+updated: 2026-09-16
+
+# ---------- 实测核对结果（2026-09-16） ----------
+#   ✅ 6 个已登记模型的 file_size 与 deploy/versions.lock [models] **逐条完全一致**
+#   ✅ 实际路径均在 /root/autodl-tmp/comfyui-data/models/（/root/ComfyUI/models 为其软链）
+#   ⚠️ 以下目录**当前为空**（对应任务尚未开始）：
+#      loras/ · controlnet/ · upscale_models/ · ipadapter/ · clip_vision/ · sams/ · BiRefNet/ · pulid/
+#      → 与 todo 状态一致：P5-03（LoRA）/ P5-04（ControlNet）/ P5-05（放大器）/ P4-03（IP-Adapter）未启动
+#   ⚠️ 已存在但**未登记**的文件：
+#      ultralytics/face_yolov8n.pt（6230075 B，人脸检测，Impact-Pack 链路）
+#      models/insightface/models/buffalo_l/*.onnx（**非商用权重**，见 forbidden）
+#      grounding-dino/GroundingDINO_SwinT_OGC.cfg.py（仅配置文件，无权重）
+#      → 待按 §3.1 的接入清单补登（face_yolov8n.pt 的许可需核实）
+#   ⚠️ 磁盘：系统盘剩 11G / 数据盘剩 23G → 引入新模型前必须评估空间（台账已列为风险）
+
+# ---------- 字段约定 ----------
+#   name             注册表内唯一标识（= 磁盘文件名，不含扩展名时以 file_path 为准）
+#   kind             ModelKind 枚举取值：checkpoint/unet/vae/text_encoder/lora/controlnet/ipadapter/upscale/other
+#   version          版本号（同 name 多版本共存时用于回滚，P5-07）
+#   file_path        数据盘绝对路径（软链进 ComfyUI models 目录，配置外置 NFR-6）
+#   file_size        字节数（引用 versions.lock，不重算）
+#   sha256           引用 versions.lock，M2「销毁重建仍可复现同图」的锚点
+#   source           {repo, url, channel, note} 来源与下载渠道
+#   license          {name, url, commercial_ok, verified, note}
+#                    commercial_ok: true / false / unknown  ←**unknown 一律不得启用**
+#                    verified: 是否已核对 LICENSE 原文（false = 待核实）
+#   eval             {score, good_rate, notes}  —— P5-02 评测后回填；未评测为 null
+#   status           active 启用 / standby 备用 / disabled 禁用 / pending_eval 待评测
+#   vram             {gb, basis} 显存占用；basis: measured 实测 / estimated 估算
+#   is_default       该 kind 下的默认项（同一 kind 至多一个 true）
+#   sort_order       展示排序
+#   extra            追加信息（量化方式、性能基线、关联工作流等）
+#
+# ---------- 磁盘布局 ----------
+# 数据盘根：/root/autodl-tmp/comfyui-data/models
+# ComfyUI 侧：/root/ComfyUI/models/<kind 目录> 为软链（见 deploy/autodl/02_migrate_models.sh）
+
+models:
+  # ==========================================================
+  # 1. SDXL 1.0 —— 主底模（ADR-005）
+  # ==========================================================
+  - name: sd_xl_base_1.0
+    kind: checkpoint
+    version: "1.0"
+    file_path: /root/autodl-tmp/comfyui-data/models/checkpoints/sd_xl_base_1.0.safetensors
+    file_size: 6938078334          # 6.462 GiB
+    sha256: 31e35c80fc4829d14f90153f4c74cd59c90b779f6afe05a74cd6120b893f7e5b
+    source:
+      repo: stabilityai/stable-diffusion-xl-base-1.0
+      url: https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0
+      channel: 直接下载（具体渠道未在仓库脚本中留痕）
+      note: "⚠️ 待核实：实际下载 URL 未记录在 deploy/ 脚本中，需补登渠道（是官方源还是 hf-mirror）"
+    license:
+      name: CreativeML OpenRAIL++-M
+      url: https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/blob/main/LICENSE.md
+      commercial_ok: true
+      verified: false
+      note: "许可证名称与商用结论已由 ADR-005 与 license_matrix.md §2 确认；但**未核对 LICENSE 原文**，V1 发布前须补（P11-11）。附使用限制条款（禁非法内容 / 禁冒充 / 禁未经同意的肖像）"
+    eval:
+      score: null
+      good_rate: null
+      notes: "P5-02 底模评测未执行（需 golden set ≥30 例，见 FR-7.1）"
+    status: active
+    is_default: true
+    vram:
+      gb: 10.0
+      basis: estimated              # ADR-005 估 ~10GB fp16
+    sort_order: 10
+    extra:
+      perf_baseline: "1024²/30 步 / N=12 warmup=1：min 4.59s · median 5.00s · P95 5.48s（--highvram，项目进展.md #18）"
+      role: "V1 六条工作流的主力底模；P4 控制体系（ControlNet / IP-Adapter / LoRA）全部建立在 SDXL 生态上"
+
+  # ==========================================================
+  # 2. FLUX.2 klein 4B —— 第二底模（Apache-2.0，ADR-005）
+  # ==========================================================
+  - name: flux-2-klein-4b
+    kind: unet
+    version: "distilled-4step"      # ⚠️ 我们下的是蒸馏版，非 Base（见 项目进展.md #16 验证 3）
+    file_path: /root/autodl-tmp/comfyui-data/models/unet/flux-2-klein-4b.safetensors
+    file_size: 7751105712          # 7.219 GiB
+    sha256: ec3d4e733a771f61c052fb4856c48b336c55eaf2c65487c2a1faeb9bbda7a343
+    source:
+      repo: Comfy-Org/flux2-klein-4B
+      url: https://hf-mirror.com/Comfy-Org/flux2-klein-4B/resolve/main/split_files/diffusion_models/flux-2-klein-4b.safetensors
+      channel: hf-mirror.com（HF 镜像）
+      note: "上游为 black-forest-labs 的 Apache-2.0 模型；本项目取的是 ComfyUI 官方打包版（未 gated）。依据 deploy/autodl/05_download_flux2_klein.sh:10,25"
+    license:
+      name: Apache-2.0
+      url: https://huggingface.co/Comfy-Org/flux2-klein-4B
+      commercial_ok: true
+      verified: false
+      note: "许可证结论由 ADR-005 与 license_matrix.md §2 确认；**待核实**：Comfy-Org 打包仓库自身的 LICENSE 原文、以及其与上游 BFL 许可的一致性"
+    eval:
+      score: null
+      good_rate: null
+      notes: "P5-02 底模评测未执行"
+    status: active
+    is_default: false
+    vram:
+      gb: 8.0
+      basis: estimated              # ADR-005 估 ~8GB；BFL 官方称 3090/4070 可跑
+    sort_order: 20
+    extra:
+      perf_baseline: "4 步 / cfg=1：min 1.52s · median 1.83s · P95 2.67s（项目进展.md #18）"
+      sampling: "蒸馏版固定 4 步、cfg=1 → **反向提示词无效**（见 docs/sop/prompt_guide.md §1）"
+      role: "① P5-02 对比评测 ② V2 原生多参考图编辑（一致性场景）"
+      text_encoder_pair: qwen_3_4b
+
+  # ==========================================================
+  # 3. FLUX.2 VAE（随 klein 仓库提供）
+  # ==========================================================
+  - name: flux2-vae
+    kind: vae
+    version: "1.0"
+    file_path: /root/autodl-tmp/comfyui-data/models/vae/flux2-vae.safetensors
+    file_size: 336211292            # 320.6 MiB
+    sha256: 868fe7b343cc8f3a19dbcfcafbc3d5f888802be3f89bd81b65b3621a066ce8f3
+    source:
+      repo: Comfy-Org/flux2-klein-4B
+      url: https://hf-mirror.com/Comfy-Org/flux2-klein-4B/resolve/main/split_files/vae/flux2-vae.safetensors
+      channel: hf-mirror.com（HF 镜像）
+      note: "FLUX.2 klein 自带 VAE —— 这解决了 #7 中 FLUX.1 schnell 缺 VAE 且官方源 403 的问题"
+    license:
+      name: Apache-2.0
+      url: https://huggingface.co/Comfy-Org/flux2-klein-4B
+      commercial_ok: true
+      verified: false
+      note: "与 klein 同仓库同许可；**待核实** LICENSE 原文"
+    eval: {score: null, good_rate: null, notes: null}
+    status: active
+    is_default: false
+    vram:
+      gb: 0.4
+      basis: estimated
+    sort_order: 30
+    extra:
+      role: "klein 链路专用 VAE，由 05_download_flux2_klein.sh 下载"
+
+  # ==========================================================
+  # 4. SDXL VAE fp16 fix（备用）
+  # ==========================================================
+  - name: sdxl_vae_fp16fix
+    kind: vae
+    version: "fp16-fix"
+    file_path: /root/autodl-tmp/comfyui-data/models/vae/sdxl_vae_fp16fix.safetensors
+    file_size: 334641162            # 319.1 MiB
+    sha256: 235745af8d86bf4a4c1b5b4f529868b37019a10f7c0b2e79ad0abca3a22bc6e1
+    source:
+      repo: madebyollin/sdxl-vae-fp16-fix
+      url: https://huggingface.co/madebyollin/sdxl-vae-fp16-fix
+      channel: ⚠️ 未记录
+      note: "**待核实**：仓库归属与下载渠道均未在 deploy/ 脚本中留痕，需回查下载记录。文件名 `sdxl_vae_fp16fix` 与社区常用命名一致"
+    license:
+      name: MIT（待核实）
+      url: https://huggingface.co/madebyollin/sdxl-vae-fp16-fix
+      commercial_ok: unknown
+      verified: false
+      note: "⚠️ **待核实** —— 该仓库为社区发布，许可需以仓库 LICENSE 原文为准。**在核实前不得作为 V1 交付链路的一部分**（未知即不用）"
+    eval: {score: null, good_rate: null, notes: null}
+    status: standby
+    is_default: false
+    vram:
+      gb: 0.4
+      basis: estimated
+    sort_order: 40
+    extra:
+      role: "解决 SDXL 原生 VAE 在 fp16 下的溢出问题。当前 SDXL 链路是否使用本 VAE 需确认（工作流内 VAE 节点选型）"
+
+  # ==========================================================
+  # 5. Qwen3-4B 文本编码器（全精度）—— klein 链路的实际使用项
+  # ==========================================================
+  - name: qwen_3_4b
+    kind: text_encoder
+    version: "4b-fp16"
+    file_path: /root/autodl-tmp/comfyui-data/models/text_encoders/qwen_3_4b.safetensors
+    file_size: 8044982048          # 7.492 GiB
+    sha256: 6c671498573ac2f7a5501502ccce8d2b08ea6ca2f661c458e708f36b36edfc5a
+    source:
+      repo: Comfy-Org/vae-text-encorder-for-flux-klein-4b   # ⚠️ 仓库名拼写为上游原样（encorder）
+      url: https://hf-mirror.com/Comfy-Org/flux2-klein-4B/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors
+      channel: hf-mirror.com（HF 镜像）；aria2c -c 续传
+      note: "经仓库重定向落在 Comfy-Org/vae-text-encorder-for-flux-klein-4b；已读 safetensors 头校验隐藏维 = 2560，与 ComfyUI v0.36.0 的 Qwen3_4B 一致（项目进展.md #13、#14）"
+    license:
+      name: Apache-2.0（Qwen3-4B 上游）
+      url: https://huggingface.co/Qwen/Qwen3-4B
+      commercial_ok: true
+      verified: false
+      note: "⚠️ **待核实**：① Qwen3-4B 上游许可原文 ② Comfy-Org 打包仓库自身的许可声明。两层都要核"
+    eval: {score: null, good_rate: null, notes: null}
+    status: active
+    is_default: true
+    vram:
+      gb: 7.5
+      basis: estimated
+    sort_order: 50
+    extra:
+      role: "klein 链路**唯一可用**的文本编码器"
+      hard_rule: "⚠️ FLUX.2 链路一律用本全精度版，不要为省显存换 fp4 版（见下一条）"
+
+  # ==========================================================
+  # 6. Qwen3-4B fp4 量化版 —— 已证不可用，禁用于生产
+  # ==========================================================
+  - name: qwen_3_4b_fp4_flux2
+    kind: text_encoder
+    version: "4b-fp4"
+    file_path: /root/autodl-tmp/comfyui-data/models/text_encoders/qwen_3_4b_fp4_flux2.safetensors
+    file_size: 3848213998          # 3.584 GiB
+    sha256: 3eab03a77adb0ee5304a4e677d5c10ac22f9049c1d7c894adca4f8bb39206ca8
+    source:
+      repo: Comfy-Org/flux2-klein-4B
+      url: https://hf-mirror.com/Comfy-Org/flux2-klein-4B/resolve/main/split_files/text_encoders/qwen_3_4b_fp4_flux2.safetensors
+      channel: hf-mirror.com（HF 镜像）
+      note: "依据 deploy/autodl/05_download_flux2_klein.sh:31"
+    license:
+      name: Apache-2.0（上游派生）
+      url: https://huggingface.co/Comfy-Org/flux2-klein-4B
+      commercial_ok: unknown
+      verified: false
+      note: "⚠️ 量化版属**派生作品**，其许可需单独核实（量化方的许可声明可能与上游不同）。在核实前按 unknown 处理 → 不得启用"
+    eval: {score: null, good_rate: null, notes: null}
+    status: disabled
+    is_default: false
+    vram:
+      gb: 3.6
+      basis: estimated
+    sort_order: 60
+    extra:
+      disabled_reason: "隐藏维 1280，而 ComfyUI 的 Qwen3_4B 期望 2560 → CLIPLoader 报 shape mismatch（项目进展.md #13）。**即便升级到 v0.36.0 亦未复测可用性**"
+      how_to_reenable: "需 ① 先复测在 v0.36.0 下是否可用 ② 核实量化版许可 ③ 更新本条目后方可启用"
+      disk_advice: "⚠️ 当前它是**纯粹的 3.58GB 磁盘占用**（技术上不可用 + 许可 unknown）→ **建议删除以释放数据盘**。数据集大小由 team-lead 决定，C 流不自行删除远端文件"
+      keep_on_disk: false           # ⚠️ 这是 C 流的**建议值**：C 流不自行删除远端文件，最终由 team-lead 决定
+
+# ============================================================
+# 许可合规状态汇总（供 P11-11 发布前复查直接使用）
+# ============================================================
+license_summary:
+  total: 6
+  commercial_ok: 4                  # sd_xl_base_1.0 / flux-2-klein-4b / flux2-vae / qwen_3_4b
+  commercial_unknown: 2             # sdxl_vae_fp16fix / qwen_3_4b_fp4_flux2
+  verified_license_text: 0          # ⚠️ 6 个模型**没有一个**的 LICENSE 原文已入库
+  # active 的 4 项许可结论均为可商用（其中 1 项原文未核，见 action_required）
+  active_with_unknown_license: []
+  blocking_v1: []                   # 当前无 unknown 许可处于 active → 不阻塞 V1
+  action_required:
+    - "P11-11 发布前：6 个模型的 LICENSE 原文全部下载入库（不放仓库，放归档目录并登记路径）"
+    - "待核实项 1：sdxl_vae_fp16fix 的仓库归属与许可（当前 unknown → 保持 standby，不进交付链路）"
+    - "待核实项 2：qwen_3_4b 的两层许可原文（上游 Qwen/Qwen3-4B + Comfy-Org 打包仓库）—— 结论为可商用但原文未入库"
+    - "待核实项 3：qwen_3_4b_fp4_flux2 作为**量化派生作品**的独立许可声明（保持 disabled）"
+    - "待核实项 4：sd_xl_base_1.0 的实际下载渠道未在 deploy/ 脚本中留痕"
+
+# ============================================================
+# V1 计划引入的模型（尚未下载，占位登记 —— 下载即转为正式条目）
+# ⚠️ 这些条目的 commercial_ok 一律为 unknown，**在核实许可前不得下载/启用**
+# ============================================================
+planned:
+  - name: controlnet_sdxl_canny
+    kind: controlnet
+    for_workflow: [WF-IMG2IMG, WF-UPSCALE]
+    requirement: "FR-8.4（ControlNet 线稿/景深/法线/姿态）"
+    license: {name: 待核实, commercial_ok: unknown}
+    note: "SDXL 系 ControlNet 权重多标 OpenRAIL 系，需逐模型核对；预处理器由 comfyui_controlnet_aux 提供"
+  - name: controlnet_sdxl_depth
+    kind: controlnet
+    for_workflow: [WF-IMG2IMG]
+    requirement: "FR-8.4"
+    license: {name: 待核实, commercial_ok: unknown}
+  - name: controlnet_sdxl_lineart
+    kind: controlnet
+    for_workflow: [WF-IMG2IMG]
+    requirement: "FR-8.4"
+    license: {name: 待核实, commercial_ok: unknown}
+  - name: controlnet_sdxl_openpose
+    kind: controlnet
+    for_workflow: [WF-STYLE]
+    requirement: "FR-8.7（DWPose，Could 级）"
+    license: {name: 待核实, commercial_ok: unknown}
+  - name: ipadapter_sdxl
+    kind: ipadapter
+    for_workflow: [WF-STYLE, WF-IMG2IMG]
+    requirement: "FR-8.3（IP-Adapter 参考图控制，保真主力）"
+    license: {name: Apache-2.0（待核实权重仓库）, commercial_ok: unknown}
+    note: "h94/IP-Adapter 代码 Apache-2.0；**权重仓库许可需单独核**，另注意其依赖的 CLIP image encoder（open_clip 系）"
+  - name: ipadapter_plus_sdxl
+    kind: ipadapter
+    for_workflow: [WF-STYLE]
+    requirement: "FR-8.3"
+    license: {name: 待核实, commercial_ok: unknown}
+  - name: realesrgan_x4plus
+    kind: upscale
+    for_workflow: [WF-UPSCALE]
+    requirement: "P5-05 放大器模型集"
+    license: {name: BSD-3-Clause, commercial_ok: unknown}
+    note: "Real-ESRGAN 代码 BSD-3，但**权重与训练数据来源需单独核**（含人脸修复版 GFPGAN 有额外限制）"
+  - name: sam2_hiera
+    kind: other
+    for_workflow: [WF-INPAINT]
+    requirement: "FR-8.6（SAM 自动遮罩）"
+    license: {name: Apache-2.0, commercial_ok: unknown}
+    note: "facebookresearch/sam2 权重为 Apache-2.0；已随 pip 装 SAM-2（见 versions.lock [pip]）"
+  - name: grounding_dino
+    kind: other
+    for_workflow: [WF-INPAINT]
+    requirement: "P4-05 自动分割（备选 Florence-2）"
+    license: {name: Apache-2.0, commercial_ok: unknown}
+  - name: pulid
+    kind: ipadapter
+    for_workflow: [WF-STYLE]
+    requirement: "V2 一致性场景（InstantID 的商用替代）"
+    license: {name: Apache-2.0, commercial_ok: unknown}
+    note: "⚠️ 明确排除 InstantID —— 其依赖的 InsightFace 权重为非商用（license_matrix.md §3）"
+
+# ============================================================
+# 明确禁用的模型（红线清单，不得出现在任何交付链路）
+# ============================================================
+forbidden:
+  - name: FLUX.1 [dev]
+    reason: 非商用许可（FLUX.1-dev Non-Commercial License）
+    basis: license_matrix.md §2
+  - name: FLUX.2 [dev]（32B）
+    reason: 非商用 + 仓库 gated（403）
+    basis: license_matrix.md §2
+  - name: FLUX.2 [klein] 9B / 9B KV / 9B Base
+    reason: 非商用（FLUX.2-dev Non-Commercial）
+    basis: license_matrix.md §2 · ADR-005
+  - name: FLUX.1 [schnell]
+    reason: 许可为 Apache-2.0（可用），但官方仓库 gated 取不到 → 事实上不可用
+    basis: license_matrix.md §2 · 项目进展.md #7
+  - name: InsightFace 权重 / InstantID 链路
+    reason: InsightFace 预训练权重为非商用/研究用途 → 商用需绕开；替代方案 PuLID（Apache-2.0，**但需核实其是否仍依赖 InsightFace**，见 license_matrix §7 #10）
+    basis: license_matrix.md §3
+    # ⚠️ 实测：它就在环境里，必须明确记录路径以免被误用
+    present_on_disk:
+      path: /root/autodl-tmp/comfyui-data/models/insightface/models/buffalo_l/
+      files: [buffalo_l.zip, w600k_r50.onnx, 2d106det.onnx, genderage.onnx, 1k3d68.onnx, det_10g.onnx]
+      note: "由 insightface==0.7.3 自动下载（该 pip 包在 versions.lock [pip] 中）。**列入红线但未删除** —— 与节点白名单「禁用而不删除」同一原则；任何工作流不得引用 `models/insightface/`"
+
+  - name: CodeFormer（人脸修复）
+    reason: S-Lab License 1.0 —— 非商用，商用需单独授权
+    basis: license_matrix.md §4
+
+  - name: ComfyUI-Upscaler-Tensorrt 节点（及同类 NC 许可组件）
+    reason: "CC BY-NC-SA 4.0（非商用）—— **该节点当前装在环境里**，已由 P2-05 白名单判定禁用"
+    basis: "deploy/comfyui/node_whitelist.yaml §G / evidence/custom_nodes_licenses.txt"
+    note: "⚠️ 这不是模型而是**节点**，但归属同一条红线纪律 —— 它的许可问题比大多数模型更严重（NC 且 ShareAlike）"

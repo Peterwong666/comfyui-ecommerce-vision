@@ -1,0 +1,517 @@
+# ============================================================================
+# 工作流注册表（Workflow Registry）
+#
+# 覆盖任务：P3-09
+# 规范：docs/sop/workflow_spec.md      参数 Schema 格式：docs/sop/contracts.md §3（已冻结）
+#
+# 这是**唯一的工作流清单**：
+#   · A 流（后端）→ 灌进 `workflows` 表，`param_schema` 落 JSONB
+#   · D 流（前端）→ 用它生成动态表单（P7-02）
+#   · B 流（内核）→ 用它定位工作流定义文件
+#
+# 三条硬性规则：
+#   1. `param_schema` 必须严格符合 contracts.md §3 —— A 流按它校验、D 流按它渲染表单
+#   2. `version` 必须出现在 `changelog` 里 —— 变更日志是「改坏能退回去」的依据（FR-6.3）
+#   3. `verification` 必须如实填写 —— 本项目最看重「过程可证明」，
+#      谎报验证状态比不验证更糟（把「只过了静态校验」写成「已跑通」是绝对禁止的）
+# ============================================================================
+
+registry_version: 1
+updated_at: "2026-09-16"
+
+# ---------------------------------------------------------------------------
+# verification 取值口径（唯一的判据，不许自行放宽）
+#
+#   gpu_verified  —— 已在本机 GPU 上真实出图，并对产物做过核对。
+#                    必须同时给出 baseline.measured_at（性能数字必须带口径与日期，#15）
+#
+#                    ⚠️ 该字段**只说明「节点图能出图」，不说明「渲染路径可用」**。
+#                    既有两条工作流的 gpu_verified 来自 `07_bench_workflow.py`
+#                    **裸提交模板**；而生产路径是 `engine/render` 渲染后再提交。
+#                    **这是两件事** —— 所以还必须读同一条目的 `verification_note`。
+#                    这个区分是刻意的：「模板出过图」推不出「渲染器接进去也能出图」。
+#
+#   static_only   —— 只通过离线静态校验（L1 结构自洽 / L2 渲染冒烟 / L3 object_info），
+#                    **从未真实出图**。不能声称已跑通
+#   pending_gpu   —— 定义已写、参数已声明，连静态校验都还没过
+#
+# status 取值：enabled（对外可用）· gray（灰度，rollout_percent 生效）· disabled（未放行）
+#
+#   ⚠️ **放行规则（硬性）**：L4 未跑之前一律 `disabled`。`enabled` 只能在
+#      「**渲染路径**」真实出图并核对产物之后才写（workflow_spec.md §8.3）。
+#      当前两条工作流全是 `disabled`：模板出过图，但渲染路径尚未与真实引擎联调。
+#
+# ⚠️ 修改已 gpu_verified 工作流的**节点图**（增删节点、改连线、改入参字面值）
+#    会使该验证失效，必须：version+1 → verification 降回 static_only/pending_gpu →
+#    重跑 L4 后才能改回 gpu_verified。
+#    **只改 `_meta` 段不受影响**（`_meta` 在渲染时被整段剥离，不进 ComfyUI）。
+
+workflows:
+
+  # ==========================================================================
+  # 文生图 · SDXL 1.0
+  # ==========================================================================
+  - id: t2i_v1
+    version: 1
+    title: "SDXL 文生图"
+    display_name: "文生图（标准）"
+    description: >-
+      V1 主底模。纯文字生成商品图，无参考图时的兜底路径（FR-2.9）。
+      SDXL 的控制生态最成熟，P4 的控制矩阵（ControlNet / IP-Adapter）都挂在它上面。
+    definition: t2i_v1.json
+    engine: "ComfyUI v0.36.0 (commit ee71d5c4)"
+    models:
+      - sd_xl_base_1.0.safetensors
+    # ⚠️ status 一律 disabled：L4 未跑之前不得标启用（workflow_spec.md §8.3）
+    #    verification 的 gpu_verified 指的是「**模板裸提交**已出图」，详见 verification_note
+    status: disabled
+    rollout_percent: 0
+    verification: gpu_verified
+    verification_note: >-
+      出图验证是通过**裸提交模板 JSON**（deploy/autodl/07_bench_workflow.py）完成的。
+      经 engine/render 渲染后的产物**尚未与真实 ComfyUI 联调**，即「渲染路径 L4」待做。
+      因此 status=disabled —— 放行给用户的前置条件正是这条待做的渲染路径 L4。
+    # render_path_l4 是「engine/render → 真实引擎 → 核对产物」的开关。
+    # 置 true 的前提：用渲染后的图与基线图做等价性核对，且产物元数据可回读。
+    render_path_l4: false
+
+    baseline:
+      measured_at: "2026-09-16"
+      engine: "ComfyUI v0.36.0"
+      launch_args: "--highvram"
+      resolution: 1024x1024
+      steps: 30
+      samples: 12
+      warmup: 1
+      # ⚠️ 判据是 min（地板）而非 median —— 共享宿主机每约 3 个样本出现一次干扰尖峰，
+      #    median 会把宿主机噪声误判成自身回归（项目进展.md #18）
+      min_s: 4.59
+      median_s: 5.00
+      p95_s: 5.48
+      nfr_target: "≤25s（PRD §7.2 P95 口径）"
+      source: "项目进展.md #18 参考值"
+      note: >-
+        升级前基线 min=4.54s，升级后 min=4.59s（差 1%）。曾出现 1.58x 回归，
+        根因是 v0.36.0 默认开启的 dynamic VRAM，已由 --highvram 修复（#17/#18）。
+
+    changelog:
+      - version: 1
+        date: "2026-09-16"
+        change: >-
+          首次进入注册表。节点图沿用 09-15 的冒烟工作流（当时 id=WF-T2I、version=1.0.0），
+          **节点图未做任何改动**；仅规范化 `_meta`（id/version/models/node_titles）并补充参数 Schema。
+        reason: "P3-09 建立注册表；P3-02 需要参数 Schema 才能做到「新增工作流不改代码」（FR-6.4）"
+        evidence:
+          - "P2-04 冒烟通过：#8.5（12.0s，冷启动值，口径见 #15）"
+          - "v0.36.0 升级后复测出图：#16 验证 5 ③"
+          - "生产配置标定：#18（--highvram，N=12）"
+        affected: "B · A · D"
+
+    notes: >-
+      已知偏差（有意保留）：`SaveImage.filename_prefix` 仍是 `smoke/t2i`，
+      而规范 §4.2 要求 `<工作流id>/<变体>`。改前缀会改变节点图、使现有 GPU 验证失效，
+      故留到 v2 与高清修复分支一起改并重跑 L4。产物归属靠 DB 记录，不依赖路径。
+
+    param_schema:
+      schema_version: 1
+      fields:
+        - key: prompt
+          label: "正向提示词"
+          type: text
+          # default 与模板里 node 6.text 的字面值**完全一致**：
+          # 保证「不传参数直接渲染」≡「按模板原样提交」（规范 §5.5）
+          default: >-
+            professional product photo of a ceramic coffee mug, matte white finish,
+            on a light grey seamless background, soft studio lighting, subtle shadow,
+            sharp focus, high detail, centered composition
+          max_length: 2000
+          group: "提示词"
+          help: "描述商品与场景。建议包含：主体 + 背景 + 光线 + 视角"
+          targets:
+            - node_id: "6"
+              input: text
+
+        - key: negative_prompt
+          label: "负向提示词"
+          type: text
+          default: >-
+            blurry, low quality, distorted, deformed, watermark, text, logo, cropped,
+            oversaturated, plastic look
+          max_length: 2000
+          group: "提示词"
+          advanced: true
+          help: "不想出现的内容。SDXL 需要 cfg>1 才生效"
+          targets:
+            - node_id: "7"
+              input: text
+
+        - key: width
+          label: "宽度"
+          type: int
+          default: 1024
+          min: 512
+          max: 2048
+          step: 64
+          group: "画布"
+          help: "长边受 PRD §6.2 约束：512–2048"
+          targets:
+            - node_id: "5"
+              input: width
+
+        - key: height
+          label: "高度"
+          type: int
+          default: 1024
+          min: 512
+          max: 2048
+          step: 64
+          group: "画布"
+          targets:
+            - node_id: "5"
+              input: height
+
+        - key: seed
+          label: "随机种子"
+          type: seed
+          default: -1
+          group: "采样"
+          help: "-1 表示随机。渲染时会解析成真实值并写进产物元数据，便于复现（FR-5.4/5.5）"
+          targets:
+            - node_id: "3"
+              input: seed
+
+        - key: steps
+          label: "采样步数"
+          type: int
+          default: 25
+          min: 1
+          max: 100
+          step: 1
+          group: "采样"
+          advanced: true
+          help: "SDXL 推荐 20–35。PRD §6.2 边界 1–100"
+          targets:
+            - node_id: "3"
+              input: steps
+
+        - key: cfg
+          label: "CFG"
+          type: float
+          default: 6.5
+          min: 1.0
+          max: 20.0
+          step: 0.1
+          group: "采样"
+          advanced: true
+          help: "SDXL 推荐 5–8；过高会过饱和"
+          targets:
+            - node_id: "3"
+              input: cfg
+
+        - key: denoise
+          label: "重绘幅度"
+          type: float
+          default: 1.0
+          min: 0.0
+          max: 1.0
+          step: 0.01
+          group: "采样"
+          advanced: true
+          help: "纯文生图固定 1.0。图生图链路才会用到 <1 的取值"
+          targets:
+            - node_id: "3"
+              input: denoise
+
+        - key: sampler_name
+          label: "采样器"
+          type: enum
+          default: dpmpp_2m
+          # ⚠️ 选项为**长期稳定的子集**，不是 v0.36.0 的完整取值。
+          #    #16 记录过 CLIPLoader.type 在升级中由 17 项扩到 29 项 —— 枚举值会随引擎变。
+          #    完整取值需 L3 用 /object_info 核对后补全（workflow_spec.md §8.1）。
+          # 以下取值**逐项取自** deploy/schemas/object_info.v0.36.0.json 的
+          # KSampler.sampler_name（L3 已核，非人工枚举）
+          options:
+            - { value: euler, label: "euler" }
+            - { value: euler_cfg_pp, label: "euler_cfg_pp" }
+            - { value: euler_ancestral, label: "euler_ancestral" }
+            - { value: euler_ancestral_cfg_pp, label: "euler_ancestral_cfg_pp" }
+            - { value: heun, label: "heun" }
+            - { value: heunpp2, label: "heunpp2" }
+            - { value: exp_heun_2_x0, label: "exp_heun_2_x0" }
+            - { value: exp_heun_2_x0_sde, label: "exp_heun_2_x0_sde" }
+            - { value: dpm_2, label: "dpm_2" }
+            - { value: dpm_2_ancestral, label: "dpm_2_ancestral" }
+            - { value: lms, label: "lms" }
+            - { value: dpm_fast, label: "dpm_fast" }
+            - { value: dpm_adaptive, label: "dpm_adaptive" }
+            - { value: dpmpp_2s_ancestral, label: "dpmpp_2s_ancestral" }
+            - { value: dpmpp_2s_ancestral_cfg_pp, label: "dpmpp_2s_ancestral_cfg_pp" }
+            - { value: dpmpp_sde, label: "dpmpp_sde" }
+            - { value: dpmpp_sde_gpu, label: "dpmpp_sde_gpu" }
+            - { value: dpmpp_2m, label: "DPM++ 2M（推荐）" }
+            - { value: dpmpp_2m_cfg_pp, label: "dpmpp_2m_cfg_pp" }
+            - { value: dpmpp_2m_sde, label: "dpmpp_2m_sde" }
+            - { value: dpmpp_2m_sde_gpu, label: "dpmpp_2m_sde_gpu" }
+            - { value: dpmpp_2m_sde_heun, label: "dpmpp_2m_sde_heun" }
+            - { value: dpmpp_2m_sde_heun_gpu, label: "dpmpp_2m_sde_heun_gpu" }
+            - { value: dpmpp_3m_sde, label: "dpmpp_3m_sde" }
+            - { value: dpmpp_3m_sde_gpu, label: "dpmpp_3m_sde_gpu" }
+            - { value: ddpm, label: "ddpm" }
+            - { value: lcm, label: "lcm" }
+            - { value: ipndm, label: "ipndm" }
+            - { value: ipndm_v, label: "ipndm_v" }
+            - { value: deis, label: "deis" }
+            - { value: cfgpp_ud10_ab, label: "cfgpp_ud10_ab" }
+            - { value: res_multistep, label: "res_multistep" }
+            - { value: res_multistep_cfg_pp, label: "res_multistep_cfg_pp" }
+            - { value: res_multistep_ancestral, label: "res_multistep_ancestral" }
+            - { value: res_multistep_ancestral_cfg_pp, label: "res_multistep_ancestral_cfg_pp" }
+            - { value: gradient_estimation, label: "gradient_estimation" }
+            - { value: gradient_estimation_cfg_pp, label: "gradient_estimation_cfg_pp" }
+            - { value: er_sde, label: "er_sde" }
+            - { value: seeds_2, label: "seeds_2" }
+            - { value: seeds_3, label: "seeds_3" }
+            - { value: sa_solver, label: "sa_solver" }
+            - { value: sa_solver_pece, label: "sa_solver_pece" }
+            - { value: ddim, label: "ddim" }
+            - { value: uni_pc, label: "uni_pc" }
+            - { value: uni_pc_bh2, label: "uni_pc_bh2" }
+          group: "采样"
+          advanced: true
+          help: "取值集合已按 v0.36.0 的 /object_info 逐项核对（L3）"
+          targets:
+            - node_id: "3"
+              input: sampler_name
+
+        - key: scheduler
+          label: "调度器"
+          type: enum
+          default: karras
+          # 取自 object_info 的 KSampler.scheduler（L3 已核）
+          options:
+            - { value: simple, label: "simple" }
+            - { value: sgm_uniform, label: "sgm_uniform" }
+            - { value: karras, label: "Karras（推荐）" }
+            - { value: exponential, label: "exponential" }
+            - { value: ddim_uniform, label: "ddim_uniform" }
+            - { value: beta, label: "beta" }
+            - { value: normal, label: "normal" }
+            - { value: linear_quadratic, label: "linear_quadratic" }
+            - { value: kl_optimal, label: "kl_optimal" }
+          group: "采样"
+          advanced: true
+          help: "取值集合已按 v0.36.0 的 /object_info 逐项核对（L3）"
+          targets:
+            - node_id: "3"
+              input: scheduler
+
+  # ==========================================================================
+  # 文生图 · FLUX.2 [klein] 4B Distilled
+  # ==========================================================================
+  - id: flux2_klein_t2i_v1
+    version: 1
+    title: "FLUX.2 [klein] 4B Distilled 文生图"
+    display_name: "文生图（极速）"
+    description: >-
+      第二底模，Apache-2.0 可商用。蒸馏版固定 4 步 / cfg=1，单张约 1.8s，
+      适合高吞吐量产场景。klein 同时支持单/多参考图编辑，图生图链路将在 v2 复用它。
+    definition: flux2_klein_t2i_v1.json
+    engine: "ComfyUI v0.36.0 (commit ee71d5c4)"
+    models:
+      - flux-2-klein-4b.safetensors
+      - flux2-vae.safetensors
+      - qwen_3_4b.safetensors
+    # ⚠️ status 一律 disabled：L4 未跑之前不得标启用（workflow_spec.md §8.3）
+    #    verification 的 gpu_verified 指的是「**模板裸提交**已出图」，详见 verification_note
+    status: disabled
+    rollout_percent: 0
+    verification: gpu_verified
+    verification_note: >-
+      出图验证是通过**裸提交模板 JSON**（deploy/autodl/07_bench_workflow.py）完成的。
+      经 engine/render 渲染后的产物**尚未与真实 ComfyUI 联调**，即「渲染路径 L4」待做。
+      因此 status=disabled —— 放行给用户的前置条件正是这条待做的渲染路径 L4。
+    # render_path_l4 是「engine/render → 真实引擎 → 核对产物」的开关。
+    # 置 true 的前提：用渲染后的图与基线图做等价性核对，且产物元数据可回读。
+    render_path_l4: false
+
+    baseline:
+      measured_at: "2026-09-16"
+      engine: "ComfyUI v0.36.0"
+      launch_args: "--highvram"
+      resolution: 1024x1024
+      steps: 4
+      cfg: 1.0
+      samples: 12
+      warmup: 1
+      min_s: 1.52
+      median_s: 1.83
+      p95_s: 2.67
+      vram_peak_gb: 15.8
+      nfr_target: "≤60s（PRD §7.2 P95 口径）"
+      source: "项目进展.md #18 参考值 · #16 验证 5 ④"
+
+    changelog:
+      - version: 1
+        date: "2026-09-16"
+        change: >-
+          首次进入注册表。节点图沿用 09-16 跑通的工作流（当时 id=WF-T2I-FLUX2-KLEIN、
+          version=2.0.0），**节点图未做任何改动**；仅规范化 `_meta` 并补充参数 Schema。
+        reason: >-
+          P3-09 建立注册表。注意跨版本细节：此工作流**不是**"升级后改出来的"，
+          而是因为 v0.3.75 物理上不支持 klein（#14）才在 v0.36.0 上首次建成。
+        evidence:
+          - "首次出图成功：#16 验证 5 ④（median 1.83s / P95 2.36s，4 步 / cfg=1）"
+          - "生产配置复测：#18（--highvram，min 1.52s）"
+          - "节点组合依据官方模板：#16 验证 3"
+        affected: "B · A · D"
+
+    notes: >-
+      两个刻意的设计决定：
+      (1) **不暴露 negative_prompt** —— 官方模板的 Distilled 子图用 ConditioningZeroOut
+          把负向条件整体置零，此时任何负向提示词都不起作用。暴露一个"填了不起作用"的
+          参数比不暴露更糟。
+      (2) **不暴露 sampler_name / scheduler** —— 蒸馏版官方模板固定 euler + Flux2Scheduler，
+          没有调优空间；少一个参数就少一处出错面。
+      已知偏差同 t2i_v1：`filename_prefix` 仍为 `smoke/flux2_klein`，v2 修正。
+
+    param_schema:
+      schema_version: 1
+      fields:
+        - key: prompt
+          label: "正向提示词"
+          type: text
+          # 与模板里 node 4.text 的字面值一致（规范 §5.5）
+          default: >-
+            professional product photo of a matte white ceramic coffee mug on a light
+            grey seamless background, soft studio lighting, subtle shadow, sharp focus,
+            centered composition, high detail, commercial e-commerce photography
+          max_length: 2000
+          group: "提示词"
+          help: "klein 的文本编码器是 Qwen3-4B，**中文提示词同样可用**"
+          targets:
+            - node_id: "4"
+              input: text
+
+        - key: width
+          label: "宽度"
+          type: int
+          default: 1024
+          min: 512
+          max: 2048
+          step: 64
+          group: "画布"
+          help: "必须同时写入潜空间与 sigma 调度器，否则曲线按错误分辨率生成"
+          # ⚠️ 多 target 是必须的，不是冗余：EmptyFlux2LatentImage 决定画布，
+          #    Flux2Scheduler 决定 sigma 曲线。只写一个会"能出图但质量下降"，
+          #    且难以归因（workflow_spec.md §5.1 记录的排查陷阱）
+          targets:
+            - node_id: "6"
+              input: width
+            - node_id: "7"
+              input: width
+
+        - key: height
+          label: "高度"
+          type: int
+          default: 1024
+          min: 512
+          max: 2048
+          step: 64
+          group: "画布"
+          targets:
+            - node_id: "6"
+              input: height
+            - node_id: "7"
+              input: height
+
+        - key: seed
+          label: "随机种子"
+          type: seed
+          default: -1
+          group: "采样"
+          help: "-1 表示随机。klein 走 RandomNoise 节点，入参名是 noise_seed"
+          targets:
+            - node_id: "8"
+              input: noise_seed
+
+        - key: steps
+          label: "采样步数"
+          type: int
+          # 蒸馏版固定 4 步。上限压到 8 而不是 PRD 的 100：
+          # Schema 的边界可以**比 settings 更严**（不能更宽），这里是有意收窄
+          default: 4
+          min: 1
+          max: 8
+          step: 1
+          group: "采样"
+          advanced: true
+          help: "蒸馏版固定 4 步，调高无收益且会变慢。上限有意收窄到 8"
+          targets:
+            - node_id: "7"
+              input: steps
+
+        - key: cfg
+          label: "CFG"
+          type: float
+          # 蒸馏版 cfg 必须为 1。上限压到 2.0：调高会破坏蒸馏结果
+          default: 1.0
+          min: 1.0
+          max: 2.0
+          step: 0.1
+          group: "采样"
+          advanced: true
+          help: "蒸馏版必须为 1.0。调高不会「更听话」，只会让画面崩坏"
+          targets:
+            - node_id: "9"
+              input: cfg
+
+# ---------------------------------------------------------------------------
+# 计划中的工作流（尚未编写定义文件，**不入 workflows 列表**）
+#
+# 刻意只列 id 与阻塞原因，不写 param_schema ——
+# 注册表的每一条都应当是可加载、可校验的。写一个指向不存在文件的条目，
+# 会让 A 流的灌库脚本与前端表单拿到一个必然失败的配置。
+# ---------------------------------------------------------------------------
+planned:
+  - id: i2i_v1
+    title: "图生图（参考图锁定）"
+    fr: FR-8.1 / FR-8.2
+    blocked_by: "需先完成 P4 控制体系选型（IP-Adapter vs PuLID）与素材上传接口（P6-09）"
+    note: >-
+      klein 支持单/多参考图编辑，是这条工作流的首选底模；
+      但素材 → ComfyUI 可见文件名的解析（transform=ref_to_filename 的 asset_resolver）
+      依赖 A 流的素材落盘方案，未定之前无法定 Schema。
+
+  - id: upscale_v1
+    title: "高清修复"
+    fr: FR-2.9 / FR-6.2
+    blocked_by: "需先选定放大链路（ESRGAN / Tile 重采样 / TensorRT），并确认显存占用"
+    note: >-
+      计划做成 t2i_v1 的**可选分支**而不是独立工作流 ——
+      用 _meta.switches 声明 bypass（规范 §6），避免"文生图 + 高清"组合再复制一份 JSON。
+
+  - id: inpaint_v1
+    title: "局部重绘"
+    fr: FR-2.8
+    blocked_by: "需 SAM / BiRefNet 分割链路验证（P4）与遮罩传递接口"
+    note: "依赖遮罩类参数（image + mask），transform 与上传边界都要先定。"
+
+  - id: style_transfer_v1
+    title: "风格迁移"
+    fr: FR-6.2
+    blocked_by: "需先做风格参考图的一致性验证（良品率的第二个关键转化点）"
+    note: "与 i2i_v1 共享大部分参数面，可能合并实现。"
+
+  - id: batch_v1
+    title: "批量（1000 张无人值守）"
+    fr: FR-3.6 / FR-4.x
+    blocked_by: "—"
+    note: >-
+      ⚠️ **待 team-lead 决策：这一条可能根本不该是一条"工作流"。**
+      PRD FR-6.2 把「批量」与其余五条并列为"6 条标准工作流"，但实现上批量是
+      **任意工作流的编排模式**（POST /api/v1/batches 按 SKU 拆成 N 个子任务），
+      它的节点图与 t2i_v1 完全相同。若登记成独立工作流，会出现两份内容相同、
+      版本却各自演进的 JSON —— 典型的"双真相"。
+      建议：从工作流列表移除，改为在 PRD 与 API 文档里描述为「批量执行模式」。
+      （backend/app/models/workflow.py 的 docstring 里也列了 batch_v1，需一并修正。）

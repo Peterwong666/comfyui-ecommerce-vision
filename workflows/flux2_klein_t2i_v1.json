@@ -1,17 +1,35 @@
 {
   "_meta": {
-    "id": "WF-T2I-FLUX2-KLEIN",
-    "version": "2.0.0",
-    "title": "FLUX.2 [klein] 4B Distilled 文生图 · 冒烟测试版",
+    "id": "flux2_klein_t2i_v1",
+    "version": 1,
+    "title": "FLUX.2 [klein] 4B Distilled 文生图",
     "engine": "ComfyUI v0.36.0 (commit ee71d5c4)",
-    "unet": "flux-2-klein-4b.safetensors",
-    "vae": "flux2-vae.safetensors",
-    "text_encoder": "qwen_3_4b.safetensors",
+    "models": [
+      "flux-2-klein-4b.safetensors",
+      "flux2-vae.safetensors",
+      "qwen_3_4b.safetensors"
+    ],
     "license": "Apache-2.0（权重许可单独声明，见 docs/sop/license_matrix.md）",
     "source": "结构对齐官方模板 image_flux2_klein_text_to_image.json 的『Distilled』子图",
+    "node_titles": {
+      "1": "加载·klein UNET",
+      "2": "加载·FLUX.2 VAE",
+      "3": "加载·Qwen3-4B 文本编码器",
+      "4": "输入·正向提示词",
+      "5": "输入·负向条件（零化）",
+      "6": "输入·潜空间",
+      "7": "采样·sigma 调度",
+      "8": "采样·噪声（seed）",
+      "9": "采样·CFG 引导",
+      "10": "采样·采样器选择",
+      "11": "采样·采样主节点",
+      "12": "处理·解码",
+      "13": "输出·保存图片"
+    },
     "note_1": "本文件是 Distilled 变体：UNET=flux-2-klein-4b（无 -base- 前缀），Flux2Scheduler.steps=4、CFGGuider.cfg=1、负向用 ConditioningZeroOut",
     "note_2": "prompt 必须走 CLIPTextEncode（输出键 qwen3_4b）；旧版用的 CLIPTextEncodeFlux 依赖 t5xxl 键，klein 链路不提供，会 KeyError（见 项目进展.md #14）",
-    "todo": "P3-03 在此基础上加参数占位（{{prompt}}/{{seed}}）与高清分支"
+    "note_3": "version 由字符串 2.0.0 规范化为整数 1，仅元数据变更，不影响提交给 ComfyUI 的图。已 GPU 验证出图（项目进展.md #16 验证 5 ④、#18）",
+    "todo": "v2 计划：① filename_prefix 由 smoke/flux2_klein 改为 flux2_klein_t2i_v1/base（规范 §4.2）② 增加参考图编辑分支（klein 支持单/多参考图）。两者都会改变节点图，必须重跑 L4"
   },
   "1": {
     "class_type": "UNETLoader",

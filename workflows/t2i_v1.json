@@ -1,11 +1,22 @@
 {
   "_meta": {
-    "id": "WF-T2I",
-    "version": "1.0.0",
-    "title": "SDXL 文生图 · 冒烟测试版",
-    "engine": "ComfyUI v0.3.75",
-    "checkpoint": "sd_xl_base_1.0.safetensors",
-    "note": "用于验证 API 链路通畅的最小工作流，后续 P3-03 会在此基础上扩展参数占位与高清分支"
+    "id": "t2i_v1",
+    "version": 1,
+    "title": "SDXL 文生图",
+    "engine": "ComfyUI v0.36.0 (commit ee71d5c4)",
+    "models": ["sd_xl_base_1.0.safetensors"],
+    "license_note": "CreativeML OpenRAIL++-M，可商用；见 docs/sop/license_matrix.md",
+    "node_titles": {
+      "3": "采样·主采样器",
+      "4": "加载·SDXL 底模（含 VAE）",
+      "5": "输入·画布",
+      "6": "输入·正向提示词",
+      "7": "输入·负向提示词",
+      "8": "处理·解码",
+      "9": "输出·保存图片"
+    },
+    "note": "原冒烟工作流（曾用 id WF-T2I / version 1.0.0）。节点图自 v0.3.75 起未改动，升级到 v0.36.0 后已复测出图，故 verification=gpu_verified（项目进展.md #16 验证 5 ③、#18）。version 由字符串 1.0.0 规范化为整数 1，仅元数据变更，不影响提交给 ComfyUI 的图。",
+    "todo": "v2 计划：① filename_prefix 由 smoke/t2i 改为 t2i_v1/base（规范 §4.2）② 增加高清修复分支并用 _meta.switches 声明 bypass。两项都会改变节点图，必须重跑 L4 后才能标 gpu_verified"
   },
   "4": {
     "class_type": "CheckpointLoaderSimple",

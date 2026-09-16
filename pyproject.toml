@@ -1,0 +1,44 @@
+# ============================================================
+# 仓库根 pyproject —— 用途只有一个：让 `engine/` 成为**可安装的包**
+#
+# 为什么需要它（而不是在 engine/ 内部放 pyproject）：
+#   `engine/` 既是项目目录、又是包目录（flat layout）。若把 pyproject 放进
+#   engine/ 内部，构建时需要 sources 反向指向父目录，配置脆弱且易被工具误判。
+#   标准做法是 pyproject 放在**包目录之外**，即仓库根。
+#
+# 解决什么问题：
+#   后端（backend/）与工作流内核（engine/）是两个独立包。此前 backend 要
+#   import engine 只能靠 PYTHONPATH 操纵 —— 那类写法在 CI 与不同 CWD 下
+#   随时会断。改为可安装包后，一次 `pip install -e .` 即可，与工作目录无关。
+#
+# 开发环境安装（在仓库根执行）：
+#   backend/.venv/bin/pip install -e . -e ./backend
+# ============================================================
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "comfy-engine"
+version = "0.1.0"
+description = "ComfyUI 工作流内核：参数 Schema、渲染与占位注入、注册表、离线校验、产物元数据"
+requires-python = ">=3.10"
+
+# 刻意零运行时依赖：核心（schema/render/transforms/metadata/errors）只用标准库。
+# 这样这一层可以被任意宿主复用（后端进程、Celery worker、独立 CLI），
+# 不必关心宿主装了什么。仅注册表/校验需要读 YAML，故单独列为 extra。
+dependencies = []
+
+[project.optional-dependencies]
+yaml = ["pyyaml>=6.0"]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+    "pyyaml>=6.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["engine"]
+
+[tool.pytest.ini_options]
+testpaths = ["engine/tests"]
