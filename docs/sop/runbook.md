@@ -538,7 +538,7 @@ curl -s http://127.0.0.1:8000/health
 
 ```bash
 cd backend
-.venv/bin/python -m pytest -q          # 31 passed
+.venv/bin/python -m pytest -q          # 200 passed
 .venv/bin/ruff check app tests         # All checks passed
 ```
 
@@ -546,10 +546,14 @@ cd backend
 
 | 缺口 | 影响 | 状态 |
 |---|---|---|
-| **`mypy` 已声明但未安装** | 类型检查这条防线是空的 | 待补装 |
-| **`alembic/versions/` 为空** | 无初始迁移，无法对真实 PG 建表 | 待生成 |
-| 缺 ER 图 | PRD §9 自评「不足」 | 待补并回写 PRD |
+| **`mypy` 已声明但未安装** | 类型检查这条防线是空的（实测代价：`definition_path()` 误传 id 字符串时只在运行期报 `AttributeError`，装了 mypy 会在静态检查阶段拦住） | 🚩 待补装 |
+| **`.env.example` 与 `config.py` 完全不匹配** | 30 个变量**没有一个**会被读取（命名体系两套 + `extra="ignore"` 静默忽略）。ADR-004 的部署方式是「客户只改 `.env`」→ **照 `.env.example` 抄一遍，一个配置都不生效且完全静默** | 🚩 待按 `config.py` 重写（P2-12） |
+| **初始迁移未在真实 PostgreSQL 上 apply** | 可执行性已有常驻测试兜底（SQLite 上 upgrade→downgrade→upgrade）；仅剩方言差异待确认（`JSONB` / partial index / `ALTER ADD CONSTRAINT`） | 归入 P2-09 |
 | 启动时警告 `jwt_secret 仍为默认值` | 生产必须覆盖 | 已有防护，需在 `.env` 设真实值 |
+
+> ✅ **已闭环**（此前列在本表，现已完成）：`alembic/versions/` 初始迁移已生成（11 表 / 12 外键 / 58 索引）；ER 图已补（`docs/prd/er_diagram.md`）并回写 PRD §9。
+
+> ⚠️ **本表本身就是过一次事故的产物**：上面 `.env.example` 那一项与 `项目进展.md` #21 同源 —— **配置层也会出现「文档说 A、仓库是 B」**，且因为静默忽略，它比代码层的同类问题更难发现。
 
 ### 11.5 常用环境变量（见 `.env.example`）
 

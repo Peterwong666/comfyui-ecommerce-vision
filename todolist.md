@@ -261,7 +261,7 @@ comfyui-platform/
 - [x] **P2-05** ComfyUI-Manager + 自定义节点白名单 → ✅ `deploy/comfyui/node_whitelist.yaml`。32 个节点逐一判定（**keep 11 / disable 11 / review 10**），每条带证据引用（审计日志行号）。<br>　本轮的三个关键发现：① ⚠️ **`ComfyUI-Upscaler-Tensorrt` 是 CC BY-NC-SA（非商用）且已装在环境里** → 唯一漏掉的合规红线，已判 disable ② **`smZNodes` 真因是 `sageattention` ABI 失配**（非 diffusers），待卸载复测（见 `项目进展.md` #23）③ 新增**可注入性判定轴**：能进 `object_info` 的入参才可被自动化驱动 —— P4 四个核心包全 0%，rgthree 50%（设计取向）。<br>　另：`ComfyUI-Manager` 不注册任何节点类 → 对节点图零影响 → V1 上线后可禁用
 - [x] **P2-06** 版本锁定 → `deploy/versions.lock`（426 行，2026-09-16 重做）。含 `[host]/[gpu]/[python]/[comfyui]` 基础段 + **`[launch]`（启动参数 + 从日志解析出的生效运行时开关，如 `Set vram state to: HIGH_VRAM`）** + **`[models]`（6 个模型文件 size + sha256，M2「销毁重建仍可出同一张图」的锚点）** + `[custom_nodes]`（32 个节点 commit）+ `[pip]` freeze（346 行）
 - [ ] **P2-07** 环境复现脚本 + 重建验证
-- [x] **P2-08** 后端骨架 FastAPI → ✅ 已落地并验证（`backend/`，约 3100 行 / 31 测试全绿 / ruff 无告警）。<br>　按 ADR-004：FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic + Celery/Redis；**18 条路由**（auth / tasks / batches / workflows / templates / models / health），`/health` 与 `/health/ready` 分离。启动实测通过（结构化 JSON 日志生效）。<br>　⚠️ 补记：该骨架为 09-15 所建但当时**未提交、未入文档**，2026-09-16 补交并修正 6 个 ruff 问题（含 2 处非纯风格隐患）
+- [x] **P2-08** 后端骨架 FastAPI → ✅ 已落地并验证（`backend/`；补交时为 31 测试，至 2026-09-16 收尾已达 **200 passed** / ruff 全绿）。<br>　按 ADR-004：FastAPI + Pydantic v2 + SQLAlchemy 2 + Alembic + Celery/Redis；**18 条路由**（auth / tasks / batches / workflows / templates / models / health），`/health` 与 `/health/ready` 分离。启动实测通过（结构化 JSON 日志生效）。<br>　⚠️ 补记：该骨架为 09-15 所建但当时**未提交、未入文档**，2026-09-16 补交并修正 6 个 ruff 问题（含 2 处非纯风格隐患）
 - [ ] **P2-09** PostgreSQL + Redis + MinIO 的 docker-compose
 - [ ] **P2-10** 前端骨架
 - [ ] **P2-11** CI 基础
@@ -269,7 +269,9 @@ comfyui-platform/
 - [x] **P2-13** 数据库迁移方案与初始 schema → ✅ 初始迁移 `alembic/versions/20260916_1656_f9192eeddac1_initial_schema_11_tables.py`（11 张表 / 12 条外键 / 58 条索引 / CHECK 约束）+ `docs/prd/er_diagram.md`（Mermaid ER 图 + 逐表职责 + 8 条非显然设计决策）。<br>　⚠️ autogenerate 产物**不能直接用**，修了三处：外键内联在 `create_table` 里（模型有环 `batches→templates→assets→tasks→batches`，PG 上必然失败）→ 改为建表后再统一 `ADD CONSTRAINT`；`JSONB(astext_type=Text())` 的 `Text` 未定义；SQLite 方言残留的 `server_default` 会让以后每次 autogenerate 报假差异。<br>　验证：9 条迁移测试（用「记录器冒充 `alembic.op`」逐项比对表/外键/索引），并**做了变异测试**确认测试有鉴别力（删外键、改错表名均被抓到）。<br>　❌ 未做：真实 PostgreSQL 上 apply 一次（本机无 PG 二进制也无 docker daemon）→ 归入 P2-09
 
 **DoD**：环境可一键重建；`versions.lock` 存在；后端/前端/ComfyUI 三件套都能起来并互相调通一次。
-**阶段结果**：🔵 进行中（**5/13**，2026-09-16 复核）。P2-03 有意推迟 —— 先用自带环境跑主线，避免在环境美化上消耗前期时间。P2-06 于 09-16 因引擎升级回退后已重做完成；P2-08 后端骨架补交并验证完成。
+**阶段结果**：🔵 进行中（**7/13**，2026-09-16 收尾复核）。已完成 P2-01/02/04/05/06/08/13。
+P2-03 有意推迟（先用自带环境跑主线）；剩 P2-07（复现脚本+重建验证）、P2-09（中间件 compose，需有卡内存）、P2-10（前端骨架）、P2-11（CI）、P2-12（配置与密钥管理）。
+🚩 **P2-12 有一项已发现的实质缺口**：`.env.example` 与 `app/core/config.py` 完全不匹配 —— 30 个变量 0 个会被读取（命名体系两套 + `extra="ignore"` 静默忽略），而 ADR-004 的部署方式是「客户只改 `.env`」。
 **待办提示**：⚠️ `backend/.venv` 中 **mypy 未安装**（`pyproject.toml` 已声明为 dev 依赖），类型检查这条防线目前是空的，需补装后才能生效。
 
 ---
