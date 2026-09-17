@@ -16,15 +16,19 @@
     本文件只引用、不重复。
 
 ⚠️ **提示词长度走 `params` 通道的缺口已于 2026-09-17 修复**：`tasks._validate_text_lengths`
-按工作流 `param_schema` 里 `type == "text"` 的字段施加 `min/max_prompt_length`，
+按工作流 `param_schema` 里 `type == "text"` 的字段施加 `max_prompt_length`（**只查上界**），
 且跑在 `_merge_params` **之后**（顶层与 `params` 两条通道一起覆盖）。
-**原本"钉住缺口"的两条用例已翻成"钉住已修复"（断言 202 → 422）。**
+**原本"钉住缺口"的两条用例已翻成"钉住已修复"（断言 202 → 422）；其中"空串被拒"那条
+又按 2026-09-17 的第二次裁定翻回「空串被接受」** —— 下界（`min_prompt_length`）在
+`param_schema` 里**没有事实来源**可依（Schema 无 `required` / `allow_empty` 标记），
+而「清空反向词」是前端早已认定的合法用法，详见 `tasks._validate_text_lengths` 的 docstring。
 
 ⚠️ **仍有一处「钉住缺口」的用例**：生成分辨率走 `params` 通道时 API 层不拒
 （见第四节的 `test_generation_side_out_of_bounds_is_not_rejected_by_the_api`）。
 后端在 `params` 通道上不校验它，值要等到 worker 渲染时才由引擎拒掉，那时是 EX-3
 `invalid_param`、**不可重试**（用户白等一次排队）。缺口清单见 `tests/README.md`；
-**修好之后请把断言从 `202` 改成 `422`**，不要留下一条"为了绿而绿"的用例。
+**修好之后请把断言从 `202` 改成 `422`** —— 这条注释指的是分辨率那一处，**尚未过期**，
+不要因为"看到这句话"就删掉它。
 
 ⚠️ 关于「可被破坏后检出」：本文件每条用例都做过变异验证 —— 去掉 `TaskSubmitIn.prompt`
 的 `max_length`、去掉 `_validate_params` 里的 steps/cfg 分支、把 `max_batch_size`
@@ -120,7 +124,9 @@ def test_retry_hard_limit_is_a_ceiling_over_the_default() -> None:
     """PRD §6.2「默认 3，上限 5」的两个数之间的关系：默认必须落在上限之内。
 
     ⚠️ **诚实标注（缺口）**：`task_max_retries_hard_limit` 目前**没有任何代码读取**。
-    全仓库检索只有两处：`config.py` 的定义、`contracts.md` §1.1 的一句声明。
+    除 `config.py` 的定义与**测试自身**外，全仓库只有 `contracts.md` §1.1 的一句声明
+    （`grep -rn task_max_retries_hard_limit` 即证据 —— **不要去数"共几处"**，
+    那个数会随测试文件的增删而变，数出来的结论随时会过期）。
     也就是说「上限 5」在实现里**不是一个可执行的约束**，只是一份配置声明 ——
     `mark_retrying`（`app/services/state_machine.py:175`）只看 `task_max_retries`。
 
@@ -135,9 +141,11 @@ def test_retry_hard_limit_is_a_ceiling_over_the_default() -> None:
 #
 # 两条通道的守卫**不同**，所以都要测：
 # - 顶层：`TaskSubmitIn.prompt` 的 `max_length` + `_check_prompt` 下限
-#   （`app/schemas/task.py:23-45`，Pydantic 在进路由前就拦）；
+#   （`app/schemas/task.py:23-45`，Pydantic 在进路由前就拦）—— **上下界都查**；
 # - `params`：`tasks._validate_text_lengths` 在**参数合并之后**按工作流 Schema 的
 #   `type == "text"` 字段判（它同时覆盖顶层通道 —— 顶层值会收敛进 `params`）。
+#   ⚠️ **只查上界**：下界在 `param_schema` 里没有事实来源，故不施加
+#   （裁定与理由见 `tasks._validate_text_lengths` 的 docstring）。
 #
 # ⚠️ `params` 侧的判据是**工作流 Schema 驱动**的，所以必须用一个**声明了 text 字段**的
 # 工作流来测。`conftest.workflow`（`t2i_v1`）的最小 Schema 里没有 text 字段，
@@ -236,6 +244,9 @@ def test_params_prompt_over_max_length_is_rejected(
     1. 422；
     2. **结构化 detail**（`code` 用大写下划线、`fields` 指到具体字段名）；
     3. **一张任务都没建**（不能"拒了还落库"）。
+
+    ⚠️ 期望值写字面量（`"长度 2001 超过上限 2000"`），不从实现里的 f-string 推导 ——
+    否则实现改错文案时用例会跟着一起漂。
     """
     too_long = "p" * (settings.max_prompt_length + 1)
     resp = _submit_text(client, params={"prompt": too_long})
@@ -247,38 +258,44 @@ def test_params_prompt_over_max_length_is_rejected(
     assert detail["code"] == "TEXT_LENGTH_OUT_OF_RANGE"
     assert detail["code"] == api_tasks.TEXT_LENGTH_OUT_OF_RANGE_CODE
     assert detail["fields"] == [
-        {"key": "prompt", "reason": "长度 2001 越界（允许 1-2000）"}
+        {"key": "prompt", "reason": "长度 2001 超过上限 2000"}
     ]
     assert db.scalar(select(func.count()).select_from(Task)) == 0, "被拒却落了库"
 
 
-def test_params_prompt_empty_is_rejected(client, db: Session, text_workflow) -> None:  # type: ignore[no-untyped-def]
-    """✅ **已修复**：`params["prompt"] = ""` → **422**（原来是 202）。
+def test_params_prompt_empty_is_accepted(client, db: Session, text_workflow) -> None:  # type: ignore[no-untyped-def]
+    """⭐ `params["prompt"] = ""` **被接受**（2026-09-17 第二次裁定，此前断言 422）。
 
-    `settings.min_prompt_length = 1` 是**下界**，空串落在界外 —— 与顶层通道
-    （`TaskSubmitIn._check_prompt` 拒 0 长度）给出同一个答案。
-    ⚠️ 注意这与"字段必填"是两件事：字段**不传**仍然合法（`param_schema` 没有
-    `required` 标记，`_merge_params` 会用 `default` 兜底）。这里只钉"传了空串被拒"。
+    「下界不可表达」：`_validate_text_lengths` **只查上界** ——
+    `param_schema` 里没有 `required` / `allow_empty` 之类的标记，所以
+    "哪个文本字段允许为空"**没有事实来源**，按字段名硬编码会造出第二份真相。
+    详见 `tasks._validate_text_lengths` 的 docstring。
+
+    ⚠️ 不要据此认为"空提示词没问题"：这条钉的是**一般文本字段**（`params` 通道）。
+    顶层 `prompt` 的 `min_prompt_length = 1` 是既有行为，仍会拒空串
+    （`test_top_level_empty_prompt_is_rejected`），那条**没有变**。
+    ⚠️ 也**不是**「字段必填」：字段**不传**同样合法（`_merge_params` 用 `default` 兜底）。
     """
     resp = _submit_text(client, params={"prompt": ""})
 
-    assert resp.status_code == 422, resp.text
-    assert resp.json()["detail"]["code"] == "TEXT_LENGTH_OUT_OF_RANGE"
-    assert db.scalar(select(func.count()).select_from(Task)) == 0, "被拒却落了库"
+    assert resp.status_code == 202, resp.text
 
 
 @pytest.mark.parametrize("key", ["prompt", "caption"])
-def test_params_text_field_at_bounds_is_accepted(
+def test_params_text_field_at_upper_bound_is_accepted(
     client, key: str, text_workflow
 ) -> None:  # type: ignore[no-untyped-def]
-    """闭区间：文本字段取 1 与 2000 个字符**本身**必须通过（两个键名各测一遍）。
+    """闭区间：文本字段取 `max_prompt_length`（= 2000）本身必须通过（两个键名各测一遍）。
 
-    只测 2001 被拒会漏掉一类错误：把比较写成开区间（`lo < len < hi`）的实现
-    会连 1 与 2000 一起拒 —— 那是个"边界比 PRD 更严"的静默收紧。
+    只测 2001 被拒会漏掉一类错误：把比较写成 `>=`（或把 `<` 用反）的实现
+    会连 2000 一起拒 —— 那是个"边界比 PRD 更严"的静默收紧。
+
+    ⚠️ 这里**不再**参数化 `min_prompt_length`：下界已不由本函数施加
+    （见 `tasks._validate_text_lengths`），把 1 当成"下界"来测会把一个
+    **已不存在的规则**写成判据。空串（0）的用例是上面那条 `..._empty_is_accepted`。
     """
-    for length in (settings.min_prompt_length, settings.max_prompt_length):
-        resp = _submit_text(client, params={key: "p" * length})
-        assert resp.status_code == 202, f"{key} 长度 {length}: {resp.text}"
+    resp = _submit_text(client, params={key: "p" * settings.max_prompt_length})
+    assert resp.status_code == 202, f"{key} 长度 {settings.max_prompt_length}: {resp.text}"
 
 
 def test_params_caption_over_max_length_is_rejected(
@@ -296,8 +313,26 @@ def test_params_caption_over_max_length_is_rejected(
 
     assert resp.status_code == 422, resp.text
     assert resp.json()["detail"]["fields"] == [
-        {"key": "caption", "reason": "长度 2001 越界（允许 1-2000）"}
+        {"key": "caption", "reason": "长度 2001 超过上限 2000"}
     ]
+
+
+def test_params_negative_prompt_can_be_cleared(
+    client, db: Session, user, text_workflow
+) -> None:  # type: ignore[no-untyped-def]
+    """⭐ **回归钉**：`params["negative_prompt"] = ""`（清空反向词）**必须 202**。
+
+    这是本次裁定要保住的那条**产品行为** —— 前端
+    `web/src/features/workflow-form/validate.ts` 的 `REQUIRED_TEXT_KEYS` 只含 `prompt`，
+    并注明"清空反向词是合法用法"。此前后端对**所有**文本字段施加 `min_prompt_length`，
+    导致同一条规则在后端得到**相反**的答案（422）。
+
+    断言"真的建了任务"而不只是状态码：若哪天有人把下界加回来，这条会变红。
+    """
+    resp = _submit_text(client, params={"negative_prompt": ""})
+
+    assert resp.status_code == 202, resp.text
+    assert db.scalar(select(func.count()).select_from(Task)) == 1, "放行了却没建任务"
 
 
 def test_params_prompt_length_is_checked_on_the_batch_channel(

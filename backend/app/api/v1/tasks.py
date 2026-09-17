@@ -279,7 +279,7 @@ def _text_fields(wf: Workflow) -> list[dict[str, Any]]:
 
 
 def _validate_text_lengths(wf: Workflow, payload: dict[str, Any]) -> None:
-    """按工作流 Schema 对**文本字段**施加长度上下界（§6.2 的 1 – 2000）。
+    """按工作流 Schema 对**文本字段**施加长度**上界**（§6.2 的 `max_prompt_length` = 2000）。
 
     修的是这个缺口：顶层 `prompt` 由 `TaskSubmitIn` 的 `max_length` 拦住了，
     但 `params["prompt"]` 是**另一条通道**（契约 §3.4 允许只传它），
@@ -291,23 +291,32 @@ def _validate_text_lengths(wf: Workflow, payload: dict[str, Any]) -> None:
     （`submit_task` 里那段赋值），所以这里查 `params` 就**同时覆盖两条通道**，
     不需要在顶层再写一遍。
 
-    ⚠️ **只做「长度上下界」，不做「字段必填」**（两者是不同的规则，别混）：
+    ⚠️ **只查上界，不查下界**（2026-09-17 裁定）：
+    - 2026-09-17 早先的版本**同时**施加了 `settings.min_prompt_length`（= 1），
+      副作用是 `negative_prompt: ""`（清空反向词）会拿到 422。而前端
+      `web/src/features/workflow-form/validate.ts` 的既有裁定是
+      「**清空反向词是合法用法**」（它的 `REQUIRED_TEXT_KEYS` 只含 `prompt`）——
+      同一条产品规则出现了两个相反的答案，必须收口。
+    - **收口到「不查下界」而不是「按字段名豁免 `negative_prompt`」**，理由是事实来源：
+      契约 §3 的参数 Schema **没有** `required` / `allow_empty` 之类的标记，
+      因此「**哪个文本字段允许为空**」在数据里**没有事实来源**。按字段名硬编码
+      `prompt` / `negative_prompt` 会在 `param_schema` 之外造出**第二份真相**
+      （同 `_text_fields` 的说明）：以后某个工作流新增文本字段时两边必然分叉，
+      而且这类分叉**不会报错，只会漏**。
+    - ⚠️ **遗留项：下界目前无法表达，故未启用。** 现状是空串对**一般文本字段**
+      是合法输入。等 `param_schema` 引入显式标记（如 `required` / `allow_empty`）后，
+      再据此启用下界 —— **本函数不在契约 §3 的 Schema 格式定义之外自造标记**
+      （加标记属于契约变更，不是实现变更）。
+    - ⚠️ 顶层 `prompt` 的 `min_prompt_length = 1` 是**既有行为，保持不变**：那是
+      顶层字段（`TaskSubmitIn._check_prompt`，`app/schemas/task.py`），不是 Schema 里
+      的一般文本字段 ——「空提示词必然浪费一次 GPU」这条判断只对顶层通道成立。
     - **不要求字段出现**：字段不在 `params` 里就跳过。工作流的 `param_schema` 没有
       `required` 标记，而每个字段的 `default` 又由 `_merge_params` 兜底，
       所以"没传"本来就是合法状态 —— 这里**不会**把可选文本变成必填。
-    - **出现即按 `[min_prompt_length, max_prompt_length]` 判**，空串（长度 0）落在下界之外
-      ⇒ 422。这与顶层通道一致（`TaskSubmitIn.prompt` 的 `_check_prompt` 同样拒 0 长度），
-      两条通道对同一个字段给出同一个答案。
-      ⚠️ 代价（如实记录）：`negative_prompt` 传空串也会被拒 —— 前端
-      `REQUIRED_TEXT_KEYS` 只把 `prompt` 列为"必须非空"，并注明"清空反向词是合法用法"。
-      现状是后端更严。之所以不做例外：Schema 里没有 `required` 标记，后端**无从区分**
-      哪个文本字段允许为空；按字段名硬编码 `prompt` / `negative_prompt` 会造出第二份真相
-      （见 `_text_fields` 的说明）。若产品确认"清空反向词"必须可用，正确做法是给
-      `param_schema` 加一个显式标记（如 `allow_empty: true`），而不是在这里写死键名。
     - 非字符串**放行**：类型不对由引擎在渲染期拒；而且 `len()` 打在 `int` 上会
       把本该是 422 的输入变成 500。
     """
-    lo, hi = settings.min_prompt_length, settings.max_prompt_length
+    hi = settings.max_prompt_length
     for field in _text_fields(wf):
         key = field.get("key")
         if not key or key not in payload:
@@ -315,17 +324,17 @@ def _validate_text_lengths(wf: Workflow, payload: dict[str, Any]) -> None:
         value = payload[key]
         if not isinstance(value, str):
             continue
-        if not (lo <= len(value) <= hi):
+        if len(value) > hi:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 # 契约 §2.2：非 `ErrorType` 的码用**大写下划线**（见模块顶部的常量说明）。
                 detail={
                     "code": TEXT_LENGTH_OUT_OF_RANGE_CODE,
-                    "message": f"{key} 长度需在 {lo}-{hi} 个字符，当前 {len(value)}",
+                    "message": f"{key} 长度不能超过 {hi} 个字符，当前 {len(value)}",
                     "fields": [
                         {
                             "key": key,
-                            "reason": f"长度 {len(value)} 越界（允许 {lo}-{hi}）",
+                            "reason": f"长度 {len(value)} 超过上限 {hi}",
                         }
                     ],
                 },
