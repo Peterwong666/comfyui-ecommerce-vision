@@ -97,7 +97,7 @@ def test_settings_match_prd_section_6_2_literals() -> None:
     assert settings.task_timeout_min == 60
     assert settings.task_timeout_seconds == 300
     assert settings.task_timeout_max == 600
-    # 队列深度：≤ 10000
+    # 队列深度：软阈值 10000（超过 → 告警仍接单）；硬阈值 = 2 × 软阈值 = 20000（超过 → 拒收）
     assert settings.queue_max_depth == 10000
 
 
@@ -382,11 +382,12 @@ def test_batch_single_image_is_accepted(client, db: Session, user) -> None:  # t
 
 
 # ================================================================
-# 六、队列深度 ≤ 10000（§6.2）
+# 六、队列深度（§6.2）
 #
-# ⚠️ **本项没有行为用例**：`queue_max_depth` 在全仓库没有任何读取点，
-# 限流（含队列深度）是**未实现**的能力 —— `todolist.md` P6-08 行与
-# `项目进展.md` 都把它列在「明确未做」里。所以本节唯一能测的就是上面那条
-# 配置值钉死（`test_settings_match_prd_section_6_2_literals`）。
-# 这里刻意**不写**一条"看起来在测队列深度"的假用例。
+# ⚠️ 本节**只有配置值钉死**（上面那条 `test_settings_match_prd_section_6_2_literals`）。
+# **行为用例在 `backend/tests/test_queue_guard.py`** —— 2026-09-17 起 `queue_max_depth`
+# 有两个消费点（软阈值告警 / 硬阈值熔断，见 `app/api/v1/tasks.py::_guard_queue`），
+# 所以「全仓库无读取点」这句当时为真的话**已经失效**，此处不再重复它。
+# 本节刻意**不写**一条"看起来在测队列深度"的假用例：真正的闸门判据（深度与阈值的
+# 大小关系、检查排在扣额之前）全部在 `test_queue_guard.py` 里钉。
 # ================================================================
