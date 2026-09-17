@@ -1,0 +1,25 @@
+{
+  "id": "gs-t2i-009",
+  "workflow": "t2i_v1",
+  "dimensions": {
+    "category": "陶瓷咖啡杯",
+    "material": "陶瓷釉面",
+    "light": "自然窗光漫射",
+    "composition": "特写占比"
+  },
+  "params": {
+    "prompt": "professional e-commerce product photo of a matte white glazed ceramic coffee mug with a slim handle, glazed ceramic surface with a soft sheen, on a seamless mid grey background, soft diffused window light from the left, tight crop, subject filling the frame, macro detail, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "width": 1536,
+    "height": 1536,
+    "seed": 20260916,
+    "steps": 30,
+    "cfg": 6.0,
+    "denoise": 1.0,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "同品类换光影与构图，检验风格是否随光影词漂移（D-37 场景）（seed 固定 20260916、sampler dpmpp_2m/karras，便于将来复现）"
+}

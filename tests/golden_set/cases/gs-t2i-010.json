@@ -1,0 +1,25 @@
+{
+  "id": "gs-t2i-010",
+  "workflow": "t2i_v1",
+  "dimensions": {
+    "category": "不锈钢保温杯",
+    "material": "拉丝不锈钢",
+    "light": "硬光侧光",
+    "composition": "正视"
+  },
+  "params": {
+    "prompt": "professional e-commerce product photo of a brushed stainless steel insulated tumbler with a screw lid, brushed stainless steel with fine horizontal grain, on a seamless light grey background, hard side light revealing surface micro-texture, straight-on eye-level front view, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "width": 1024,
+    "height": 1024,
+    "seed": 20260916,
+    "steps": 25,
+    "cfg": 6.5,
+    "denoise": 1.0,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "金属 + 硬光：检验高光位置是否可控（mat-001 note 的失败模式）（seed 固定 20260916、sampler dpmpp_2m/karras，便于将来复现）"
+}

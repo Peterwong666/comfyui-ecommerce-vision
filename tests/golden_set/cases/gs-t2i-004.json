@@ -1,0 +1,25 @@
+{
+  "id": "gs-t2i-004",
+  "workflow": "t2i_v1",
+  "dimensions": {
+    "category": "亚克力收纳盒",
+    "material": "亚克力透明",
+    "light": "逆光轮廓光",
+    "composition": "主体70%居中"
+  },
+  "params": {
+    "prompt": "professional e-commerce product photo of a transparent acrylic storage box with a fitted lid, transparent acrylic with clean refractive edges, on a seamless light grey background, backlit rim light separating the subject from the background, subject filling about 70% of the frame, centered, even margin, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "width": 1024,
+    "height": 1024,
+    "seed": 20260916,
+    "steps": 25,
+    "cfg": 6.0,
+    "denoise": 1.0,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "透明材质 + 逆光：折射与边缘分离的难点组合（seed 固定 20260916、sampler dpmpp_2m/karras，便于将来复现）"
+}

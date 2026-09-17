@@ -1,0 +1,25 @@
+{
+  "id": "gs-t2i-014",
+  "workflow": "t2i_v1",
+  "dimensions": {
+    "category": "胡桃木托盘",
+    "material": "胡桃木实木",
+    "light": "自然窗光漫射",
+    "composition": "三分法"
+  },
+  "params": {
+    "prompt": "professional e-commerce product photo of a walnut wood serving tray with a raised rim, walnut wood with natural grain and a matte finish, on a light oak tabletop, soft diffused window light from the left, rule of thirds composition with the subject on the left third, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "width": 1024,
+    "height": 1280,
+    "seed": 20260916,
+    "steps": 25,
+    "cfg": 6.5,
+    "denoise": 1.0,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "自然光 + 三分法；检验投影方向是否与光位自洽（neg-022）（seed 固定 20260916、sampler dpmpp_2m/karras，便于将来复现）"
+}

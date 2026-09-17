@@ -1,0 +1,21 @@
+{
+  "id": "gs-klein-005",
+  "workflow": "flux2_klein_t2i_v1",
+  "dimensions": {
+    "category": "羊绒针织衫",
+    "material": "羊绒针织",
+    "light": "自然窗光漫射",
+    "composition": "三分法"
+  },
+  "params": {
+    "prompt": "professional e-commerce product photo of a folded cashmere knit sweater showing the ribbed texture, cashmere knit with fine ribbed loops, on a light oak tabletop, soft diffused window light from the left, rule of thirds composition with the subject on the left third, sharp focus, high detail, commercial grade, 8k",
+    "width": 1024,
+    "height": 1024,
+    "seed": 20260916,
+    "steps": 4,
+    "cfg": 1.0
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "klein 上的纺织微表面细节；与 SDXL 链路 case 005 对照。⚠️ 本链路**没有** negative_prompt 字段，反向词无处可填（negative.yaml:10-11）"
+}

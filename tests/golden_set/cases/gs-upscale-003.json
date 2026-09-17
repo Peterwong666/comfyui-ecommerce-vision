@@ -1,0 +1,26 @@
+{
+  "id": "gs-upscale-003",
+  "workflow": "upscale_v1",
+  "dimensions": {
+    "category": "不锈钢保温杯",
+    "material": "拉丝不锈钢",
+    "light": "柔光箱大面积主光",
+    "composition": "主体50%四周留白"
+  },
+  "params": {
+    "reference_image": 23,
+    "prompt": "professional e-commerce product photo of a brushed stainless steel insulated tumbler with a screw lid, brushed stainless steel with fine horizontal grain, on a seamless light grey background, large softbox key light, even illumination, subject about 50% of the frame with even margin on all sides, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "scale_by": 1.5,
+    "tile_size": 1024,
+    "denoise": 0.4,
+    "seed": 20260916,
+    "steps": 20,
+    "cfg": 6.5,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "tile_size=1024：覆盖大分块解码，检验显存与接缝。⚠️ 放大后的**画质增益是否成立尚未实测**（debug_log §2.7 待验证 ②）—— 本用例不声称画质达标"
+}

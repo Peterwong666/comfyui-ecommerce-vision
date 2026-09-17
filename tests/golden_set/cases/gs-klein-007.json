@@ -1,0 +1,21 @@
+{
+  "id": "gs-klein-007",
+  "workflow": "flux2_klein_t2i_v1",
+  "dimensions": {
+    "category": "玻璃花瓶",
+    "material": "玻璃透明",
+    "light": "逆光轮廓光",
+    "composition": "正视"
+  },
+  "params": {
+    "prompt": "professional e-commerce product photo of a clear glass vase with a tapered neck, clear glass with clean refraction, on a seamless light grey background, backlit rim light separating the subject from the background, straight-on eye-level front view, sharp focus, high detail, commercial grade, 8k",
+    "width": 1024,
+    "height": 1024,
+    "seed": 20260916,
+    "steps": 4,
+    "cfg": 1.0
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "klein 上透明材质 + 逆光；链路本身无反向词兜底。⚠️ 本链路**没有** negative_prompt 字段，反向词无处可填（negative.yaml:10-11）"
+}

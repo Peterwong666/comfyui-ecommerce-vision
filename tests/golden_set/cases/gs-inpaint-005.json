@@ -1,0 +1,27 @@
+{
+  "id": "gs-inpaint-005",
+  "workflow": "inpaint_v1",
+  "dimensions": {
+    "category": "胡桃木托盘",
+    "material": "胡桃木实木",
+    "light": "硬光侧光",
+    "composition": "俯视"
+  },
+  "params": {
+    "reference_image": 15,
+    "prompt": "professional e-commerce product photo of a walnut wood serving tray with a raised rim, walnut wood with natural grain and a matte finish, on a matte white surface, flat lay, hard side light revealing surface micro-texture, top-down flat lay view, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "mask_expand": -8,
+    "width": 1024,
+    "height": 1024,
+    "denoise": 1.0,
+    "seed": 20260916,
+    "steps": 25,
+    "cfg": 6.5,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "**负值** mask_expand=-8（Schema 边界 -32~128）：内缩蒙版，覆盖负值分支。⚠️ **蒙版极性尚未实测**（debug_log §2.6 待验证）—— 用例本身不解决该前提"
+}

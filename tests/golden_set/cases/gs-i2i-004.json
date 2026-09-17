@@ -1,0 +1,26 @@
+{
+  "id": "gs-i2i-004",
+  "workflow": "i2i_v1",
+  "dimensions": {
+    "category": "羊绒针织衫",
+    "material": "羊绒针织",
+    "light": "顶光加底板反射",
+    "composition": "特写占比"
+  },
+  "params": {
+    "reference_image": 4,
+    "prompt": "professional e-commerce product photo of a folded cashmere knit sweater showing the ribbed texture, cashmere knit with fine ribbed loops, on a seamless mid grey background, top light with bounce fill from a white board below, tight crop, subject filling the frame, macro detail, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "width": 1536,
+    "height": 1536,
+    "denoise": 0.6,
+    "seed": 20260916,
+    "steps": 25,
+    "cfg": 6.5,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "高 denoise 上限附近的取样点：针织纹理最容易被重绘改掉（D-38）。⚠️ 参考图在离线校验里由**桩 resolver** 提供，不证明素材能被引擎读到"
+}

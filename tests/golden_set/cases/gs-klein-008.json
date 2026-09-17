@@ -1,0 +1,21 @@
+{
+  "id": "gs-klein-008",
+  "workflow": "flux2_klein_t2i_v1",
+  "dimensions": {
+    "category": "碳纤维行李箱",
+    "material": "碳纤维纹理",
+    "light": "硬光侧光",
+    "composition": "主体70%居中"
+  },
+  "params": {
+    "prompt": "professional e-commerce product photo of a carbon fiber hard-shell suitcase with a telescopic handle, carbon fiber weave with a tight twill pattern, on a seamless light grey background, hard side light revealing surface micro-texture, subject filling about 70% of the frame, centered, even margin, sharp focus, high detail, commercial grade, 8k",
+    "width": 1024,
+    "height": 1280,
+    "seed": 20260916,
+    "steps": 8,
+    "cfg": 1.0
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "steps 取 klein 上限 8（Schema 边界 1~8），检验边界值下的表现。⚠️ 本链路**没有** negative_prompt 字段，反向词无处可填（negative.yaml:10-11）"
+}

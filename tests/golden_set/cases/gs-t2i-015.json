@@ -1,0 +1,25 @@
+{
+  "id": "gs-t2i-015",
+  "workflow": "t2i_v1",
+  "dimensions": {
+    "category": "玻璃花瓶",
+    "material": "玻璃透明",
+    "light": "三点布光",
+    "composition": "主体70%居中"
+  },
+  "params": {
+    "prompt": "professional e-commerce product photo of a clear glass vase with a tapered neck, clear glass with clean refraction, on a seamless light grey background, three-point studio lighting, key light with fill and rim, subject filling about 70% of the frame, centered, even margin, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "width": 1024,
+    "height": 1024,
+    "seed": 20260916,
+    "steps": 25,
+    "cfg": 6.0,
+    "denoise": 1.0,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "标准影棚布光下透明体的反射真实性（neg-021）（seed 固定 20260916、sampler dpmpp_2m/karras，便于将来复现）"
+}

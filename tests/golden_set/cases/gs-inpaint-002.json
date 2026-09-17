@@ -1,0 +1,27 @@
+{
+  "id": "gs-inpaint-002",
+  "workflow": "inpaint_v1",
+  "dimensions": {
+    "category": "真皮托特包",
+    "material": "头层牛皮",
+    "light": "自然窗光漫射",
+    "composition": "特写占比"
+  },
+  "params": {
+    "reference_image": 12,
+    "prompt": "professional e-commerce product photo of a tan full-grain leather tote bag with visible stitching, full-grain leather with visible pores and stitching, on a seamless mid grey background, soft diffused window light from the left, tight crop, subject filling the frame, macro detail, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "mask_expand": 0,
+    "width": 1024,
+    "height": 1024,
+    "denoise": 1.0,
+    "seed": 20260916,
+    "steps": 25,
+    "cfg": 6.5,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "mask_expand=0：不外扩，检验贴边重绘时的接缝。⚠️ **蒙版极性尚未实测**（debug_log §2.6 待验证）—— 用例本身不解决该前提"
+}

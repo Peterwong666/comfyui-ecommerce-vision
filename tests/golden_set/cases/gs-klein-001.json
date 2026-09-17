@@ -1,0 +1,21 @@
+{
+  "id": "gs-klein-001",
+  "workflow": "flux2_klein_t2i_v1",
+  "dimensions": {
+    "category": "陶瓷咖啡杯",
+    "material": "陶瓷釉面",
+    "light": "三点布光",
+    "composition": "主体70%居中"
+  },
+  "params": {
+    "prompt": "professional e-commerce product photo of a matte white glazed ceramic coffee mug with a slim handle, glazed ceramic surface with a soft sheen, on a seamless light grey background, three-point studio lighting, key light with fill and rim, subject filling about 70% of the frame, centered, even margin, sharp focus, high detail, commercial grade, 8k",
+    "width": 1024,
+    "height": 1024,
+    "seed": 20260916,
+    "steps": 4,
+    "cfg": 1.0
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "klein 蒸馏链路的基线：4 步 / cfg=1.0（model_guide §5.1）。⚠️ 本链路**没有** negative_prompt 字段，反向词无处可填（negative.yaml:10-11）"
+}

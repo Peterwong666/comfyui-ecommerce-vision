@@ -1,0 +1,25 @@
+{
+  "id": "gs-t2i-013",
+  "workflow": "t2i_v1",
+  "dimensions": {
+    "category": "羊绒针织衫",
+    "material": "羊绒针织",
+    "light": "顶光加底板反射",
+    "composition": "特写占比"
+  },
+  "params": {
+    "prompt": "professional e-commerce product photo of a folded cashmere knit sweater showing the ribbed texture, cashmere knit with fine ribbed loops, on a seamless mid grey background, top light with bounce fill from a white board below, tight crop, subject filling the frame, macro detail, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "width": 1536,
+    "height": 1536,
+    "seed": 20260916,
+    "steps": 30,
+    "cfg": 6.5,
+    "denoise": 1.0,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "针织纹理特写；检验「纹理重复」与「过度磨皮」两个对立失败模式（seed 固定 20260916、sampler dpmpp_2m/karras，便于将来复现）"
+}

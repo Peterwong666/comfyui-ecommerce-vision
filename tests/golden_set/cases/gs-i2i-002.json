@@ -1,0 +1,26 @@
+{
+  "id": "gs-i2i-002",
+  "workflow": "i2i_v1",
+  "dimensions": {
+    "category": "真皮托特包",
+    "material": "头层牛皮",
+    "light": "自然窗光漫射",
+    "composition": "主体70%居中"
+  },
+  "params": {
+    "reference_image": 2,
+    "prompt": "professional e-commerce product photo of a tan full-grain leather tote bag with visible stitching, full-grain leather with visible pores and stitching, on a seamless light grey background, soft diffused window light from the left, subject filling about 70% of the frame, centered, even margin, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "width": 1024,
+    "height": 1280,
+    "denoise": 0.35,
+    "seed": 20260916,
+    "steps": 25,
+    "cfg": 6.5,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "低 denoise 保真：皮具缝线与五金件「一个像素都不能动」（IP-2 纪律）。⚠️ 参考图在离线校验里由**桩 resolver** 提供，不证明素材能被引擎读到"
+}

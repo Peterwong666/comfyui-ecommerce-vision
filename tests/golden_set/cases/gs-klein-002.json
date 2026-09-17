@@ -1,0 +1,21 @@
+{
+  "id": "gs-klein-002",
+  "workflow": "flux2_klein_t2i_v1",
+  "dimensions": {
+    "category": "不锈钢保温杯",
+    "material": "拉丝不锈钢",
+    "light": "柔光箱大面积主光",
+    "composition": "主体50%四周留白"
+  },
+  "params": {
+    "prompt": "professional e-commerce product photo of a brushed stainless steel insulated tumbler with a screw lid, brushed stainless steel with fine horizontal grain, on a seamless light grey background, large softbox key light, even illumination, subject about 50% of the frame with even margin on all sides, sharp focus, high detail, commercial grade, 8k",
+    "width": 1024,
+    "height": 1024,
+    "seed": 20260916,
+    "steps": 4,
+    "cfg": 1.0
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "klein 上金属材质的表现；本链路**无反向词可用**，全靠正向提示词。⚠️ 本链路**没有** negative_prompt 字段，反向词无处可填（negative.yaml:10-11）"
+}

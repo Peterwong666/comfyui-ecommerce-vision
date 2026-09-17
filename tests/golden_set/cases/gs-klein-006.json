@@ -1,0 +1,21 @@
+{
+  "id": "gs-klein-006",
+  "workflow": "flux2_klein_t2i_v1",
+  "dimensions": {
+    "category": "胡桃木托盘",
+    "material": "胡桃木实木",
+    "light": "硬光侧光",
+    "composition": "俯视"
+  },
+  "params": {
+    "prompt": "professional e-commerce product photo of a walnut wood serving tray with a raised rim, walnut wood with natural grain and a matte finish, on a matte white surface, flat lay, hard side light revealing surface micro-texture, top-down flat lay view, sharp focus, high detail, commercial grade, 8k",
+    "width": 1536,
+    "height": 1536,
+    "seed": 20260916,
+    "steps": 4,
+    "cfg": 1.0
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "1536² 高分辨率下的 klein 表现；检验潜在显存压力（model_guide §6）。⚠️ 本链路**没有** negative_prompt 字段，反向词无处可填（negative.yaml:10-11）"
+}

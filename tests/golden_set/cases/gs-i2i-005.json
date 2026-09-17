@@ -1,0 +1,26 @@
+{
+  "id": "gs-i2i-005",
+  "workflow": "i2i_v1",
+  "dimensions": {
+    "category": "胡桃木托盘",
+    "material": "胡桃木实木",
+    "light": "硬光侧光",
+    "composition": "三分法"
+  },
+  "params": {
+    "reference_image": 5,
+    "prompt": "professional e-commerce product photo of a walnut wood serving tray with a raised rim, walnut wood with natural grain and a matte finish, on a light oak tabletop, hard side light revealing surface micro-texture, rule of thirds composition with the subject on the left third, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "width": 1024,
+    "height": 1024,
+    "denoise": 0.4,
+    "seed": 20260916,
+    "steps": 25,
+    "cfg": 6.5,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "硬光 + 三分法重排构图；检验构图改变时结构保持度。⚠️ 参考图在离线校验里由**桩 resolver** 提供，不证明素材能被引擎读到"
+}

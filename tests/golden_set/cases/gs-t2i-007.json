@@ -1,0 +1,25 @@
+{
+  "id": "gs-t2i-007",
+  "workflow": "t2i_v1",
+  "dimensions": {
+    "category": "玻璃花瓶",
+    "material": "玻璃透明",
+    "light": "逆光轮廓光",
+    "composition": "正视"
+  },
+  "params": {
+    "prompt": "professional e-commerce product photo of a clear glass vase with a tapered neck, clear glass with clean refraction, on a seamless light grey background, backlit rim light separating the subject from the background, straight-on eye-level front view, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "width": 1280,
+    "height": 1024,
+    "seed": 20260916,
+    "steps": 25,
+    "cfg": 6.0,
+    "denoise": 1.0,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "玻璃 + 逆光 + 横版；检验透明体与背景的边界表现（seed 固定 20260916、sampler dpmpp_2m/karras，便于将来复现）"
+}

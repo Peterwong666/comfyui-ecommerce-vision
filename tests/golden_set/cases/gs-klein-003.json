@@ -1,0 +1,21 @@
+{
+  "id": "gs-klein-003",
+  "workflow": "flux2_klein_t2i_v1",
+  "dimensions": {
+    "category": "真皮托特包",
+    "material": "头层牛皮",
+    "light": "顶光加底板反射",
+    "composition": "特写占比"
+  },
+  "params": {
+    "prompt": "professional e-commerce product photo of a tan full-grain leather tote bag with visible stitching, full-grain leather with visible pores and stitching, on a seamless mid grey background, top light with bounce fill from a white board below, tight crop, subject filling the frame, macro detail, sharp focus, high detail, commercial grade, 8k",
+    "width": 1024,
+    "height": 1024,
+    "seed": 20260916,
+    "steps": 6,
+    "cfg": 1.2
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "klein 上限内提高 cfg 到 1.2，对比 SDXL 链路同场景（case 003）。⚠️ 本链路**没有** negative_prompt 字段，反向词无处可填（negative.yaml:10-11）"
+}

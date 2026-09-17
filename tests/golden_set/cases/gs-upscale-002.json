@@ -1,0 +1,26 @@
+{
+  "id": "gs-upscale-002",
+  "workflow": "upscale_v1",
+  "dimensions": {
+    "category": "真皮托特包",
+    "material": "头层牛皮",
+    "light": "自然窗光漫射",
+    "composition": "特写占比"
+  },
+  "params": {
+    "reference_image": 22,
+    "prompt": "professional e-commerce product photo of a tan full-grain leather tote bag with visible stitching, full-grain leather with visible pores and stitching, on a seamless mid grey background, soft diffused window light from the left, tight crop, subject filling the frame, macro detail, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "scale_by": 2.0,
+    "tile_size": 512,
+    "denoise": 0.25,
+    "seed": 20260916,
+    "steps": 20,
+    "cfg": 6.5,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "放大上限 2.0x（Schema max）：覆盖最大倍率 + 低 denoise 保真组合。⚠️ 放大后的**画质增益是否成立尚未实测**（debug_log §2.7 待验证 ②）—— 本用例不声称画质达标"
+}

@@ -1,0 +1,27 @@
+{
+  "id": "gs-inpaint-001",
+  "workflow": "inpaint_v1",
+  "dimensions": {
+    "category": "陶瓷咖啡杯",
+    "material": "陶瓷釉面",
+    "light": "三点布光",
+    "composition": "主体70%居中"
+  },
+  "params": {
+    "reference_image": 11,
+    "prompt": "professional e-commerce product photo of a matte white glazed ceramic coffee mug with a slim handle, glazed ceramic surface with a soft sheen, on a seamless light grey background, three-point studio lighting, key light with fill and rim, subject filling about 70% of the frame, centered, even margin, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "mask_expand": 8,
+    "width": 1024,
+    "height": 1024,
+    "denoise": 1.0,
+    "seed": 20260916,
+    "steps": 25,
+    "cfg": 6.5,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "默认外扩 8px；覆盖 mask_expand 的常用档。⚠️ **蒙版极性尚未实测**（debug_log §2.6 待验证）—— 用例本身不解决该前提"
+}

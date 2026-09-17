@@ -1,0 +1,25 @@
+{
+  "id": "gs-t2i-012",
+  "workflow": "t2i_v1",
+  "dimensions": {
+    "category": "亚克力收纳盒",
+    "material": "亚克力透明",
+    "light": "柔光箱大面积主光",
+    "composition": "主体50%四周留白"
+  },
+  "params": {
+    "prompt": "professional e-commerce product photo of a transparent acrylic storage box with a fitted lid, transparent acrylic with clean refractive edges, on a seamless light grey background, large softbox key light, even illumination, subject about 50% of the frame with even margin on all sides, sharp focus, high detail, commercial grade, 8k",
+    "negative_prompt": "low resolution, blurry, out of focus, deformed structure, distorted outline, wrong proportions, extra parts, missing parts, melted edges, watermark, logo, text in image, cluttered background, floating without support",
+    "width": 1024,
+    "height": 1024,
+    "seed": 20260916,
+    "steps": 25,
+    "cfg": 6.0,
+    "denoise": 1.0,
+    "sampler_name": "dpmpp_2m",
+    "scheduler": "karras"
+  },
+  "expected": null,
+  "expected_status": "pending_gpu",
+  "notes": "柔光下透明材质的通透度表现；与 case 004 构成光影对照（seed 固定 20260916、sampler dpmpp_2m/karras，便于将来复现）"
+}
