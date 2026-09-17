@@ -87,7 +87,7 @@ models:
     sort_order: 10
     extra:
       perf_baseline: "1024²/30 步 / N=12 warmup=1：min 4.59s · median 5.00s · P95 5.48s（--highvram，项目进展.md #18）"
-      role: "V1 六条工作流的主力底模；P4 控制体系（ControlNet / IP-Adapter / LoRA）全部建立在 SDXL 生态上"
+      role: "V1 的 5 条工作流的主力底模（第 6 条「风格迁移」顺延 V2 —— 口径见 docs/adr/0008-v1-scope-reduction.md 裁定 1；此处原写「六条工作流」，已按 ADR-008 修正）；P4 控制体系（ControlNet / IP-Adapter / LoRA）全部建立在 SDXL 生态上"
 
   # ==========================================================
   # 2. FLUX.2 klein 4B —— 第二底模（Apache-2.0，ADR-005）
