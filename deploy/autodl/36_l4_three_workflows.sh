@@ -154,7 +154,7 @@ run_l4() {
     cd "$REPO" && timeout $T_HEAVY "$PY" -m engine.tools.verify_render_path \
       --workflow "$wf" \
       --seed "$SEED" \
-      --launch-args "--highvram" \
+      --launch-args="--highvram" \
       --param "reference_image=$ASSET_ID" \
       --asset "$ASSET_ID=${REF_IMAGE}" \
       --outdir "$OUT"
@@ -180,7 +180,16 @@ run_l4() {
   elif [ "$rc" -eq 124 ]; then
     record "$wf" "失败" "超时：timeout ${T_HEAVY}s 到期（出图未在限时内完成，见 $log）"
   elif [ "$rc" -eq 2 ]; then
-    record "$wf" "失败" "用法/前置错误（退出码 2）：$(grep -m1 'fatal' "$log" | sed 's/^ *//')"
+    # ⚠️ 退出码 2 有两条来源：脚本自己打的 `[fatal]`，以及 **argparse 的用法错误**
+    #    （后者只打 `usage: …` + `error: …`，没有 `fatal`）。
+    #    2026-09-17 实测：只 grep 'fatal' ⇒ 原因列为空，汇总表变成「失败：（空）」，
+    #    等于没留证据。故按 fatal → error: → 日志末行 逐级回退。
+    local why2
+    why2="$(grep -m1 'fatal' "$log" | sed 's/^ *//')"
+    [ -n "$why2" ] || why2="$(grep -m1 '^.*error: ' "$log" | sed 's/^ *//')"
+    [ -n "$why2" ] || why2="$(grep -m1 'usage:' "$log" | sed 's/^ *//')"
+    [ -n "$why2" ] || why2="$(tail -1 "$log" | sed 's/^ *//')"
+    record "$wf" "失败" "用法/前置错误（退出码 2）：$why2"
   else
     record "$wf" "失败" "异常退出码 $rc（见 $log）"
   fi
