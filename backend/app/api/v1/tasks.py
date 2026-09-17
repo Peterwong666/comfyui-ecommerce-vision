@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Annotated, Any
 
 # seed 的递增口径由工作流内核统一定义（契约 §2.4），A 流不自己算 ——
@@ -56,6 +57,100 @@ def _get_active_workflow(db: DbSession, name: str) -> Workflow:
     return wf
 
 
+# ---------------------------------------------------------------- 队列深度闸门（EX-5）
+
+
+# 硬阈值 = `settings.queue_max_depth` × 本系数。
+# ① 为什么复用同一个配置而不是新增一个：运维只需调**一个旋钮**。软/硬两层本来就该
+#    同向变化，拆成两个配置只会带来「改了一个忘了另一个」的不一致状态。
+# ② 为什么是 2 倍：给软层告警留出**从告警到熔断的缓冲带** —— 看到告警后运维还有
+#    一倍的余量介入（扩容 / 查原因 / 限速上游），不会告警与熔断同时发生。
+# ③ 将来若确实需要独立调节，把它提升为配置项是**低成本**的（下一行是这个系数
+#    在全仓库的唯一读取点，改一处即可）。
+_QUEUE_HARD_LIMIT_FACTOR = 2
+
+# 「在途」= 已入队但尚未到达终态的三种状态。
+# ⚠️ 与 `worker/tasks.py::requeue_orphans` 关注的状态集合保持同源（它看 `queued` /
+# `retrying`），这里**多一个 `running`**：队列深度回答的是「还要等多久轮到我」，
+# 正在跑的那张同样在占 GPU，不算进去就会低估等待时间。
+_IN_FLIGHT_STATUSES = (
+    TaskStatus.QUEUED.value,
+    TaskStatus.RUNNING.value,
+    TaskStatus.RETRYING.value,
+)
+
+# 单张基准耗时的兜底值（秒）：库里还没有成功样本时用哪个数来估等待。
+# 与 `/tasks/estimate` **共用同一个常量**，不各写一份字面量。
+_DEFAULT_SECONDS_PER_IMAGE = 20.0
+
+
+def _in_flight_task_count(db: DbSession) -> int:
+    """当前**全局**在途任务数（不区分用户）。
+
+    为什么按全局而不是按用户：GPU 并发固定为 1（NFR-2），所有用户共用同一条队列。
+    按用户判定会得到「每个用户都没超限、合起来把队列撑爆」的结果，闸门形同虚设。
+    """
+    return int(
+        db.scalar(
+            select(func.count()).select_from(Task).where(Task.status.in_(_IN_FLIGHT_STATUSES))
+        )
+        or 0
+    )
+
+
+def _seconds_per_image(db: DbSession, workflow_id: int) -> float:
+    """单张基准耗时（秒）—— **与 `/tasks/estimate` 共用同一口径**。
+
+    历史成功任务的实测均值，没有样本时退回 `_DEFAULT_SECONDS_PER_IMAGE`。
+    抽成函数而不是两处各写一遍：同一个事实算两遍，迟早会对不上
+    （本项目已多次踩这个坑型）。
+    """
+    return _avg_seconds_per_image(db, workflow_id) or _DEFAULT_SECONDS_PER_IMAGE
+
+
+def _guard_queue(db: DbSession, workflow_id: int) -> None:
+    """EX-5 队列深度闸门：**软阈值告警 + 硬阈值熔断**。
+
+    | 层 | 触发条件 | 行为 | 为什么 |
+    |---|---|---|---|
+    | 软 | 在途 > `settings.queue_max_depth` | `log.warning`（带当前深度），**照常接单（202）** | C12「排队比崩掉好」；且 `queue_full` 在契约 §1.5 里是**可重试**错误类型 —— 此时拒绝用户是错的 |
+    | 硬 | 在途 > `2 × queue_max_depth` | **422 + `code=queue_full`**，`message` 给出排队数与预计等待 | 队列无限增长会拖垮 DB / 内存；让用户等到「天荒地老」不如明确拒绝并给出**真实的等待预估** |
+
+    边界：**恰好等于硬阈值时放行** —— 两层都是「超过才动作」，与 PRD §6.2
+    「队列深度 ≤ 上限」的闭区间口径一致（`test_queue_guard.py` 把它钉死）。
+
+    ⚠️ **必须在 `_charge_quota` 之前调用**：被队列拒绝的请求**绝不能扣额度、
+    也绝不能建任务** —— 否则用户「被拒还掉额度」。也正因为如此，本函数只读不写。
+    """
+    soft = settings.queue_max_depth
+    hard = soft * _QUEUE_HARD_LIMIT_FACTOR
+    depth = _in_flight_task_count(db)
+
+    if depth > hard:
+        wait_minutes = max(1, math.ceil(depth * _seconds_per_image(db, workflow_id) / 60))
+        log.warning("queue.hard_limit_rejected depth=%s soft=%s hard=%s", depth, soft, hard)
+        # 契约 §2.2：需要前端分支处理时 `detail` 用**对象形式**；`code` 取
+        # `ErrorType` 的取值（唯一事实来源，见 models/enums.py），**不写字面量** ——
+        # 否则同一个码会出现第二个真相来源。EX-5 的 `message` 必须含
+        # 「当前排队 N 个」与「预计等待 X 分钟」两条用户可见信息（PRD §6.1）。
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": ErrorType.QUEUE_FULL.value,
+                "message": f"当前排队 {depth} 个，预计等待 {wait_minutes} 分钟",
+                "fields": [
+                    {
+                        "key": "queue_depth",
+                        "reason": f"在途 {depth} 个，已超过硬上限 {hard} 个",
+                    }
+                ],
+            },
+        )
+
+    if depth > soft:
+        log.warning("queue.soft_limit_exceeded depth=%s soft=%s hard=%s", depth, soft, hard)
+
+
 def _charge_quota(db: DbSession, user: CurrentUser, needed: int) -> None:
     """EX-12：扣减额度，不足则 402。
 
@@ -63,6 +158,11 @@ def _charge_quota(db: DbSession, user: CurrentUser, needed: int) -> None:
     「先读 `quota_remaining` 比较、再 `+=`」—— 后者是两个并发请求各读各写时的
     丢更新来源，会让额度被超发。这里只负责把「不够」翻译成 HTTP 错误，
     **不要在本函数之外再判一次额度**（两套判据迟早分叉）。
+
+    ⚠️ **计额口径（FR-1.2）**：额度在**提交时预扣**，按**任务数（张数）**计；
+    `retry` / `retry-failed` 按**新一次生成**计额（重跑会重新消耗 GPU）；
+    **终态失败 / 取消不退还**。口径与理由见 `docs/prd/PRD_v1.md` FR-1.2 ——
+    本函数只负责扣，不做任何退还分支。
     """
     if quota.charge(db, user_id=user.id, needed=needed):
         return
@@ -186,8 +286,11 @@ def _record_content_warnings(
     summary="提交单次生成（FR-2.5）",
 )
 def submit_task(payload: TaskSubmitIn, user: CurrentUser, db: DbSession) -> Task:
-    _charge_quota(db, user, 1)
     wf = _get_active_workflow(db, payload.workflow_name)
+    # EX-5 队列闸门**必须先于扣额度**：被队列拒绝的请求不能扣额、也不能建任务。
+    _guard_queue(db, wf.id)
+    # 计额口径（FR-1.2）：提交时预扣 1 张；终态失败/取消不退（见 _charge_quota 的说明）
+    _charge_quota(db, user, 1)
 
     template = None
     if payload.template_id is not None:
@@ -267,8 +370,9 @@ def estimate(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> TaskEs
     wf = _get_active_workflow(db, payload.workflow_name)
     total = payload.total_images()
 
-    # 基准耗时：优先用工作流实测的 avg_duration，没有则用保守经验值
-    per_image_seconds = _avg_seconds_per_image(db, wf.id) or 20.0
+    # 基准耗时：优先用工作流实测的 avg_duration，没有则用保守经验值。
+    # 口径抽在 `_seconds_per_image` 里，与 EX-5 队列闸门的等待预估**共用同一份**。
+    per_image_seconds = _seconds_per_image(db, wf.id)
     # GPU 并发固定为 1，所以总耗时 = 单张 × 张数（串行）
     estimated = per_image_seconds * total
 
@@ -364,8 +468,12 @@ def submit_batch(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> Ba
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"单任务最多 {settings.max_batch_size} 张，当前 {total}",
         )
+    # EX-5 队列闸门：与 `POST /tasks` 同一道门，**必须先于扣额度** ——
+    # 批量扣的是 `total`，被拒时一个额度都不能掉。
+    _guard_queue(db, wf.id)
     # 批量是**整体成功或整体失败**：一条条件 UPDATE 扣 `total`，
     # 剩余不足时 rowcount=0 → 402，不会出现「扣了一半」的中间态。
+    # 计额口径（FR-1.2）：提交时按**张数**预扣 `total`；终态失败/取消不退。
     _charge_quota(db, user, total)
 
     template = db.get(Template, payload.template_id) if payload.template_id else None
@@ -552,12 +660,21 @@ def cancel_task(task_id: int, user: CurrentUser, db: DbSession) -> CancelOut:
 
 @router.post("/tasks/{task_id}/retry", response_model=TaskOut, summary="重试任务（FR-4.4）")
 def retry_task(task_id: int, user: CurrentUser, db: DbSession) -> Task:
+    """手动重试单个任务（FR-4.4）。
+
+    ⚠️ **计额口径**：这是一次**新的生成**，所以按 1 张**重新计额**
+    （下方 `_charge_quota(db, user, 1)`）—— 重跑会重新占用 GPU，
+    不重新计额等于给「反复重试」开一个免费口子。若原任务已成功则根本不可重试
+    （状态闸门拦住），所以不存在「为同一张产物重复收两次」的情况。
+    口径与理由见 `docs/prd/PRD_v1.md` FR-1.2。
+    """
     task = _owned_task(db, task_id, user.id)
     if task.status not in (TaskStatus.FAILED.value, TaskStatus.CANCELED.value):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"当前状态 {task.status} 不可重试",
         )
+    # 计额口径同 FR-1.2：重试按**新一次生成**计额（提交时预扣，失败/取消不退）
     _charge_quota(db, user, 1)
 
     sm.reset_for_retry(db, task)
@@ -577,7 +694,16 @@ def retry_failed(batch_id: int, user: CurrentUser, db: DbSession) -> Batch:
     """批量失败后只重跑失败的那些。
 
     这是画像②最痛的点：「批量跑 50 张，跑到第 30 张崩了，前功尽弃」。
-    所以这里**绝不重跑已成功的** —— 既省 GPU 又省用户额度。
+
+    ⚠️ **省额度省在哪里**（这句话极易被误读成「重试不计额」，所以写清楚）：
+
+    - 这里**绝不重跑已成功的那 20 张** —— 省下的是**那部分不重复计额**。
+      全量重跑要计 50 张，现在只计 30 张。
+    - **重跑的这 30 张仍然按「新一次生成」计额**（下方 `_charge_quota(..., len(failed))`），
+      它们会重新占用 GPU。重试**不是免费的**，只是「不必为已成功的那部分再付一次」。
+
+    完整口径见 `docs/prd/PRD_v1.md` FR-1.2（提交时预扣、按张数计、
+    终态失败/取消不退还）。
     """
     batch = db.scalar(select(Batch).where(Batch.id == batch_id, Batch.user_id == user.id))
     if batch is None:
@@ -594,6 +720,7 @@ def retry_failed(batch_id: int, user: CurrentUser, db: DbSession) -> Batch:
     if not failed:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="没有失败的任务可重跑")
 
+    # 计额口径同 FR-1.2：只重跑的这些按**新一次生成**计额（`len(failed)` 张）
     _charge_quota(db, user, len(failed))
     for task in failed:
         sm.reset_for_retry(db, task)
