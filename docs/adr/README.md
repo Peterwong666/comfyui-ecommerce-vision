@@ -14,6 +14,7 @@
 | ADR-005 | 底模选型（SDXL 主 + FLUX.2 klein 4B 辅） | [0005](./0005-base-model-selection.md) | 已定（P5-02 评测后可微调权重） |
 | ADR-006 | 放大与 tile 分块策略 | — | 待定（P5-05 后决定） |
 | ADR-007 | 部署形态（compose vs k8s） | — | 待定（P11-02 后决定） |
+| ADR-008 | V1 范围收缩（风格迁移顺延 V2 / NSFW 只留接口 / 不引图像重依赖） | [0008](./0008-v1-scope-reduction.md) | 已定 |
 
 ## 模板
 
