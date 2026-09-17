@@ -25,11 +25,21 @@ export interface FieldViolation {
  * 必须非空的文本字段。
  *
  * `prompt` 是唯一一个"空值必然浪费一次 GPU"的字段：空提示词不会报错，
- * 会照常排队、照常出图（出一张无意义的图）。后端对**顶层** `prompt` 有
- * `settings.min_prompt_length = 1` 的约束，但走 `params.prompt` 时不会触发，
- * 所以这里必须自己拦。
+ * 会照常排队、照常出图（出一张无意义的图）。
  *
- * 不把 `negative_prompt` 放进来：清空反向词是合法用法。
+ * ⚠️ **后端现在也拦这一条了（2026-09-17）**：`tasks._validate_text_lengths` 会按工作流
+ * Schema 对**所有** `type: text` 字段施加 `settings.min_prompt_length`（= 1，即非空）
+ * 与 `max_prompt_length`（= 2000）。它在 `_merge_params` **之后**跑，所以顶层与 `params`
+ * 两条通道都覆盖到了 —— 此前 `params.prompt` 是**后端完全不校验**的缺口。
+ *
+ * 所以这里的检查是**双保险**，不再是唯一防线（别把它删了：能少一次"提交完才被拒"
+ * 的往返，本地拦下来体验更好）。
+ *
+ * 不把 `negative_prompt` 放进来：清空反向词在**本文件**看来是合法用法。
+ * ⚠️ 但与后端**不一致**：后端对每个文本字段一视同仁地拒绝空串（`min_prompt_length=1`），
+ * 传 `negative_prompt: ''` 会拿到 422。后端不给例外是因为 `param_schema` 没有 `required`
+ * 标记，按字段名开后门会造出第二份真相。这里如实记录这处分歧，**不要**据此改本文件的
+ * 校验逻辑（那是产品决定，见 `tasks._validate_text_lengths` 的 docstring）。
  */
 const REQUIRED_TEXT_KEYS: readonly string[] = ['prompt']
 

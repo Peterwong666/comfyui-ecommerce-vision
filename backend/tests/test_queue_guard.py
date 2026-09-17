@@ -19,6 +19,10 @@
 ② 造记录走 `state_machine`（`create_task` → `enqueue` / `mark_running`），
    不给闸门开后门 —— 测试用的在途任务是**真的**在途任务。
 
+⚠️ **覆盖四条调用路径**（2026-09-17 补齐后）：`POST /tasks`、`POST /batches`，
+以及本轮补上的 `POST /tasks/{id}/retry` 与 `POST /batches/{id}/retry-failed`。
+重试虽然不新增任务，但会把任务**重新送回**队列，队列该爆还是会爆 —— 见 §9 的说明。
+
 ⚠️ 本文件**不重复**钉「retry / retry-failed 按新一次生成计额」：
 `test_quota.py::test_retry_charges_one`（retry 后 `quota_used` +1）与
 `::test_retry_failed_charges_len_failed_and_is_all_or_nothing`（只计失败张数）
@@ -404,3 +408,103 @@ def test_cancel_does_not_refund_quota(client, db: Session, user) -> None:  # typ
 
     assert db.get(Task, task_id).status == TaskStatus.CANCELED.value  # type: ignore[union-attr]
     assert _db_used(db, user.id) == 1, "取消后额度被退还了（当前裁定是不退）"
+
+
+# ================================================================
+# 9. 重试路径走**同一道**全局闸门（2026-09-17 补齐）
+#
+# 为什么重试也要过这道门：`submit_*` 会**把任务推进队列**，而 `retry` / `retry-failed`
+# 会把任务**重新推回**队列 —— 对队列深度而言两者没有区别。此前只在提交路径上把关，
+# 等于留了一个"队列已熔断、但重试仍能把 1000 张塞回去"的口子。
+#
+# ⚠️ 这里**不是**在测「每用户在途上限」——那道门**刻意不加**在重试路径上
+# （重试不新增任务，加了会让同一个任务被计两次）。见
+# `app/api/v1/tasks.py::_guard_user_in_flight` 的 docstring 与
+# `test_in_flight_limit.py::test_retry_is_not_blocked_by_the_per_user_limit`。
+# ================================================================
+
+
+def _make_failed_task(db: Session, user, workflow):  # type: ignore[no-untyped-def]
+    """造一个**终态失败**的任务（`failed` 才可重试，见 T11）。"""
+    task = sm.create_task(
+        db, user_id=user.id, workflow_id=workflow.id, params={},
+        priority=settings.default_priority,
+    )
+    sm.enqueue(db, task)
+    sm.mark_running(db, task)
+    sm.mark_failed(db, task, ErrorType.MODEL_MISSING, "构造：终态失败")
+    db.commit()
+    return task
+
+
+def test_retry_is_guarded_and_does_not_charge_when_rejected(
+    client, db: Session, user, workflow, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    """`POST /tasks/{id}/retry`：超过硬阈值 → 422 `queue_full`，且**不扣额、不改状态**。
+
+    把 `_guard_queue(...)` 从 `retry_task` 里删掉 ⇒ `_db_used` 会 +1（变红）。
+    """
+    monkeypatch.setattr(settings, "queue_max_depth", _SOFT)
+    failed = _make_failed_task(db, user, workflow)
+    _seed_in_flight(db, user, workflow, _HARD + 1)  # 在途 = 硬阈值 + 1
+    before_used = _db_used(db, user.id)
+
+    resp = client.post(f"/api/v1/tasks/{failed.id}/retry")
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["code"] == ErrorType.QUEUE_FULL.value
+    assert _db_used(db, user.id) == before_used, "被队列拒绝的重试却扣了额度"
+    assert failed.status == TaskStatus.FAILED.value, "被队列拒绝的重试却改了状态（会被 worker 捞走）"
+
+
+def test_retry_at_hard_limit_is_accepted(client, db: Session, user, workflow, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """恰好等于硬阈值（闭区间）时重试必须放行 —— 两端一起固定住 `>` 与 `>=`。
+
+    只在提交路径上钉过"恰好等于"，重试路径是独立的代码位置，必须各钉一次
+    （这正是上一轮"漏加在重试路径"能溜过去的原因）。
+    """
+    monkeypatch.setattr(settings, "queue_max_depth", _SOFT)
+    failed = _make_failed_task(db, user, workflow)
+    monkeypatch.setattr(settings, "max_in_flight_per_user", 10_000)  # 与本节无关
+    assert _seed_in_flight(db, user, workflow, _HARD) == _HARD
+
+    resp = client.post(f"/api/v1/tasks/{failed.id}/retry")
+
+    assert resp.status_code == 200, f"恰好等于硬阈值时重试被拒了：{resp.text}"
+
+
+def test_retry_failed_is_guarded_and_does_not_charge_when_rejected(
+    client, db: Session, user, workflow, monkeypatch, no_broker
+) -> None:  # type: ignore[no-untyped-def]
+    """`POST /batches/{id}/retry-failed`：同样受全局闸门约束，被拒时**额度不动、
+    一条失败任务都没被重新入队**（不能出现"拒了一半、放跑一半"）。
+    """
+    monkeypatch.setattr(settings, "queue_max_depth", _SOFT)
+    assert _submit_batch(client, total=3).status_code == 202
+    batch_id = db.scalar(select(Batch.id))
+    assert batch_id is not None
+    children = list(db.scalars(select(Task).where(Task.batch_id == batch_id)).all())
+    assert len(children) == 3
+    for child in children[:2]:  # 让 2 条进入终态失败（剩下 1 条仍在途）
+        sm.mark_running(db, child)
+        sm.mark_failed(db, child, ErrorType.MODEL_MISSING, "构造：终态失败")
+    db.commit()
+
+    _seed_in_flight(db, user, workflow, _HARD)  # 在途 = 1 + 4 = 5 > 4（硬阈值）
+    before_used = _db_used(db, user.id)
+    dispatched_before = len(no_broker)
+
+    resp = client.post(f"/api/v1/batches/{batch_id}/retry-failed")
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["code"] == ErrorType.QUEUE_FULL.value
+    assert _db_used(db, user.id) == before_used, "被队列拒绝的重跑却扣了额度"
+    assert len(no_broker) == dispatched_before, "被队列拒绝的重跑却派发了任务"
+    still_failed = list(
+        db.scalars(
+            select(Task).where(
+                Task.batch_id == batch_id, Task.status == TaskStatus.FAILED.value
+            )
+        ).all()
+    )
+    assert len(still_failed) == 2, "被队列拒绝的重跑却改了任务状态"

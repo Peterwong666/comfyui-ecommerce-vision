@@ -83,6 +83,14 @@ _IN_FLIGHT_STATUSES = (
 # 与 `/tasks/estimate` **共用同一个常量**，不各写一份字面量。
 _DEFAULT_SECONDS_PER_IMAGE = 20.0
 
+# 结构化 `detail.code` —— 这两个都**不是** `ErrorType`（不对应 PRD §6.1 的任何 EX 编号），
+# 按 `docs/sop/contracts.md` §2.2 的约定用**大写下划线**命名，与枚举值一眼可区分
+# （枚举值是全小写，见 `app/models/enums.py`）。
+# ⚠️ 不要把它们写成 `ErrorType` 的成员：枚举是跨流契约（前端镜像由
+# `test_web_enum_parity.py` 双向守着），往里面塞非 EX 的码会造出第二个真相来源。
+TOO_MANY_IN_FLIGHT_CODE = "TOO_MANY_IN_FLIGHT"
+TEXT_LENGTH_OUT_OF_RANGE_CODE = "TEXT_LENGTH_OUT_OF_RANGE"
+
 
 def _in_flight_task_count(db: DbSession) -> int:
     """当前**全局**在途任务数（不区分用户）。
@@ -151,6 +159,80 @@ def _guard_queue(db: DbSession, workflow_id: int) -> None:
         log.warning("queue.soft_limit_exceeded depth=%s soft=%s hard=%s", depth, soft, hard)
 
 
+def _in_flight_task_count_for_user(db: DbSession, user_id: int) -> int:
+    """**某一个用户**当前的在途任务数。
+
+    与 `_in_flight_task_count`（全局）**共用 `_IN_FLIGHT_STATUSES`**：口径只有一处。
+    「在途」= 已入队但未到终态（`queued` / `running` / `retrying`）；`pending` 不算
+    （还没入队，不占队列），终态也不算。
+    """
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(Task)
+            .where(Task.user_id == user_id, Task.status.in_(_IN_FLIGHT_STATUSES))
+        )
+        or 0
+    )
+
+
+def _guard_user_in_flight(db: DbSession, user: CurrentUser, needed: int) -> None:
+    """公平性闸门：**每用户在途任务数上限**（`settings.max_in_flight_per_user`）。
+
+    GPU 全局并发恒为 1（NFR-2），队列是**所有用户共用**的一条。全局队列熔断（EX-5）
+    只在**整体**过载时拒人，拦不住"一个用户把队列占满" —— 别人要排在他那 1000 张后面，
+    体验上等于服务不可用。本函数补的是**分配**这一侧。
+
+    | 条件 | 行为 |
+    |---|---|
+    | `当前在途 + 本次需要 > 上限` | **422 + `code=TOO_MANY_IN_FLIGHT`** |
+    | 恰好等于上限 | **放行**（与 `max_batch_size` / 队列硬阈值同为闭区间读法） |
+
+    ⚠️ **整批判定**：判据用的是**本批的总张数**，不是"能塞几张算几张"。
+    用户已有 999 在途、本次提交 2 张 → 拒绝（而不是放行 1 张）—— 与既有的
+    「批量整体成功或整体失败」口径一致（`_charge_quota` 也是一次扣 `total`）。
+    允许部分受理会让"提交了 2 张只出 1 张"，用户无从预期。
+
+    ⚠️ **必须在 `_charge_quota` 之前调用**：被拒的请求**不扣额度、也不建任务**。
+    本函数只读不写。
+
+    ⚠️ **只加在 `POST /tasks` 与 `POST /batches`**：`retry` / `retry-failed` **不加** ——
+    重试**不新增任务**（那批任务本来就在库里，提交时已经计过在途数了），
+    对它们再加这道门等于**同一个任务被计两次**：用户有 999 个失败任务待重跑时，
+    重试会被误判成"在途超限"。重试要防的是**队列总量**（走 `_guard_queue`），不是新增。
+    """
+    limit = settings.max_in_flight_per_user
+    current = _in_flight_task_count_for_user(db, user.id)
+
+    if current + needed > limit:
+        log.warning(
+            "user_in_flight.rejected user_id=%s current=%s needed=%s limit=%s",
+            user.id,
+            current,
+            needed,
+            limit,
+        )
+        # 契约 §2.2：需要前端分支处理时 `detail` 用**对象形式**。
+        # `message` 必须是**具体**的（当前在途 N / 本次需要 M / 上限 L）——
+        # 只写「超过上限」用户既不知道差多少，也不知道该等多久。
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": TOO_MANY_IN_FLIGHT_CODE,
+                "message": (
+                    f"在途任务过多：当前在途 {current} 个，本次需要 {needed} 张，"
+                    f"上限 {limit} 张；请等已有任务跑完或取消后再提交"
+                ),
+                "fields": [
+                    {
+                        "key": "in_flight",
+                        "reason": f"在途 {current} + 本次 {needed} > 上限 {limit}",
+                    }
+                ],
+            },
+        )
+
+
 def _charge_quota(db: DbSession, user: CurrentUser, needed: int) -> None:
     """EX-12：扣减额度，不足则 402。
 
@@ -183,11 +265,82 @@ def _charge_quota(db: DbSession, user: CurrentUser, needed: int) -> None:
     )
 
 
-def _validate_params(payload: dict[str, Any]) -> None:
+def _text_fields(wf: Workflow) -> list[dict[str, Any]]:
+    """工作流 `param_schema` 里声明为 `type == "text"` 的字段（原始 dict 列表）。
+
+    **为什么不硬编码键名**：提示词字段的**名字与数量是工作流自己的事**。
+    `workflows/registry.yaml` 里 5 个工作流各自声明了 `prompt` / `negative_prompt`，
+    但没有任何东西保证"文本字段只有这两个" —— 硬编码键名就是**第二个真相来源**：
+    以后某个工作流新增一个文本字段，前端按 Schema 渲染出输入框，后端却悄悄不校验它。
+    这类"两边各读一套"的分叉**不会报错**，只会漏，正是本项目最怕的失效形态。
+    """
+    fields = (wf.param_schema or {}).get("fields") or []
+    return [f for f in fields if isinstance(f, dict) and f.get("type") == "text"]
+
+
+def _validate_text_lengths(wf: Workflow, payload: dict[str, Any]) -> None:
+    """按工作流 Schema 对**文本字段**施加长度上下界（§6.2 的 1 – 2000）。
+
+    修的是这个缺口：顶层 `prompt` 由 `TaskSubmitIn` 的 `max_length` 拦住了，
+    但 `params["prompt"]` 是**另一条通道**（契约 §3.4 允许只传它），
+    而 `_validate_params` 此前只看 `steps` / `cfg` —— 于是 2001 字符的
+    `params.prompt` 一路落库，直到 worker 渲染时才被引擎以 EX-3 `invalid_param`
+    拒掉（**不可重试**，用户白等一次排队）。
+
+    ⚠️ **本函数在 `_merge_params` 之后调用**：顶层字段已收敛进 `params`
+    （`submit_task` 里那段赋值），所以这里查 `params` 就**同时覆盖两条通道**，
+    不需要在顶层再写一遍。
+
+    ⚠️ **只做「长度上下界」，不做「字段必填」**（两者是不同的规则，别混）：
+    - **不要求字段出现**：字段不在 `params` 里就跳过。工作流的 `param_schema` 没有
+      `required` 标记，而每个字段的 `default` 又由 `_merge_params` 兜底，
+      所以"没传"本来就是合法状态 —— 这里**不会**把可选文本变成必填。
+    - **出现即按 `[min_prompt_length, max_prompt_length]` 判**，空串（长度 0）落在下界之外
+      ⇒ 422。这与顶层通道一致（`TaskSubmitIn.prompt` 的 `_check_prompt` 同样拒 0 长度），
+      两条通道对同一个字段给出同一个答案。
+      ⚠️ 代价（如实记录）：`negative_prompt` 传空串也会被拒 —— 前端
+      `REQUIRED_TEXT_KEYS` 只把 `prompt` 列为"必须非空"，并注明"清空反向词是合法用法"。
+      现状是后端更严。之所以不做例外：Schema 里没有 `required` 标记，后端**无从区分**
+      哪个文本字段允许为空；按字段名硬编码 `prompt` / `negative_prompt` 会造出第二份真相
+      （见 `_text_fields` 的说明）。若产品确认"清空反向词"必须可用，正确做法是给
+      `param_schema` 加一个显式标记（如 `allow_empty: true`），而不是在这里写死键名。
+    - 非字符串**放行**：类型不对由引擎在渲染期拒；而且 `len()` 打在 `int` 上会
+      把本该是 422 的输入变成 500。
+    """
+    lo, hi = settings.min_prompt_length, settings.max_prompt_length
+    for field in _text_fields(wf):
+        key = field.get("key")
+        if not key or key not in payload:
+            continue
+        value = payload[key]
+        if not isinstance(value, str):
+            continue
+        if not (lo <= len(value) <= hi):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                # 契约 §2.2：非 `ErrorType` 的码用**大写下划线**（见模块顶部的常量说明）。
+                detail={
+                    "code": TEXT_LENGTH_OUT_OF_RANGE_CODE,
+                    "message": f"{key} 长度需在 {lo}-{hi} 个字符，当前 {len(value)}",
+                    "fields": [
+                        {
+                            "key": key,
+                            "reason": f"长度 {len(value)} 越界（允许 {lo}-{hi}）",
+                        }
+                    ],
+                },
+            )
+
+
+def _validate_params(wf: Workflow, payload: dict[str, Any]) -> None:
     """参数二次校验（EX-3）。
 
     前端已经拦过一次，但后端必须再校验 —— 前端校验可被绕过，
     而非法参数进入工作流会导致 ComfyUI 报难以理解的错误。
+
+    ⚠️ 传 `wf` 是为了按**工作流的 Schema** 校验文本字段长度
+    （见 `_validate_text_lengths`：`steps` / `cfg` 是全局边界值，文本长度则取决于
+    该工作流声明了哪些 `type: text` 字段）。
     """
     steps = payload.get("steps")
     if steps is not None and not (settings.min_steps <= int(steps) <= settings.max_steps):
@@ -201,6 +354,7 @@ def _validate_params(payload: dict[str, Any]) -> None:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"CFG 需在 {settings.min_cfg}-{settings.max_cfg}",
         )
+    _validate_text_lengths(wf, payload)
 
 
 def _merge_params(
@@ -289,6 +443,8 @@ def submit_task(payload: TaskSubmitIn, user: CurrentUser, db: DbSession) -> Task
     wf = _get_active_workflow(db, payload.workflow_name)
     # EX-5 队列闸门**必须先于扣额度**：被队列拒绝的请求不能扣额、也不能建任务。
     _guard_queue(db, wf.id)
+    # 公平性闸门（每用户在途上限），同样**必须先于扣额度**：被拒 = 不扣额 + 不建任务。
+    _guard_user_in_flight(db, user, 1)
     # 计额口径（FR-1.2）：提交时预扣 1 张；终态失败/取消不退（见 _charge_quota 的说明）
     _charge_quota(db, user, 1)
 
@@ -313,7 +469,9 @@ def submit_task(payload: TaskSubmitIn, user: CurrentUser, db: DbSession) -> Task
         params["prompt"] = payload.prompt
     if payload.negative_prompt is not None:
         params["negative_prompt"] = payload.negative_prompt
-    _validate_params(params)
+    # 在参数合并**之后**校验：顶层 prompt / negative_prompt 已收敛进 params，
+    # 所以这里一次就覆盖两条通道（见 `_validate_text_lengths`）。
+    _validate_params(wf, params)
     # 内容安全放在参数合并之后：两条提示词通道（顶层 / params）都已收敛进 params
     warned = _screen_content(params)
 
@@ -471,6 +629,9 @@ def submit_batch(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> Ba
     # EX-5 队列闸门：与 `POST /tasks` 同一道门，**必须先于扣额度** ——
     # 批量扣的是 `total`，被拒时一个额度都不能掉。
     _guard_queue(db, wf.id)
+    # 公平性闸门：判据是**整批**（`total` 张），不是"能塞几张算几张"。
+    # 同样在扣额之前 —— 被拒时一个额度都不能掉、一条子任务都不能建。
+    _guard_user_in_flight(db, user, total)
     # 批量是**整体成功或整体失败**：一条条件 UPDATE 扣 `total`，
     # 剩余不足时 rowcount=0 → 402，不会出现「扣了一半」的中间态。
     # 计额口径（FR-1.2）：提交时按**张数**预扣 `total`；终态失败/取消不退。
@@ -478,7 +639,7 @@ def submit_batch(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> Ba
 
     template = db.get(Template, payload.template_id) if payload.template_id else None
     common = _merge_params(wf, template, payload.common_params)
-    _validate_params(common)
+    _validate_params(wf, common)
     # 批量与单任务走同一套检查：批量的提示词只可能来自 common_params
     # （`BatchSubmitIn` 没有顶层 prompt 字段），所以查 common 即可覆盖整批。
     warned = _screen_content(common)
@@ -674,6 +835,14 @@ def retry_task(task_id: int, user: CurrentUser, db: DbSession) -> Task:
             status_code=status.HTTP_409_CONFLICT,
             detail=f"当前状态 {task.status} 不可重试",
         )
+    # 全局队列闸门（EX-5）也管重试：重试会把任务**重新送回**队列，队列该爆还是会爆。
+    # 与两条提交路径**复用同一个 `_guard_queue`**（不另写一份判据），
+    # 位置同样在扣额之前 —— 被队列拒绝的请求不能扣额。
+    #
+    # ⚠️ 这里**不**加每用户在途上限（`_guard_user_in_flight`）：重试**不新增任务** ——
+    # 这个任务本来就在库里、提交时已经计过在途数，再加一道门等于同一个任务被计两次。
+    # 详见 `_guard_user_in_flight` 的 docstring。
+    _guard_queue(db, task.workflow_id)
     # 计额口径同 FR-1.2：重试按**新一次生成**计额（提交时预扣，失败/取消不退）
     _charge_quota(db, user, 1)
 
@@ -720,6 +889,10 @@ def retry_failed(batch_id: int, user: CurrentUser, db: DbSession) -> Batch:
     if not failed:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="没有失败的任务可重跑")
 
+    # 全局队列闸门（EX-5）：与 `retry` 同一条理由与同一份实现 —— 重跑会把 `len(failed)`
+    # 张重新送回队列，队列该爆还是会爆。位置在扣额之前。
+    # ⚠️ 同样**不**加每用户在途上限：这些任务已在库里、已计过在途数（见 `retry` 处的说明）。
+    _guard_queue(db, batch.workflow_id)
     # 计额口径同 FR-1.2：只重跑的这些按**新一次生成**计额（`len(failed)` 张）
     _charge_quota(db, user, len(failed))
     for task in failed:

@@ -15,11 +15,16 @@
     `engine/schema.py` 的 `field.validate`）在 `engine/tests/test_engine.py` 里，
     本文件只引用、不重复。
 
-⚠️ **本文件同时钉住两处「后端没拦」的缺口**（提示词长度 / 生成分辨率走 `params`
-通道）。这两条用例**不是在声明期望，而是在钉住现状**：后端在 `params` 通道上不校验
-这两项，值要等到 worker 渲染时才由引擎拒掉，那时是 EX-3 `invalid_param`、**不可重试**
-（用户白等一次排队）。缺口清单见 `tests/README.md`；**修好之后请把断言从 `202`
-改成 `422`**，不要留下一条"为了绿而绿"的用例。
+⚠️ **提示词长度走 `params` 通道的缺口已于 2026-09-17 修复**：`tasks._validate_text_lengths`
+按工作流 `param_schema` 里 `type == "text"` 的字段施加 `min/max_prompt_length`，
+且跑在 `_merge_params` **之后**（顶层与 `params` 两条通道一起覆盖）。
+**原本"钉住缺口"的两条用例已翻成"钉住已修复"（断言 202 → 422）。**
+
+⚠️ **仍有一处「钉住缺口」的用例**：生成分辨率走 `params` 通道时 API 层不拒
+（见第四节的 `test_generation_side_out_of_bounds_is_not_rejected_by_the_api`）。
+后端在 `params` 通道上不校验它，值要等到 worker 渲染时才由引擎拒掉，那时是 EX-3
+`invalid_param`、**不可重试**（用户白等一次排队）。缺口清单见 `tests/README.md`；
+**修好之后请把断言从 `202` 改成 `422`**，不要留下一条"为了绿而绿"的用例。
 
 ⚠️ 关于「可被破坏后检出」：本文件每条用例都做过变异验证 —— 去掉 `TaskSubmitIn.prompt`
 的 `max_length`、去掉 `_validate_params` 里的 steps/cfg 分支、把 `max_batch_size`
@@ -32,8 +37,9 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.api.v1 import tasks as api_tasks
 from app.core.config import settings
-from app.models.task import Task
+from app.models.task import Batch, Task
 
 # ---------------------------------------------------------------- 工具
 
@@ -127,11 +133,67 @@ def test_retry_hard_limit_is_a_ceiling_over_the_default() -> None:
 # ================================================================
 # 二、提示词长度 1 – 2000（§6.2）
 #
-# `TaskSubmitIn.prompt` 有 `max_length=settings.max_prompt_length` +
-# `_check_prompt` 的下限校验（`app/schemas/task.py:23-45`）；
-# 而 `params["prompt"]` 是**另一条通道**（契约 §3.4 允许只传它），
-# 它绕过了 Pydantic 字段级约束 —— 见本节后半的缺口用例。
+# 两条通道的守卫**不同**，所以都要测：
+# - 顶层：`TaskSubmitIn.prompt` 的 `max_length` + `_check_prompt` 下限
+#   （`app/schemas/task.py:23-45`，Pydantic 在进路由前就拦）；
+# - `params`：`tasks._validate_text_lengths` 在**参数合并之后**按工作流 Schema 的
+#   `type == "text"` 字段判（它同时覆盖顶层通道 —— 顶层值会收敛进 `params`）。
+#
+# ⚠️ `params` 侧的判据是**工作流 Schema 驱动**的，所以必须用一个**声明了 text 字段**的
+# 工作流来测。`conftest.workflow`（`t2i_v1`）的最小 Schema 里没有 text 字段，
+# 拿它测只会得到"没声明就不查"的结论 —— 测不到修复本身。
 # ================================================================
+
+#: 声明了文本字段的工作流名（见下面的 `text_workflow` fixture）。
+_TEXT_WF = "t2i_text_v1"
+
+
+@pytest.fixture
+def text_workflow(db: Session):  # type: ignore[no-untyped-def]
+    """一个 `param_schema` 里声明了 `type: text` 字段的工作流。
+
+    第二个文本字段的键名**故意不叫** `prompt` / `negative_prompt`（叫 `caption`）：
+    这样"后端是按 Schema 的 `type` 判、还是按写死的键名判"就变成一个**可证伪**的问题
+    —— 写死键名的实现会让 `caption` 那条用例变绿（本该变红）。
+    """
+    from app.models.workflow import Workflow
+
+    wf = Workflow(
+        name=_TEXT_WF,
+        version=1,
+        display_name="文本字段边界",
+        definition={"_meta": {}, "1": {"class_type": "KSampler", "inputs": {"steps": 20}}},
+        param_schema={
+            "schema_version": 1,
+            "fields": [
+                {
+                    "key": "prompt",
+                    "label": "正向提示词",
+                    "type": "text",
+                    "default": "默认提示词",
+                    "max_length": 2000,
+                    "targets": [],
+                },
+                {
+                    "key": "caption",
+                    "label": "另一段文本（键名与 prompt 无关）",
+                    "type": "text",
+                    "default": "默认文案",
+                    "max_length": 2000,
+                    "targets": [],
+                },
+            ],
+        },
+        is_active=True,
+    )
+    db.add(wf)
+    db.commit()
+    return wf
+
+
+def _submit_text(client, **body):  # type: ignore[no-untyped-def]
+    """走**声明了 text 字段**的工作流提交。"""
+    return client.post("/api/v1/tasks", json={"workflow_name": _TEXT_WF, **body})
 
 
 @pytest.mark.parametrize("length", [settings.min_prompt_length, settings.max_prompt_length])
@@ -157,36 +219,129 @@ def test_top_level_empty_prompt_is_rejected(client) -> None:  # type: ignore[no-
     assert resp.status_code == 422, resp.text
 
 
-def test_params_prompt_channel_ignores_max_length(client, db: Session) -> None:  # type: ignore[no-untyped-def]
-    """🔴 **缺口用例（钉现状，不是期望）**：`params["prompt"]` 超长**不会被拒**。
+# --- `params` 通道（2026-09-17 修复：此前这里断言 202，是「钉住缺口」） ----------
 
-    `TaskSubmitIn.params` 的声明是裸的 `dict[str, Any]`（`app/schemas/task.py:30`），
-    没有任何逐键约束；`tasks._validate_params`（`app/api/v1/tasks.py:86-103`）
-    只查 `steps` 与 `cfg`。于是走 `params` 通道时，`max_prompt_length` 这条边界
-    **在后端完全不存在**。
 
-    这条不是推断，是实测：`2001` 字符经校验后**真的落库**了（下面断言 `Task` 行存在
-    且长度就是 2001）—— 所以它不是"被别处拦住了只是状态码不同"。
+def test_params_prompt_over_max_length_is_rejected(
+    client, db: Session, text_workflow
+) -> None:  # type: ignore[no-untyped-def]
+    """✅ **已修复**：`params["prompt"]` 上界 +1（2001 字符）→ **422**（原来是 202）。
 
-    ⚠️ 修好之后请把本用例的断言改成 `422`（并删掉这一段说明），
-    同时更新 `tests/README.md` 的边界值覆盖表。
+    修复前的事实（当时本用例断言 202）：`TaskSubmitIn.params` 是裸的
+    `dict[str, Any]`，`_validate_params` 又只看 `steps` / `cfg`，于是 2001 字符
+    **真的落库**、直到 worker 渲染时才被引擎拒（EX-3，不可重试，用户白等一次排队）。
+
+    现在由 `tasks._validate_text_lengths` 按工作流 Schema 在合并**之后**拦下。
+    断言三件事，缺一不可：
+    1. 422；
+    2. **结构化 detail**（`code` 用大写下划线、`fields` 指到具体字段名）；
+    3. **一张任务都没建**（不能"拒了还落库"）。
     """
     too_long = "p" * (settings.max_prompt_length + 1)
-    resp = _submit(client, params={"prompt": too_long})
-    assert resp.status_code == 202, resp.text
+    resp = _submit_text(client, params={"prompt": too_long})
 
-    task = db.get(Task, resp.json()["id"])
-    assert task is not None
-    assert len(task.params["prompt"]) == settings.max_prompt_length + 1
+    assert resp.status_code == 422, resp.text
+    detail = resp.json()["detail"]
+    assert isinstance(detail, dict), f"detail 不是对象形式：{detail!r}"
+    # 字面量 + 模块常量各断言一次：既钉住规格本身，也钉住"码只有一处定义"
+    assert detail["code"] == "TEXT_LENGTH_OUT_OF_RANGE"
+    assert detail["code"] == api_tasks.TEXT_LENGTH_OUT_OF_RANGE_CODE
+    assert detail["fields"] == [
+        {"key": "prompt", "reason": "长度 2001 越界（允许 1-2000）"}
+    ]
+    assert db.scalar(select(func.count()).select_from(Task)) == 0, "被拒却落了库"
 
 
-def test_params_prompt_channel_ignores_min_length(client) -> None:  # type: ignore[no-untyped-def]
-    """🔴 **缺口用例（钉现状）**：`params["prompt"] = ""` 同样不会被拒。
+def test_params_prompt_empty_is_rejected(client, db: Session, text_workflow) -> None:  # type: ignore[no-untyped-def]
+    """✅ **已修复**：`params["prompt"] = ""` → **422**（原来是 202）。
 
-    与上一条同源（`_validate_params` 不看提示词）。空串经 `_merge_params` 的
-    `if v is not None` 判断会被保留（`""` 不是 `None`），因此一路走到落库。
+    `settings.min_prompt_length = 1` 是**下界**，空串落在界外 —— 与顶层通道
+    （`TaskSubmitIn._check_prompt` 拒 0 长度）给出同一个答案。
+    ⚠️ 注意这与"字段必填"是两件事：字段**不传**仍然合法（`param_schema` 没有
+    `required` 标记，`_merge_params` 会用 `default` 兜底）。这里只钉"传了空串被拒"。
     """
-    resp = _submit(client, params={"prompt": ""})
+    resp = _submit_text(client, params={"prompt": ""})
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["code"] == "TEXT_LENGTH_OUT_OF_RANGE"
+    assert db.scalar(select(func.count()).select_from(Task)) == 0, "被拒却落了库"
+
+
+@pytest.mark.parametrize("key", ["prompt", "caption"])
+def test_params_text_field_at_bounds_is_accepted(
+    client, key: str, text_workflow
+) -> None:  # type: ignore[no-untyped-def]
+    """闭区间：文本字段取 1 与 2000 个字符**本身**必须通过（两个键名各测一遍）。
+
+    只测 2001 被拒会漏掉一类错误：把比较写成开区间（`lo < len < hi`）的实现
+    会连 1 与 2000 一起拒 —— 那是个"边界比 PRD 更严"的静默收紧。
+    """
+    for length in (settings.min_prompt_length, settings.max_prompt_length):
+        resp = _submit_text(client, params={key: "p" * length})
+        assert resp.status_code == 202, f"{key} 长度 {length}: {resp.text}"
+
+
+def test_params_caption_over_max_length_is_rejected(
+    client, db: Session, text_workflow
+) -> None:  # type: ignore[no-untyped-def]
+    """⭐ **键名无关**：`caption`（不是 `prompt` / `negative_prompt`）同样受长度约束。
+
+    这条是"实现到底是不是 Schema 驱动"的判据：如果把它写成按 **写死的键名**
+    （`payload.get("prompt")` / `payload.get("negative_prompt")`）判，`caption` 会漏过去，
+    本用例变红。字段名在 `param_schema` 里，不在代码里 —— 后者是第二份真相。
+    """
+    resp = _submit_text(
+        client, params={"caption": "c" * (settings.max_prompt_length + 1)}
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["fields"] == [
+        {"key": "caption", "reason": "长度 2001 越界（允许 1-2000）"}
+    ]
+
+
+def test_params_prompt_length_is_checked_on_the_batch_channel(
+    client, db: Session, user, text_workflow
+) -> None:  # type: ignore[no-untyped-def]
+    """批量提交同样受约束（提示词只可能来自 `common_params`），且**整批被拒**。
+
+    批量的提示词是整批共用的，所以校验点只有 `common_params` 一处；
+    但批量路径是**另一段代码**（`submit_batch` 里那次 `_validate_params` 调用），
+    只测单任务路径会漏掉它。
+    """
+    user.quota_total = 100
+    db.commit()
+
+    resp = client.post(
+        "/api/v1/batches",
+        json={
+            "workflow_name": _TEXT_WF,
+            "sku_assets": {"SKU-A": []},
+            "images_per_sku": 2,
+            "common_params": {"prompt": "p" * (settings.max_prompt_length + 1)},
+        },
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert resp.json()["detail"]["code"] == "TEXT_LENGTH_OUT_OF_RANGE"
+    assert db.scalar(select(func.count()).select_from(Task)) == 0, "被拒却落了库"
+    assert db.scalar(select(func.count()).select_from(Batch)) == 0, "被拒却建了批量"
+
+
+def test_workflow_without_text_field_is_not_checked(client, db: Session) -> None:  # type: ignore[no-untyped-def]
+    """Schema 驱动的另一面：**工作流没声明 text 字段时，这个键不受长度约束**。
+
+    这不是"漏"，而是设计：没有 target 的参数**根本进不了图**（`engine/render.py`
+    只按 `param_schema.targets` 注入），校验一个惰性键只会让调用方莫名其妙被拒。
+    `conftest.workflow`（`t2i_v1`）的最小 Schema 里恰好没有任何 text 字段，
+    正好用来钉这条边界。
+
+    ⚠️ **它同时是"有没有写死键名"的反向判据**：把实现改成无条件检查 `prompt` 键，
+    本用例会变红（因为 `t2i_v1` 没有声明它）。
+    ⚠️ 注册表里的 5 个真实工作流**都**声明了 `type: text` 的 `prompt` /`negative_prompt`
+    （`workflows/registry.yaml`），所以这条边界不影响真实产品路径。
+    """
+    resp = _submit(client, params={"prompt": "p" * (settings.max_prompt_length + 1)})
     assert resp.status_code == 202, resp.text
 
 
