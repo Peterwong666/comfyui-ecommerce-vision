@@ -161,7 +161,7 @@ def test_params_prompt_channel_ignores_max_length(client, db: Session) -> None: 
     """🔴 **缺口用例（钉现状，不是期望）**：`params["prompt"]` 超长**不会被拒**。
 
     `TaskSubmitIn.params` 的声明是裸的 `dict[str, Any]`（`app/schemas/task.py:30`），
-    没有任何逐键约束；`tasks._validate_params`（`app/api/v1/tasks.py:85-103`）
+    没有任何逐键约束；`tasks._validate_params`（`app/api/v1/tasks.py:86-103`）
     只查 `steps` 与 `cfg`。于是走 `params` 通道时，`max_prompt_length` 这条边界
     **在后端完全不存在**。
 
@@ -278,7 +278,7 @@ def test_generation_side_at_bounds_is_accepted(client, side: int) -> None:  # ty
 def test_generation_side_out_of_bounds_is_not_rejected_by_the_api(client) -> None:  # type: ignore[no-untyped-def]
     """🔴 **缺口用例（钉现状）**：生成分辨率越界时，**API 层不会拒**。
 
-    `min_gen_side` / `max_gen_side`（`config.py:101-102`）在全仓库的唯一读取点是
+    `min_gen_side` / `max_gen_side`（`config.py:98-99`）在全仓库的唯一读取点是
     `engine/validate.py:422-423` 的 `SETTINGS_BOUNDS_MAPPING` —— 它把这两个数变成
     **工作流 param_schema 的一致性地板**（Schema 可以更严，不可以更宽），
     并**不**拿用户传来的 `params["width"]` 去比。
