@@ -1,0 +1,123 @@
+{
+  "probe": "inpaint_v1 蒙版极性（mask polarity）",
+  "workflow": "inpaint_v1",
+  "workflow_version": 1,
+  "engine_base_url": "http://127.0.0.1:8188",
+  "generated_at": "2026-09-17T15:48:33.787342+08:00",
+  "seed": 20260916,
+  "single_variable": "仅参考图的 alpha 通道；RGB 逐像素相同，节点图未改动",
+  "base_image": {
+    "path": "/root/autodl-tmp/l4_assets/ref_product.png",
+    "sha256": "f9c96e9eb1cd175a8420464a6309ab5747ea5fcf04f7d0e21dd0ffc33f97f40f",
+    "size": "1024x1024"
+  },
+  "variants": {
+    "A_mask_as_is": {
+      "asset_id": 1,
+      "input_png": "/root/autodl-tmp/l4_out/inpaint_polarity/probe_input_A_mask_as_is.png",
+      "input_sha256": "b8f0c7d98174802f9872e40138ab563c5285c01840920cac31a54d09aab3d947",
+      "alpha_meaning": "alpha=0 在圆内（透明），alpha=255 在圆外",
+      "engine_filename": "probe_input_A_mask_as_is.png"
+    },
+    "B_mask_inverted": {
+      "asset_id": 2,
+      "input_png": "/root/autodl-tmp/l4_out/inpaint_polarity/probe_input_B_mask_inverted.png",
+      "input_sha256": "2455da44dd572bc6773d3eeb789e71c258b7576724e76274da3fadf97d7192a6",
+      "alpha_meaning": "alpha=255 在圆内（不透明），alpha=0 在圆外 —— A 的逐像素取反",
+      "engine_filename": "probe_input_B_mask_inverted.png"
+    }
+  },
+  "digests": {
+    "A_mask_as_is": {
+      "file_sha256": "6591323caf70ee98cbb2049fb23bccdf70a59c6681999529b83b351b7fcce4dd",
+      "idat_sha256": "6dd4d90fed8411fe8d2497480b13bb03d4c5d4446e3f6a71a31e731bea207756"
+    },
+    "A2_repeat_same_input": {
+      "file_sha256": "6591323caf70ee98cbb2049fb23bccdf70a59c6681999529b83b351b7fcce4dd",
+      "idat_sha256": "6dd4d90fed8411fe8d2497480b13bb03d4c5d4446e3f6a71a31e731bea207756"
+    },
+    "B_mask_inverted": {
+      "file_sha256": "8bbc92e1dfde1fed36db9b807145cd197491865902f9f4cf358045f2c9f17ca6",
+      "idat_sha256": "88acb37930348def14101a65148b10d848520d4d49b807d708d9202c7956bebc"
+    }
+  },
+  "objective_signals": {
+    "A_vs_A2_inputs_identical_byte_identical_output": true,
+    "A_vs_B_masks_complementary_byte_identical_output": false,
+    "A_and_A2_note": "正对照：两次输入**完全相同**（含同一 seed）。若引擎整条执行结果被缓存，本条只是较弱的一致性证据；但 A/A2/B 三次运行走的是**同一份 params**（`params = dict(defaults)`，提示词与 seed 均相同，唯一改动的是参考图），故 A 与 B 的差异仍可归因"
+  },
+  "region_stats": {
+    "shape_note": null,
+    "regions": {
+      "repaint_core(alpha=0 的圆内, 腐蚀后)": 124937,
+      "keep_core(alpha=255 的圆外, 腐蚀后)": 867315,
+      "boundary_band(被排除)": 27076,
+      "erode_px": 16
+    },
+    "A_vs_B": {
+      "repaint_core": {
+        "pixels": 124937,
+        "mean_abs": 35.1241,
+        "max_abs": 130,
+        "p99_abs": 103,
+        "frac_exactly_equal": 0.0
+      },
+      "keep_core": {
+        "pixels": 867315,
+        "mean_abs": 45.9213,
+        "max_abs": 244,
+        "p99_abs": 163,
+        "frac_exactly_equal": 0.000188
+      }
+    },
+    "A_vs_base_image": {
+      "repaint_core": {
+        "pixels": 124937,
+        "mean_abs": 35.1241,
+        "max_abs": 130,
+        "p99_abs": 103,
+        "frac_exactly_equal": 0.0
+      },
+      "keep_core": {
+        "pixels": 867315,
+        "mean_abs": 0.0,
+        "max_abs": 0,
+        "p99_abs": 0,
+        "frac_exactly_equal": 1.0
+      }
+    },
+    "B_vs_base_image": {
+      "repaint_core": {
+        "pixels": 124937,
+        "mean_abs": 0.0,
+        "max_abs": 0,
+        "p99_abs": 0,
+        "frac_exactly_equal": 1.0
+      },
+      "keep_core": {
+        "pixels": 867315,
+        "mean_abs": 45.9213,
+        "max_abs": 244,
+        "p99_abs": 163,
+        "frac_exactly_equal": 0.000188
+      }
+    }
+  },
+  "artifacts": {
+    "input_A_mask_as_is": "/root/autodl-tmp/l4_out/inpaint_polarity/probe_input_A_mask_as_is.png",
+    "input_B_mask_inverted": "/root/autodl-tmp/l4_out/inpaint_polarity/probe_input_B_mask_inverted.png",
+    "region_circle": "/root/autodl-tmp/l4_out/inpaint_polarity/probe_region_circle.png",
+    "output_A_mask_as_is": "/root/autodl-tmp/l4_out/inpaint_polarity/probe_output_A_mask_as_is.png",
+    "output_A2_repeat_same_input": "/root/autodl-tmp/l4_out/inpaint_polarity/probe_output_A2_repeat_same_input.png",
+    "output_B_mask_inverted": "/root/autodl-tmp/l4_out/inpaint_polarity/probe_output_B_mask_inverted.png",
+    "diff_A_vs_B_x8": "/root/autodl-tmp/l4_out/inpaint_polarity/probe_diff_A_vs_B_x8.png",
+    "diff_A_vs_base_x8": "/root/autodl-tmp/l4_out/inpaint_polarity/probe_diff_A_vs_base_x8.png"
+  },
+  "polarity_conclusion": "NONE —— **极性结论待人工判读**",
+  "how_to_judge": "① 打开 probe_output_A_mask_as_is.png / probe_output_B_mask_inverted.png 与 probe_input_A_mask_as_is.png（圆内为透明区）并排比较；② 看 region_stats：哪一区『被新画过』（与参考图差异大）、哪一区『被原样贴回』（与参考图差异≈0，因为 ImageCompositeMasked 把非选区贴回原图）。**数值只说明『改了哪一区』，是否与产品预期一致（透明区=待重绘）必须由人判定。**",
+  "mechanism_hypothesis_not_measured": {
+    "statement": "假设：ComfyUI 的 LoadImage 在输入含 alpha 时输出 mask = 1 - alpha，因此**透明区**（alpha=0）→ mask=1；SetLatentNoiseMask 在 mask=1 处加噪声（重绘），ImageCompositeMasked 在 mask=1 处取重绘结果、mask=0 处贴回 destination。⟹ 即『透明区 = 待重绘区』，与 registry 的假设一致。",
+    "basis": "**源码推断，不是出图实测**。依据是远端只读摘录的 ComfyUI 源码（见证据文件 36_inpaint_polarity_source.txt 的 LoadImage / ImageCompositeMasked / SetLatentNoiseMask 段）。",
+    "status": "待验证 —— 用本探针的客观信号核对"
+  }
+}

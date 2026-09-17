@@ -1,0 +1,150 @@
+# ============================================================
+# 2026-09-17 L4 三条工作流实跑尝试（第 4 次）—— **三条渲染路径 L4 全部通过**
+#
+# 与前三次的区别：
+#   第 1 次（05:36）「先开机 → 才发现没凭据」，白烧 2 分 47 秒；
+#   第 2/3 次（06:15 / 15:31）「先验凭据 → 不满足就不开机」，机时 0；
+#   本次凭据齐备 ⇒ 真正跑通了三条工作流的**渲染路径** L4。
+#
+# ⚠️ 本次结论的准确边界（不许放大）：
+#   ✅ 证明：注册表 param_schema → engine/render 六步流水线 → POST /prompt
+#            → 出图 → 同 seed 像素确定 → 元数据闭环，这一整条**渲染路径**可用。
+#   ❌ 不证明：画质（属 golden set）、性能达标（属稳态基准）、
+#             **inpaint 的真实蒙版语义**（见 [5] 的退化说明）。
+#
+# ⚠️ 全文不含任何凭据值（runbook 红线 1）。
+# ============================================================
+
+[0] 机时窗口
+  本次**未执行开机动作** —— 首次观察控制台时实例**已是「运行中」**
+    （首次只读观察 ≈ 2026-09-17 15:39，首次 SSH 探测 15:40:21）
+    ⇒ 实例何时被谁启动，**本次未知**，不计入本次归因。
+  关机确认点击      : 2026-09-17 15:55:25 (CST)
+  控制台复现"已关机" : 2026-09-17 15:55:40 (CST，重新导航后读到)
+  本次持有运行态时长 : **约 15 分 20 秒**（15:40:21 → 15:55:40）
+  计费单价口径      : ¥1.88/时（历史弹窗原文；本次未触发开关机弹窗）
+
+[1] 凭据处置
+  写入: ~/.autodl_sshpass 权限 600 · 长度 12 · 属主 peter
+        （`stat -c '%a %s %U'` 原始输出：`600 12 peter`）
+  删除: `shred -u ~/.autodl_sshpass` 已执行，复核 `test -e` → CONFIRMED_DELETED
+  ⚠️ 该密码已出现在对话记录中 —— **建议用户到 autoDL 控制台重置实例密码**。
+
+[2] 开机前 GPU 空闲判定（只读，未据 0 值开机；本次也无需开机）
+  Bash/bsk get-html 抽取原文（2026-09-17 15:39 前后）:
+    329机(本项目 comfyUI): "GPU空闲/总量：|2/10|GPU驱动：|580.76.05|CUDA版本：|≤ 13.0"
+    605机(非本项目)      : "GPU空闲/总量：|0/12"
+  ⇒ 2 > 0，按技能规则 1 允许 GPU 开机。
+  关机后复核（15:55:40）: "GPU空闲/总量：|3/10"
+
+[3] 控制台状态原文（bsk observe / get-html，逐次）
+  开工首次观察  : row "西北B区 / 329机 be8347bd6f-2101a80b comfyUI  **运行中** RTX 4090 * 1卡
+                      系统盘 65.65% 数据盘 54.77% 正常 CPU 0% 内存 8% 按量计费 关机15天后释放"
+  关机弹窗原文  : "按量计费的实例关机后GPU将会释放，再次开机时可能面临空闲GPU不足无法开机，是否继续关机？"
+                  "确认关机吗？" [取消] [确定]
+  关机后 get-html 去标签片段:
+    |西北B区 |/ 329机|be8347bd6f-2101a80b|comfyUI|**已关机**|GPU充足|RTX 4090 * 1卡|查看详情|
+     系统盘 |65.65% |数据盘 |54.77%|正常|按量计费|14天23小时59分后释放| 设置定时关机 | 开机 |更多|
+  → 结论：**329机 / comfyUI = 「已关机」**（本次最终状态）
+
+[4] SSH 认证探测（唯一一次，按指令不做第 2/3 次）
+  $ timeout 30 sshpass -f ~/.autodl_sshpass ssh -o StrictHostKeyChecking=no \
+      -o ConnectTimeout=10 -p 22910 root@connect.westc.seetacloud.com 'nvidia-smi -L; hostname; uptime'
+  → GPU 0: NVIDIA GeForce RTX 4090 (UUID: GPU-3459c029-2928-27f3-d2d1-d43263866f69)
+    autodl-container-be8347bd6f-2101a80b
+     15:40:23 up 387 days,  5:11,  0 users,  load average: 13.47, 14.46, 14.48
+  → ✅ 认证成功且有卡（不是无卡模式）
+
+[5] 三条工作流的渲染路径 L4 —— 逐条
+  判据（工具自带，未放宽）：① engine/render 渲染成功 ② 显式 seed 注入落点
+    ③ 提交并出图 ④ 同 seed 两次出图 IDAT 逐字节一致 ⑤ 写元数据未改像素
+    ⑥ wf_meta.seed == 传入 seed ⑦ 引擎自写 prompt chunk 保留
+  参考图: /root/autodl-tmp/l4_assets/ref_product.png
+          sha256=f9c96e9eb1cd175a8420464a6309ab5747ea5fcf04f7d0e21dd0ffc33f97f40f
+          （来源：远端**真实产物** /root/autodl-tmp/comfyui-data/output/smoke/t2i_00001_.png，
+            1024x1024 RGB。⚠️ 本机 render_l4_out/ 在开工时**是空的**，
+            指令里举例的 t2i_v1_seed20260916.png **当时不存在**，故改用远端真实产物。）
+
+  i2i_v1      : **通过 11 · 失败 0 · 跳过 0**  节点数 9  · seed 注入 ['21.seed']
+                产物 render_l4_out/i2i_v1_seed20260916.png
+                sha256 57253591193927562cf12c77e6a85b9a3f3c63ded237e0401ba4264450117a32
+                1024x1024 RGB · 1045669 bytes
+  inpaint_v1  : **通过 11 · 失败 0 · 跳过 0**  节点数 12 · seed 注入 ['22.seed']
+                产物 render_l4_out/inpaint_v1_seed20260916.png
+                sha256 17e8f60b449884a756d9ed9ba86edd8b4c6f755d117344a1cbf1f262f0e93e7c
+                1024x1024 RGB · 1112648 bytes
+  upscale_v1  : **通过 11 · 失败 0 · 跳过 0**  节点数 9  · seed 注入 ['22.seed']
+                产物 render_l4_out/upscale_v1_seed20260916.png
+                sha256 69b7d3388b11d886c912096658fba0eb5078f3a8f739beb87110cdd7ad848e5e
+                1536x1536 RGB · 1886236 bytes  ← 1.5x 放大，尺寸符合预期
+
+  ⚠️ 退化说明（必须与结论一起读）：本次 inpaint_v1 的 L4 用的是 **RGB 无 alpha** 参考图，
+     而 `LoadImage` 仅在输入含 alpha 时才由 alpha 导出 MASK，否则返回**全零 mask**
+     （源码见 36_inpaint_polarity_source.txt L1789-1790）。
+     ⇒ 本次 inpaint_v1 的 L4 验证的是**渲染路径本身**，
+       **没有**验证"真实透明区驱动重绘"这一语义 —— 后者由第 [6] 节的专用探针覆盖。
+
+[6] inpaint 蒙版极性专项 —— **只给客观信号，极性结论待人工判读**
+  源码摘录（只读，ComfyUI HEAD ee71d5c4）: 36_inpaint_polarity_source.txt（68 行）
+  关键原文（/root/ComfyUI/nodes.py LoadImage.load_image）:
+    1786-            if 'A' in i.getbands():
+    1787-                mask = np.array(i.getchannel('A')).astype(np.float32) / 255.0
+    1788:                mask = 1. - torch.from_numpy(mask)
+    1790-                mask = torch.zeros((64, 64), dtype=torch.float32, device="cpu")
+  另：`ImageCompositeMasked` / `SetLatentNoiseMask` / `GrowMask` 三个类
+      **在本引擎里未匹配到** —— 该定义可能已移动，本身就是一条事实。
+
+  客观信号（36_inpaint_mask_polarity.json）:
+    自证 1 ✅ 两变体 alpha 逐像素互补（圆半径 220px，圆心=图心）
+    正对照 ① A 与 A2（输入完全相同）逐字节相同 : **True**
+    单变量 ② A 与 B（蒙版互补）逐字节相同     : **False**
+    A vs 参考图 | repaint_core: mean=35.12 max=130 eq=0.0000 | keep_core: mean=0.0 max=0 eq=1.0000
+    B vs 参考图 | repaint_core: mean= 0.0 max=  0 eq=1.0000 | keep_core: mean=45.92 max=244 eq=0.0002
+  → 事实：**变体 A（圆内 alpha=0）改动了圆内**，圆外逐像素等于参考图；
+          **变体 B（alpha 取反）改动了圆外**，圆内逐像素等于参考图。
+  ⚠️ **极性结论待人工判读** —— 哪个方向符合"透明区 = 待重绘区"的产品预期，须由人看图认定。
+  机制假设（**源码推断，非出图实测，待验证**）: mask = 1 - alpha
+    ⟹ 透明区(alpha=0) → mask=1 → 被重绘 ⟹ 与 registry 的假设一致。
+    与上面的客观信号方向**自洽**，但仍需人工确认语义。
+
+[7] 稳态基准复测（34_bench_recheck.sh，口径：N=12 warmup=1，判读以**地板**为准）
+  SDXL 1024² / 30步 : min=**4.54s** median=5.12s P95=5.66s mean=5.07s stdev=0.47s
+  klein 1024² / 4步  : min=**1.52s** median=1.68s P95=2.49s mean=1.79s stdev=0.34s
+  显存快照          : 13087 MiB / 24564 MiB
+  生效开关          : argv 含 `--highvram`；comfyui.log 出现
+                      `[INFO] Set vram state to: HIGH_VRAM`（count=1），
+                      **无** `DynamicVRAM support detected and enabled`
+                      ⇒ ✅ `--highvram` **确实生效**，与生产配置一致。
+  ⚠️ 36_ 第 2 次运行打印过一条「日志里没有 Set vram state to: HIGH_VRAM」的警告 ——
+     经复核为**假警报**：第 2 次复用了已启动的 ComfyUI，而该 grep 只看 `tail -6`，
+     启动段已被后续 `Using pytorch attention in VAE` 行挤出窗口。直接 grep 全日志可证生效。
+
+[8] 本次修掉的脚本 bug（deploy/autodl/36_l4_three_workflows.sh）
+  ① 第 1 次运行三条全部「退出码 2」，原因：
+       `--launch-args "--highvram"` 被 argparse 当成选项而非值
+       → `error: argument --launch-args: expected one argument`
+     修法：改为 `--launch-args="--highvram"`（等号形式，单个 argv 元素）。
+     ⚠️ 该参数在 verify_render_path.py 里 **default 已是 "--highvram"**，
+       即"不传"也等价；本次显式传是为了让日志留痕。
+  ② 汇总表的失败原因对退出码 2 只 grep `fatal`，而 argparse 只打 `usage:`/`error:`，
+     ⇒ 第 1 次运行的原因列**全空**（等于没留证据）。
+     修法：fatal → `error:` → `usage:` → 日志末行 逐级回退。
+
+[9] 明确没做到 / 没验证的部分
+  · 画质：属 golden set（P5/P8），本次未评。
+  · inpaint 真实透明区语义：本次 L4 用无 alpha 图（退化 mask），只由探针给客观信号。
+  · upscale 的"画质增益是否成立"：registry 里那条待验证项**未验**（属看图判断）。
+  · `ImageScale.crop=disabled` 在非等比参考图上的拉伸：未验（本次参考图是 1:1）。
+  · `VAEDecodeTiled` 的 temporal_size/overlap 对静态图的影响：未验。
+  · 未做 klein 侧的对应 L4（三条新工作流都只用 SDXL 底模）。
+  · 未改 workflows/registry.yaml（按指令只给建议，回填由用户裁定）。
+
+[10] 仓库状态（未 git add / 未 git commit；提交由用户统一处理）
+  新增: deploy/comfyui/evidence/36_*.{log,txt,json}（7 个，见最终报告）
+        本文件 与 20260917_l4_36_run1_argparse_failed.log / _run2_passed.log
+  改动: deploy/autodl/36_l4_three_workflows.sh（上述两处修复）
+  ⚠️ 另观察到 `SUMMARY.md` 处于已修改状态 —— **非本次改动**，疑为并行代理在动，未触碰。
+  ⚠️ render_l4_out/ 中另有 t2i_v1_seed20260916.png(993291B, mtime 09-16 17:46) 与
+     flux2_klein_t2i_v1_seed20260916.png(834734B, mtime 09-16 17:46) 两个文件
+     **不是本次回传的**（本次 scp 不带 -p，落盘 mtime 应为 15:51–15:54）。
+     开工时 render_l4_out/ 为空（Glob 无命中），其来源无法归因，**不作为本次证据**。

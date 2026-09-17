@@ -1,0 +1,48 @@
+=== render_path_l4 验证：i2i_v1 (version 1) ===
+启动参数假设: --highvram（必须与生产一致，否则验证的不是生产的那个配置）
+显式 seed: 20260916（字段 'seed'）
+真实提交
+
+— 0. 引擎可达 —
+  引擎: cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync · vram_total=23.5GiB
+  ✅ ComfyUI 可达
+       http://127.0.0.1:8188
+
+— 1. 渲染（engine/render）—
+  [asset] 1 → ref_product.png（本地 /root/autodl-tmp/l4_assets/ref_product.png，1110864 bytes）
+  ✅ 渲染成功
+       节点数 9 · seed=20260916 · 裁剪 [] · 重连 []
+
+— 2. 注入落点（离线可验）—
+  ✅ 显式 seed 已注入 ['21.seed']
+       实际值: [20260916]
+
+— 3. 提交与出图 —
+  ✅ 第 1 次 提交并出图
+       base_00001_.png · 1044492 bytes · IDAT=6f646cde87be7e92…
+  ✅ 第 2 次 提交并出图
+       base_00001_.png · 1044492 bytes · IDAT=6f646cde87be7e92…
+
+— 4. 产物确定性 —
+  ✅ 同一显式 seed 两次出图，像素数据逐字节一致
+       一致
+
+— 5. 产物元数据闭环 —
+  ✅ 写元数据未改动像素数据
+       /root/autodl-tmp/l4_out/i2i_v1_seed20260916.png
+  ✅ 产物 PNG 可读回 wf_meta
+       workflow_id=i2i_v1 · seed=20260916
+  ✅ wf_meta.seed 等于传入的显式 seed
+       期望 20260916，实际 20260916（不相等说明 §7.1 的「渲染器解析并回写 seed」在生产路径上没生效）
+  ✅ ComfyUI 自己写的 prompt chunk 仍保留
+       元数据是**追加**，不能覆盖引擎自己写的可复现凭据
+  ✅ 我们的 wf_meta 已写入
+
+================ 结论 ================
+通过 11 · 失败 0 · 跳过 0
+✅ 全部通过 —— 可以：
+   ① 在 workflows/registry.yaml 里把 `render_path_l4` 置 true
+   ② 把 `status` 改为 enabled（两者必须同时满足，registry 会强制校验）
+   ③ 在 changelog 记一条，并对**两个模型**各跑一遍（修 SDXL 不能拿 klein 当代价）
+
+⚠️ 本工具**不**证明画质与性能达标 —— 那分别属于 golden set（P5/P8）与稳态基准（#18）。
