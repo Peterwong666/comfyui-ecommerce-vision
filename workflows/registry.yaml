@@ -17,7 +17,7 @@
 # ============================================================================
 
 registry_version: 1
-updated_at: "2026-09-16"  # 新增 i2i_v1 / inpaint_v1 / upscale_v1
+updated_at: "2026-09-17"  # 回填 i2i_v1 / inpaint_v1 / upscale_v1 的 L4 验证状态
 
 # ---------------------------------------------------------------------------
 # verification 取值口径（唯一的判据，不许自行放宽）
@@ -333,17 +333,34 @@ workflows:
     rollout_percent: 0
     verification: pending_gpu
     verification_note: >-
-      节点图为本轮新写，**L4 未跑**。已过 L1（结构自洽）+ L2（多组参数渲染冒烟）+
-      L3（对 /object_info 快照校验节点类型/入参名/枚举取值）。
-      ⚠️ **本工作流有一个必须先实测才能定稿的前提**：
-      **`LoadImage` 的 MASK 输出极性**（是否为 `1 - alpha`）快照里读不到语义，
-      而它直接决定「重绘哪一块」—— 若极性相反，会去重绘**非**选区。
-      当前按 ComfyUI 常见约定假设：**透明区 = 待重绘区**。
-      验证方法：① 读 `/root/ComfyUI/nodes.py` 的 `LoadImage` 实现确认是否 `1. - alpha`
-      ② 用一张「透明区 = 待重绘区」的图跑一次，看 `MaskToImage` 预览是否为白
-      ③ 若极性相反，修复方式 = 在 `GrowMask` 前插入 `InvertMask`
-      （不预先插入，是因为那会在极性假设正确时**反过来**做错 —— 不能两全，只能实测后定）
-    render_path_l4: false
+      **渲染路径 L4 已跑通**（2026-09-17，RTX 4090，--highvram，显式 seed=20260916：
+      通过 11 · 失败 0 · 跳过 0），但 ⚠️ **本次 L4 实际上是一次 no-op**，
+      本工作流的**核心语义（蒙版区重绘）没有被行使** —— 因此本条目**保持 disabled**，
+      且**不得**被改为 enabled，直到下面三条全部有正面证据：
+      ① **本次 L4 因参考图无 alpha 而退化**：L4 用的参考图是 RGB（无 alpha）。
+         ComfyUI v0.36.0 的 `LoadImage` 只在输入含 alpha 时才由 alpha 导出 MASK，
+         否则返回**全零 mask**（源码原文见
+         deploy/comfyui/evidence/36_inpaint_polarity_source.txt）。
+         全零 mask ⇒ 非选区贴回覆盖整张图 ⇒ **产出与输入逐像素相同**。
+         故 11 项全绿只证明「渲染路径能出图」，**不能**说「局部重绘可用」。
+      ② **极性探针绕过了平台素材管线**：极性已实测（出图 + 源码双证据）——
+         **透明区(alpha=0) = 被重绘区**，与本文档原先的假设一致。
+         但 37_probe_inpaint_mask_polarity.py 是用 `lambda` 把**本地文件名**直接注入
+         节点图的（`asset_resolver=lambda _a: name_by_id[_a]`），**没有走** `/upload/image`，
+         也**没有走** asset_resolver ⇒ **证明不了**「用户在前端上传的带透明区 PNG，
+         alpha 能活到 ComfyUI」。平台侧这条链路仍未被任何测试覆盖。
+      ③ **`engine/` 与后端都没有校验 inpaint 的输入必须含 alpha** ⇒ 用户上传一张
+         普通 JPEG 时，本工作流会**静默产出与输入逐像素相同（的缩放版）并报成功** ——
+         典型的「成功但没干活」，对量产平台比报错更危险。
+      ⚠️ 本项**不**证明画质（属 golden set / P5、P8）。
+      ⚠️ **本条目缺 baseline**，故 `verification` 只能停在 `pending_gpu`：
+         registry 的三个枚举值没有一个精确表达「渲染路径已出图、但无本口径基准」，
+         这是**契约缺口**，在此显式记录，不靠改枚举绕开。
+         补齐方式：在真实 GPU 上按**本工作流口径**（1024² / 25 步 / denoise=1.0）
+         跑 N=12 warmup=1（判读用 **min**），填 `baseline.measured_at` + `min_s` 后
+         才可能升到 `gpu_verified`（`gpu_verified` 会被 registry 强制要求
+         `baseline.measured_at`，测试另要求 `min_s`）。**不得**用 #18 的 30 步 4.54s 顶替。
+    render_path_l4: true
 
     changelog:
       - version: 1
@@ -355,6 +372,21 @@ workflows:
         evidence:
           - "节点与入参经 L3 对 deploy/schemas/object_info.v0.36.0.json 校验通过"
           - "免模型路线经 node 侦察确认：VAEEncodeForInpaint / SetLatentNoiseMask 均在，且无需外部权重"
+        affected: "B · A · D"
+
+      - version: 1
+        date: "2026-09-17"
+        change: >-
+          回填 L4 结果：`render_path_l4` 由 false 改为 true；
+          `status` **保持 disabled**、`verification` **保持 pending_gpu**。
+          **节点图未做任何改动**，故 version 不递增（与定义文件 `_meta.version=1` 一致）。
+        reason: >-
+          渲染路径确实跑通了（11/11），继续写 false 会低估已验证的部分；
+          但本次是 no-op + 探针绕过平台素材管线 ⇒ 放行会变成谎报，故不放行。
+        evidence:
+          - "deploy/comfyui/evidence/36_l4_inpaint_v1.log（通过 11 · 失败 0 · 跳过 0）"
+          - "deploy/comfyui/evidence/36_inpaint_mask_polarity.json（极性客观信号）"
+          - "deploy/comfyui/evidence/36_inpaint_polarity_source.txt（LoadImage 源码摘录）"
         affected: "B · A · D"
 
     notes: >-
@@ -591,19 +623,28 @@ workflows:
     engine: "ComfyUI v0.36.0 (commit ee71d5c4)"
     models:
       - sd_xl_base_1.0.safetensors
-    # ⚠️ 新工作流：节点图未在真实 GPU 上出过图，故 disabled + pending_gpu
+    # ⚠️ 渲染路径 L4 已通过，但**无本口径 baseline** ⇒ 仍不可 enabled（见 verification_note）
     status: disabled
     rollout_percent: 0
     verification: pending_gpu
     verification_note: >-
-      节点图为本轮新写，**尚未在真实引擎上出过图**（L4 未跑）。
-      已通过 L1（结构自洽）+ L2（多组参数渲染冒烟）+ L3（对 /object_info 快照校验
-      节点类型/入参名/枚举取值）。
-      ⚠️ 待 GPU 验证的要点：① **`LoadImage` 的 MASK 输出极性**（是否 `1-alpha`）——
-      本工作流未用 MASK，但它与 inpaint_v1 同源，需一起确认
-      ② `ImageScale.crop=disabled` 在非等比参考图上会拉伸（是否有损需看实际产物）
-      验证方法：`python -m engine.tools.verify_render_path --workflow i2i_v1 --seed 20260916`
-    render_path_l4: false
+      **渲染路径 L4 已通过**（2026-09-17，RTX 4090，生产配置 --highvram，
+      工具 engine/tools/verify_render_path.py，显式 seed=20260916）：
+      通过 11 项 · 失败 0 · 跳过 0（节点数 9 · seed 注入 ['21.seed']）。
+      覆盖：engine/render 渲染成功、targets 注入落点正确、**同一显式 seed 两次出图
+      IDAT 逐字节一致**、写元数据未改动像素、wf_meta.seed 等于传入 seed、
+      ComfyUI 自写的 prompt chunk 保留。
+      ⚠️ 本项**不**证明画质（属 golden set / P5、P8），也**不**证明性能达标。
+      ⚠️ 仍未验：`ImageScale.crop=disabled` 在**非等比**参考图上会拉伸 ——
+         本次 L4 的参考图是 1:1（1024²），**未**覆盖非等比输入（是否有损需看实际产物）。
+      ⚠️ **本条目缺 baseline**，故 `status` 保持 `disabled`、`verification` 停在
+         `pending_gpu`（registry 的三个枚举值没有一个精确表达「渲染路径已出图、
+         但无本口径基准」—— 这是**契约缺口**，在此显式记录，不靠改枚举绕开）。
+         注意 `gpu_verified` 会被 registry 强制要求 `baseline.measured_at`
+         （测试另要求 `min_s`），**不得**拿 #18 的 30 步 4.54s 顶替本口径。
+         补齐方式：在真实 GPU 上按**本工作流口径**（1024² / 25 步 / denoise=0.6）
+         跑 N=12 warmup=1（判读用 **min**），填 `baseline.measured_at` + `min_s`。
+    render_path_l4: true
 
     changelog:
       - version: 1
@@ -615,6 +656,19 @@ workflows:
         evidence:
           - "节点与入参经 L3 对 deploy/schemas/object_info.v0.36.0.json 校验通过"
           - "参数 Schema 遵循 docs/sop/contracts.md §3（含 §3.6 四条不变量）"
+        affected: "B · A · D"
+
+      - version: 1
+        date: "2026-09-17"
+        change: >-
+          回填 L4 结果：`render_path_l4` 由 false 改为 true；
+          `status` **保持 disabled**、`verification` **保持 pending_gpu**（缺本口径 baseline）。
+          **节点图未做任何改动**，故 version 不递增（与定义文件 `_meta.version=1` 一致）。
+        reason: >-
+          渲染路径确实跑通了（11/11），继续写 false 会低估已验证的部分；
+          但没有按本工作流口径测过基准，故不放行 —— 不放行是缺证据，放行就是谎报。
+        evidence:
+          - "deploy/comfyui/evidence/36_l4_i2i_v1.log（通过 11 · 失败 0 · 跳过 0）"
         affected: "B · A · D"
 
     notes: >-
@@ -849,15 +903,27 @@ workflows:
     rollout_percent: 0
     verification: pending_gpu
     verification_note: >-
-      节点图为本轮新写，**L4 未跑**。已过 L1 + L2 + L3。
-      ⚠️ 待 GPU 验证：① **放大后的画质增益是否成立** —— 潜空间插值本身不引入新信息，
-      增益全部来自低 denoise 重绘，需实看图确认（本项不声称画质达标，那属 golden set）
-      ② `LatentUpscaleBy.upscale_method=bislerp` 与 `nearest-exact/bilinear/bicubic`
-      的差异未实测，当前取 bislerp 是「潜空间放大」的常见选择
-      ③ `VAEDecodeTiled` 的 `temporal_size/temporal_overlap` 是**为视频设计**的参数，
-      静态图也必须填；其取值是否影响静态图结果未实测
-      验证方法：`python -m engine.tools.verify_render_path --workflow upscale_v1 --seed 20260916`
-    render_path_l4: false
+      **渲染路径 L4 已通过**（2026-09-17，RTX 4090，生产配置 --highvram，
+      工具 engine/tools/verify_render_path.py，显式 seed=20260916）：
+      通过 11 项 · 失败 0 · 跳过 0（节点数 9 · seed 注入 ['22.seed']）。
+      产物 1536×1536（1024² × scale_by=1.5），尺寸符合预期；
+      **同一显式 seed 两次出图 IDAT 逐字节一致**；wf_meta 元数据闭环成立。
+      ⚠️ 本项**不**证明画质，也**不**证明「放大画质增益是否成立」—— 那需要人看放大前后的
+         对比图（属 golden set / P8）。潜空间插值本身不引入新信息，增益全部来自低 denoise 重绘。
+      ⚠️ 仍未验：① `LatentUpscaleBy.upscale_method=bislerp` 与
+         `nearest-exact/bilinear/bicubic` 的差异
+         ② `VAEDecodeTiled` 的 `temporal_size/temporal_overlap` 对**静态图**的影响
+         （本次只跑通、未做取值对比）③ 输入非 1024² 或 scale_by=2.0 时输出可能触到
+         PRD §6.2 的 2048 长边约束（前端须在提交前提示）。
+      ⚠️ **本条目缺 baseline**，故 `status` 保持 `disabled`、`verification` 停在
+         `pending_gpu`（registry 的三个枚举值没有一个精确表达「渲染路径已出图、
+         但无本口径基准」—— 这是**契约缺口**，在此显式记录，不靠改枚举绕开）。
+         注意 `gpu_verified` 会被 registry 强制要求 `baseline.measured_at`
+         （测试另要求 `min_s`），**不得**拿 #18 的 30 步 4.54s 顶替本口径。
+         补齐方式：在真实 GPU 上按**本工作流口径**（1024² → 1536² / 20 步 / denoise=0.4 /
+         分块解码 tile_size=512）跑 N=12 warmup=1（判读用 **min**），
+         填 `baseline.measured_at` + `min_s`。
+    render_path_l4: true
 
     changelog:
       - version: 1
@@ -869,6 +935,19 @@ workflows:
         evidence:
           - "节点与入参经 L3 对 deploy/schemas/object_info.v0.36.0.json 校验通过"
           - "权重缺口经 node 侦察确认：UpscaleModelLoader.model_name 枚举为空"
+        affected: "B · A · D"
+
+      - version: 1
+        date: "2026-09-17"
+        change: >-
+          回填 L4 结果：`render_path_l4` 由 false 改为 true；
+          `status` **保持 disabled**、`verification` **保持 pending_gpu**（缺本口径 baseline）。
+          **节点图未做任何改动**，故 version 不递增（与定义文件 `_meta.version=1` 一致）。
+        reason: >-
+          渲染路径确实跑通了（11/11），继续写 false 会低估已验证的部分；
+          但没有按本工作流口径测过基准，故不放行 —— 不放行是缺证据，放行就是谎报。
+        evidence:
+          - "deploy/comfyui/evidence/36_l4_upscale_v1.log（通过 11 · 失败 0 · 跳过 0）"
         affected: "B · A · D"
 
     notes: >-
