@@ -11,12 +11,14 @@ bypass 重连漏了一个入参 / 占位符没有对应字段」这类错误**�
 |---|---|---|
 | **L1** 结构自洽 | 完全离线，只依赖工作流 JSON + 注册表 | ✅ 实现 |
 | **L2** 参数渲染冒烟 | 完全离线，用 default / 边界值 / 各开关组合各渲染一次 | ✅ 实现 |
-| **L3** 节点合法性 | 需要 ComfyUI 的 `/object_info`（`class_type` 是否存在、入参名是否被接受、枚举取值是否合法） | ❌ **不在本模块**，由 `deploy/autodl/26_validate_workflow.py --object-info FILE` 负责 |
+| **L3** 节点合法性 | 需要 ComfyUI 的 `/object_info`（`class_type` 是否存在、入参名是否被接受、枚举取值是否合法） | ✅ **在本模块**（`check_object_info`），但**必须拿到一份 `object_info` 快照**才执行（`--object-info`，缺省自动回退到 `deploy/schemas/object_info.v0.36.0.json`）。它跑在**渲染后**的图上，因此还能覆盖 `targets` 注入的正确性 |
 | **L4** 真实出图 | 需要 GPU | ❌ 不可能离线完成 |
 
-⚠️ **L3 当前无法执行**：仓库里没有任何 `object_info` 缓存文件，而生成它需要让
-ComfyUI 跑起来（`--cpu` 模式即可，不占 GPU）。补法见 `workflow_spec.md` §8.1。
-**因此本模块的输出只能证明 L1/L2 通过，绝不能据此声称"工作流已跑通"。**
+⚠️ **L3 的能力来自快照，不是来自本模块自己**：`deploy/schemas/object_info.v0.36.0.json`
+（v0.36.0，2530 个节点类）**已入库**，`python -m engine.validate` 缺省用它。
+快照取不到时 L3 **被跳过**，且输出会显式打印
+「未做 L3 —— 节点类型/入参名/枚举取值**未经验证**」（不会静默降级）。
+**因此 L3 未执行时，本模块的输出只能证明 L1/L2 通过，绝不能据此声称"工作流已跑通"。**
 """
 
 from __future__ import annotations
