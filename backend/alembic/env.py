@@ -24,7 +24,21 @@ config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # ⚠️ `disable_existing_loggers=False` **不是代码洁癖，是防「测试静默变假绿」**。
+    #
+    # `fileConfig()` 的该参数默认是 `True`：它会把进程里**已存在**、且没写进
+    # `alembic.ini` 的 logger 全部 `logger.disabled = True` —— 其中就包括
+    # `app.api.v1.tasks` 等应用 logger。这个副作用**不随调用结束回滚**，是进程级全局状态。
+    #
+    # 后果链条：`test_migration.py` 会真的跑一遍 alembic（于是走到这一行）⇒ 应用 logger
+    # 被永久置 `disabled=True` ⇒ 此后任何用 `caplog` 的断言都拿到**空列表**。
+    # 而 `caplog.at_level()` 只处理 `logging.disable()`（manager 级开关），
+    # **不会**把 `logger.disabled` 打开 —— 所以症状不是"报错"，而是
+    # **"该断言的日志一条都没有"**：测试静默变成假绿（或假红），看起来像被测代码坏了。
+    #
+    # 回归用例：`backend/tests/test_alembic_logging.py`。把那行参数改回 `True`
+    # （或删掉它）时该用例立刻变红。
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
 
