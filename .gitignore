@@ -105,3 +105,7 @@ tests/golden_set/reference/*
 /render_l4_out/
 /bench_out/
 /verify_out/
+
+# ---------- 洗稿/编辑临时备份（防误提交）----------
+*.pre-clean.bak
+*.docx.bak
