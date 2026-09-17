@@ -923,8 +923,10 @@ def validate_registry(
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
-        description="工作流离线校验（L1 结构自洽 + L2 渲染冒烟）。"
-        "不含 L3 节点合法性（需要 object_info）与 L4 真实出图。"
+        description="工作流离线校验（L1 结构自洽 + L2 渲染冒烟 + L3 节点合法性）。"
+        "L3 需要 object_info（--object-info；缺省尝试 "
+        "deploy/schemas/object_info.v0.36.0.json，该文件缺失时才跳过 L3）；"
+        "L4（真实出图）需要 GPU，不在本命令范围内。"
     )
     ap.add_argument("--registry", default=None, help="注册表路径，默认 workflows/registry.yaml")
     ap.add_argument("--only", default=None, help="只校验某一条工作流 id")
