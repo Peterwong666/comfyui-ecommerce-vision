@@ -48,7 +48,23 @@ def engine():  # type: ignore[no-untyped-def]
 
     Base.metadata.create_all(eng)
     yield eng
-    Base.metadata.drop_all(eng)
+    # ⚠️ 拆卸前**先关掉外键**再 `drop_all`。
+    #
+    # 模型之间存在外键环（assets ↔ batches ↔ tasks ↔ templates），`drop_all` 排不出
+    # 一个满足全部外键的删表顺序（它会发一条 SAWarning 说 "Can't sort tables for DROP"），
+    # 只能按一组"局部有序"的顺序删。而上面刚把 SQLite 的外键打开（见
+    # `install_sqlite_foreign_keys`），于是"先删父表"会真的报
+    # `sqlite3.IntegrityError: FOREIGN KEY constraint failed`。
+    #
+    # 这个坑长期没被发现，是因为**没有任何用例建过 `templates` 行**（AC-F6 零覆盖，
+    # 2026-09-17 才补）—— 一旦有模板行，拆卸就炸。症状会记在**用例的 teardown** 上，
+    # 看上去像"用例自己坏了"，与真实缺陷无关，属于典型的假证据。
+    #
+    # 关掉外键只影响这条**一次性内存库**的拆卸（引擎是函数级的，拆完就丢），
+    # 测试运行期间的外键约束照常生效。
+    with eng.connect() as conn:
+        conn.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        Base.metadata.drop_all(conn)
 
 
 @pytest.fixture
