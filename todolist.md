@@ -41,7 +41,7 @@
 
 | # | JD 原文 | 能力域 | 本项目交付物 | 验收标准（量化） | 任务 |
 |---|---|---|---|---|---|
-| 1 | 文生图、图生图、高清修复、局部重绘、风格迁移、批量出图全流程，标准化量产输出 | 工作流 | 6 条标准化工作流 + 参数模板库 | 6 条全部上线，每条有 golden set ≥30 例，**一次通过率 ≥80%** | P3 |
+| 1 | 文生图、图生图、高清修复、局部重绘、风格迁移、批量出图全流程，标准化量产输出 | 工作流 | **5 条**标准化工作流（**+ 1 条顺延 V2**）+ 参数模板库 | **5 条全部上线 + 1 条（风格迁移）顺延 V2**（口径见 `docs/adr/0008-v1-scope-reduction.md` 裁定 1），每条有 golden set ≥30 例，**一次通过率 ≥80%** | P3 |
 | 2 | ControlNet、IP-Adapter、LoRA、SAM、DWPose、姿态/线稿/景深控制节点体系，画面稳定、高精度、风格统一 | 控制体系 | 控制能力矩阵 + 各控制手段推荐权重区间 | 同一参考图 10 次生成，主体结构一致性评分 ≥4/5；矩阵文档覆盖 ≥8 种控制手段 | P4 |
 | 3 | 针对业务场景（产品渲染、电商视觉、IP形象、场景合成、AI视频）定制工作流，持续迭代参数/模型/节点 | 场景化 | 场景包（工作流 + 模板 + 示例 + SOP） | V1 电商场景包可交付；V2 补 IP/场景合成；V3 补视频 | P3 / V2 / V3 |
 | 4 | 模型资源管理：底模/LoRA/ControlNet 筛选、测试、适配、版本归档，内部标准化模型库与提示词库 | 资产管理 | `model_registry` + 模型归档策略 + `prompt_library` | 任一模型可一键回滚到任意历史版本；模型带 hash/license/评测分；提示词库 ≥200 条带标签 | P5 |
@@ -288,14 +288,14 @@ P2-03 有意推迟（先用自带环境跑主线）；剩 P2-07（复现脚本+�
 | P3-04 | WF-I2I 图生图（重绘幅度策略） | ✅ `workflows/i2i_v1.json`（9 节点；核心参数 `denoise`；L1/L2/L3 PASS，**L4 待 GPU**） | P0 |
 | P3-05 | WF-UPSCALE 高清修复 | ✅ `workflows/upscale_v1.json`（免放大器模型路线：`LatentUpscaleBy` + 低 denoise 重绘 + `VAEDecodeTiled`；L1/L2/L3 PASS，**L4 待 GPU**）。⚠️ 两段式（`UpscaleModelLoader`）待权重 | P0 |
 | P3-06 | WF-INPAINT 局部重绘 | ✅ `workflows/inpaint_v1.json`（免专用模型路线：`SetLatentNoiseMask` + `ImageCompositeMasked` 贴回；L1/L2/L3 PASS，**L4 待 GPU**）。⚠️ **蒙版极性待实测** | P0 |
-| P3-07 | WF-STYLE 风格迁移 | ❌ **V1 明确不做，顺延 V2（见 `docs/adr/0008-v1-scope-reduction.md` 裁定 1）**。缺**三类权重**（`ipadapter/*` + `clip_vision/*` + `loras/*` 枚举全空）：① IP-Adapter 本体 ② CLIP-Vision 编码器（IP-Adapter 的硬前置）③ LoRA。**不下载的原因**：CLIP-Vision 许可未核实（`license_matrix.md:171` 标 unknown）而铁律是「未知即不用」；IP-Adapter 是 P4 控制体系的正主，P4 目前 0/10；电商核心场景用现有 5 条已能覆盖 | P0 |
+| P3-07 | WF-STYLE 风格迁移 | ❌ **V1 明确不做，顺延 V2（见 `docs/adr/0008-v1-scope-reduction.md` 裁定 1）**。缺**三类权重**（`ipadapter/*` + `clip_vision/*` + `loras/*` 枚举全空）：① IP-Adapter 本体 ② CLIP-Vision 编码器（IP-Adapter 的硬前置）③ LoRA。**不下载的原因**：CLIP-Vision 许可未核实（`license_matrix.md:171` 标 unknown）而铁律是「未知即不用」；IP-Adapter 是 P4 控制体系的正主，P4 目前 0/10；电商核心场景用现有 5 条已能覆盖 | **V2**（原 `P0`，与 ADR-008 裁定 1 自相矛盾，已改） |
 | P3-08 | WF-BATCH 批量出图（参数矩阵 / CSV 驱动 / 目录监听） | 批量引擎 + 文档 | P0 |
 | P3-09 | **工作流注册表**：ID + 版本 + 参数 Schema + 变更日志 + 启用/灰度 | `workflows/registry.yaml` | P0 |
 | P3-10 | 参数模板库（每个场景 3-5 套预设，含适用场景说明） | `assets/prompt_lib/templates/` | P1 |
 | P3-11 | 元数据写入产物（PNGInfo/EXIF：workflow_id、version、seed、models、完整参数） | 元数据工具 | P0 |
 | P3-12 | 工作流调试记录：每条工作流建一个 debug 日志（踩坑与解法） | `docs/sop/debug_log.md` | P1 |
 
-**DoD**：6 条工作流全部可稳定出图，参数可从外部注入，产物带完整元数据，注册表可查询版本。
+**DoD**：**5 条**工作流全部可稳定出图（**1 条 `style_transfer_v1` 顺延 V2**，见 `docs/adr/0008-v1-scope-reduction.md` 裁定 1），参数可从外部注入，产物带完整元数据，注册表可查询版本。
 
 **阶段结果**：🔵 进行中（**8/12**，2026-09-16 收尾）。已完成 P3-01/02/04/05/06/09/11/12 —— 三条新工作流（i2i/inpaint/upscale）定义与 Schema 完成并通过 L1/L2/L3；P3-03（WF-T2I）由 t2i_v1 承担且 L4 已通过；**P3-07 口径已按 ADR-008 裁定 1 修正：V1 明确不做、顺延 V2，故 V1 工作流口径为「5 条可用 + 1 条顺延」（原口径「6 条」不可能在 V1 达成）**。
 - 工具链已就绪且**离线可校验**：`python -m engine` 跑 L1/L2/L3 → `VALIDATE=PASS`（2530 节点注册表）
@@ -515,7 +515,7 @@ P2-03 有意推迟（先用自带环境跑主线）；剩 P2-07（复现脚本+�
 ### V1 · 电商视觉量产闭环（W1-W10，2026-09-14 → 11-22）
 
 **目标**：一个人用它，一天能出 500 张可用商品图。
-**范围**：6 条工作流 + 核心控制体系 + Web 平台 + 质量评测 + 数据埋点 + 完整文档。
+**范围**：**5 条**工作流（**+ 1 条顺延 V2**，见 `docs/adr/0008-v1-scope-reduction.md` 裁定 1） + 核心控制体系 + Web 平台 + 质量评测 + 数据埋点 + 完整文档。
 **成功标准**：
 - 任务成功率 ≥98%
 - golden set 一次通过率 ≥80%
@@ -665,7 +665,7 @@ P2 环境 → P3 工作流 → P6 服务化 → P7 前端 → P8 质量 → P12 
 - [ ] 在 `项目进度.md` 记录实际耗时与偏差原因
 
 **版本级 DoD（V1）**
-- [ ] 6 条工作流全部可用且达标
+- [ ] **5 条**工作流全部可用且达标（**1 条 `style_transfer_v1` 顺延 V2** —— 口径见 `docs/adr/0008-v1-scope-reduction.md` 裁定 1；原「6 条」口径在 V1 不可能达成）
 - [ ] 平台可无人值守完成 1000 张批量
 - [ ] 质量、性能、成本三个看板上线
 - [ ] 文档齐全，陌生人可自助部署

@@ -43,7 +43,9 @@ class Workflow(Base, TimestampMixin):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
 
     # 稳定标识，如 "t2i_v1" / "i2i_v1" / "upscale_v1" / "inpaint_v1" /
-    # "style_transfer_v1" / "batch_v1"（对应 PRD FR-6.2 的六条工作流）
+    # "batch_v1" / "style_transfer_v1"（对应 PRD FR-6.2 的工作流集合。V1 口径为
+    # 「5 条可用 + `style_transfer_v1` 顺延 V2」—— 见
+    # `docs/adr/0008-v1-scope-reduction.md` 裁定 1，不要再写成「六条工作流」）
     name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     display_name: Mapped[str] = mapped_column(String(128), nullable=False)
