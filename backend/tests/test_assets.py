@@ -27,7 +27,7 @@ from app.models.enums import AssetKind, UserRole
 from app.models.event import AuditLog, Event, EventName
 from app.models.task import Batch, Task
 from app.models.user import User
-from app.services.image_probe import ImageInfo, UnsupportedImage, probe
+from app.services.image_probe import ImageInfo, UnsupportedImage, has_alpha, probe
 from app.services.storage import AssetStorage
 
 # ============================================================
@@ -37,14 +37,17 @@ from app.services.storage import AssetStorage
 # ============================================================
 
 
-def png_header(width: int, height: int) -> bytes:
-    """PNG：签名 + IHDR 长度 + "IHDR" + 宽 + 高。"""
+def png_header(width: int, height: int, *, color_type: int = 6) -> bytes:
+    """PNG：签名 + IHDR 长度 + "IHDR" + 宽 + 高 + 位深/色型/压缩/滤波/隔行 + CRC 占位。
+
+    `color_type` 默认 6（RGBA，含 alpha）。可传 2（RGB，无 alpha）用于 alpha 校验测试。
+    """
     return (
         b"\x89PNG\r\n\x1a\n"
         + struct.pack(">I", 13)
         + b"IHDR"
         + struct.pack(">II", width, height)
-        + b"\x08\x06\x00\x00\x00"  # 位深/色型/压缩/滤波/隔行
+        + b"\x08" + bytes([color_type]) + b"\x00\x00\x00"  # 位深/色型/压缩/滤波/隔行
         + b"\x00\x00\x00\x00"      # CRC 占位（probe 不校验 CRC）
     )
 
@@ -149,6 +152,23 @@ class TestImageProbe:
         """
         assert probe(jpeg_header(300, 300)).format == "JPEG"
         assert probe(png_header(300, 300)).format == "PNG"
+
+    def test_has_alpha_true_for_rgba(self):
+        assert has_alpha(png_header(300, 300, color_type=6)) is True
+
+    def test_has_alpha_true_for_grayscale_alpha(self):
+        assert has_alpha(png_header(300, 300, color_type=4)) is True
+
+    def test_has_alpha_false_for_rgb(self):
+        assert has_alpha(png_header(300, 300, color_type=2)) is False
+
+    def test_has_alpha_false_for_jpeg_and_webp(self):
+        assert has_alpha(jpeg_header(300, 300)) is False
+        assert has_alpha(webp_vp8x(300, 300)) is False
+
+    def test_has_alpha_false_for_truncated(self):
+        """头部不足 26 字节时安全返回 False，不抛异常。"""
+        assert has_alpha(b"\x89PNG\r\n\x1a\n" + b"\x00" * 10) is False
 
 
 # ============================================================

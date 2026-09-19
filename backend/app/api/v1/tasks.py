@@ -19,6 +19,7 @@ from sqlalchemy import func, select
 from app.api.deps import CurrentUser, DbSession
 from app.core.config import settings
 from app.core.logging import bind_task, get_logger
+from app.models.asset import Asset
 from app.models.enums import BatchStatus, ErrorType, TaskStatus
 from app.models.event import AuditLog, EventName
 from app.models.task import Batch, Task
@@ -35,12 +36,23 @@ from app.services import content_safety, quota
 from app.services import state_machine as sm
 from app.services.dispatch import enqueue_task
 from app.services.events import track
+from app.services.image_probe import has_alpha
+from app.services.storage import AssetStorage, MinioAssetStorage
 
 log = get_logger(__name__)
 router = APIRouter(tags=["tasks"])
 
 
 # ---------------------------------------------------------------- 内部工具
+
+
+def _storage() -> AssetStorage:
+    """构造存储实例。
+
+    抽成函数是为了让调用点只有一处 `MinioAssetStorage()` —— 测试通过替换本模块的
+    `MinioAssetStorage` 属性注入内存实现（与 `assets.py` 的 `_storage` 同构）。
+    """
+    return MinioAssetStorage()
 
 
 def _get_active_workflow(db: DbSession, name: str) -> Workflow:
@@ -90,6 +102,8 @@ _DEFAULT_SECONDS_PER_IMAGE = 20.0
 # `test_web_enum_parity.py` 双向守着），往里面塞非 EX 的码会造出第二个真相来源。
 TOO_MANY_IN_FLIGHT_CODE = "TOO_MANY_IN_FLIGHT"
 TEXT_LENGTH_OUT_OF_RANGE_CODE = "TEXT_LENGTH_OUT_OF_RANGE"
+SIZE_OUT_OF_RANGE_CODE = "SIZE_OUT_OF_RANGE"
+REQUIRES_ALPHA_CODE = "REQUIRES_ALPHA"
 
 
 def _in_flight_task_count(db: DbSession) -> int:
@@ -341,7 +355,127 @@ def _validate_text_lengths(wf: Workflow, payload: dict[str, Any]) -> None:
             )
 
 
-def _validate_params(wf: Workflow, payload: dict[str, Any]) -> None:
+def _int_fields(wf: Workflow) -> list[dict[str, Any]]:
+    """工作流 `param_schema` 里声明为 `type == "int"` 的字段（原始 dict 列表）。"""
+    fields = (wf.param_schema or {}).get("fields") or []
+    return [f for f in fields if isinstance(f, dict) and f.get("type") == "int"]
+
+
+def _image_fields(wf: Workflow) -> list[dict[str, Any]]:
+    """工作流 `param_schema` 里声明为 `type == "image"` 的字段（原始 dict 列表）。"""
+    fields = (wf.param_schema or {}).get("fields") or []
+    return [f for f in fields if isinstance(f, dict) and f.get("type") == "image"]
+
+
+def _validate_size_bounds(wf: Workflow, payload: dict[str, Any]) -> None:
+    """按工作流 Schema 对**整型字段**施加 min/max 边界（EX-3 的扩展）。
+
+    前端已经拦过一次，但后端必须再校验。与 `_validate_params` 里的 `steps` / `cfg`
+    不同：后者是**全局**边界，而这里按字段在 `param_schema` 里声明的 min/max 校验
+    （如 i2i_v1 的 `width` / `height` 各是 512–2048）。
+
+    ⚠️ 字段值必须是整数或能安全转成整数；非整数类型放行（类型不匹配由引擎渲染期
+    以 EX-3 拒绝，这里避免把 422 变成 500）。
+    """
+    for field in _int_fields(wf):
+        key = field.get("key")
+        if not key or key not in payload:
+            continue
+        value = payload[key]
+        try:
+            numeric = int(value)
+        except (TypeError, ValueError):
+            continue
+
+        lo = field.get("min")
+        hi = field.get("max")
+        if (lo is not None and numeric < lo) or (hi is not None and numeric > hi):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": SIZE_OUT_OF_RANGE_CODE,
+                    "message": f"{key} 需在 {lo}-{hi} 之间，当前 {numeric}",
+                    "fields": [
+                        {
+                            "key": key,
+                            "reason": f"值 {numeric} 超出范围 [{lo}, {hi}]",
+                        }
+                    ],
+                },
+            )
+
+
+def _validate_image_requirements(
+    wf: Workflow, payload: dict[str, Any], db: DbSession, user: CurrentUser
+) -> None:
+    """按工作流 Schema 对**图片字段**施加额外要求（当前仅 alpha 通道）。
+
+    例如 inpaint_v1 的 `reference_image` 声明了 `requires_alpha: true`：
+    用户上传普通 RGB 时，ComfyUI 的 `LoadImage` 会导出全零 mask，导致局部重绘
+    退化成「原样输出」的静默 no-op。后端在提交阶段必须拒绝这种输入。
+
+    校验链路：
+      1. 取 params 里的 asset id（image 字段的值）
+      2. 查 DB 确认素材存在、属于当前用户、未被软删除
+      3. 从对象存储读原始字节
+      4. 用 `image_probe.has_alpha()` 判是否有 alpha（只读头部，无 Pillow 依赖）
+    """
+    for field in _image_fields(wf):
+        if not field.get("requires_alpha"):
+            continue
+        key = field.get("key")
+        if not key or key not in payload:
+            continue
+        asset_id = payload[key]
+        try:
+            asset_id = int(asset_id)
+        except (TypeError, ValueError):
+            # 非整数交给引擎层以 EX-3 处理；这里不抛 500。
+            continue
+
+        asset = db.scalar(
+            select(Asset).where(
+                Asset.id == asset_id,
+                Asset.user_id == user.id,
+                Asset.is_deleted.is_(False),
+            )
+        )
+        if asset is None:
+            # 素材不存在/越权/已删除：按 404 处理，与 assets.py 的 `_owned_asset` 口径一致
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"素材不存在：{key}={asset_id}",
+            )
+
+        try:
+            with _storage() as storage:
+                data = storage.get(asset.object_key)
+        except Exception as exc:  # noqa: BLE001 - 存储实现多样，统一转成可读错误
+            log.error("task.image_requirements.get_failed asset_id=%s err=%s", asset.id, exc)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"读取素材失败：{key}，请稍后重试",
+            ) from exc
+
+        if not has_alpha(data):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": REQUIRES_ALPHA_CODE,
+                    "message": f"{key} 必须使用带透明通道（alpha）的 PNG",
+                    "fields": [
+                        {
+                            "key": key,
+                            "reason": "图片无 alpha 通道，局部重绘无法确定蒙版区",
+                        }
+                    ],
+                },
+            )
+
+
+def _validate_params(
+    wf: Workflow, payload: dict[str, Any], db: DbSession, user: CurrentUser
+) -> None:
     """参数二次校验（EX-3）。
 
     前端已经拦过一次，但后端必须再校验 —— 前端校验可被绕过，
@@ -364,6 +498,8 @@ def _validate_params(wf: Workflow, payload: dict[str, Any]) -> None:
             detail=f"CFG 需在 {settings.min_cfg}-{settings.max_cfg}",
         )
     _validate_text_lengths(wf, payload)
+    _validate_size_bounds(wf, payload)
+    _validate_image_requirements(wf, payload, db, user)
 
 
 def _merge_params(
@@ -480,7 +616,7 @@ def submit_task(payload: TaskSubmitIn, user: CurrentUser, db: DbSession) -> Task
         params["negative_prompt"] = payload.negative_prompt
     # 在参数合并**之后**校验：顶层 prompt / negative_prompt 已收敛进 params，
     # 所以这里一次就覆盖两条通道（见 `_validate_text_lengths`）。
-    _validate_params(wf, params)
+    _validate_params(wf, params, db, user)
     # 内容安全放在参数合并之后：两条提示词通道（顶层 / params）都已收敛进 params
     warned = _screen_content(params)
 
@@ -648,7 +784,7 @@ def submit_batch(payload: BatchSubmitIn, user: CurrentUser, db: DbSession) -> Ba
 
     template = db.get(Template, payload.template_id) if payload.template_id else None
     common = _merge_params(wf, template, payload.common_params)
-    _validate_params(wf, common)
+    _validate_params(wf, common, db, user)
     # 批量与单任务走同一套检查：批量的提示词只可能来自 common_params
     # （`BatchSubmitIn` 没有顶层 prompt 字段），所以查 common 即可覆盖整批。
     warned = _screen_content(common)

@@ -397,7 +397,8 @@ def main(argv: list[str] | None = None) -> int:
             "A_vs_B_masks_complementary_byte_identical_output": same_ab,
             "A_and_A2_note": (
                 "正对照：两次输入**完全相同**（含同一 seed）。若引擎整条执行结果被缓存，"
-                "本条只是较弱的一致性证据；但 A/B 的提示词不同，A 与 B 的差异仍可归因"
+                "本条只是较弱的一致性证据；但 A/B 提示词相同，仅蒙版极性互补，"
+                "A 与 B 的差异仍可归因于蒙版"
             ),
         },
         "region_stats": region_stats,

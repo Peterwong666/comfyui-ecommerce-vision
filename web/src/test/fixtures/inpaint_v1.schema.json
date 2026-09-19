@@ -6,8 +6,9 @@
       "label": "原图",
       "type": "image",
       "default": 0,
+      "requires_alpha": true,
       "group": "输入",
-      "help": "待重绘的原图（素材 id）。**必须提供**；重绘区 = 该图的**透明区域**（蒙版极性待 GPU 实测确认，见 verification_note）",
+      "help": "待重绘的原图（素材 id）。**必须提供**；重绘区 = 该图的**透明区域**，仅接受带 alpha 通道的 PNG（蒙版极性已确认：透明区 = 被重绘区，见 verification_note）",
       "targets": [
         {
           "node_id": "10",

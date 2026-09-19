@@ -160,3 +160,20 @@ def is_supported_format(data: bytes) -> bool:
         return probe(data).format in ALLOWED_FORMATS
     except UnsupportedImage:
         return False
+
+
+def has_alpha(data: bytes) -> bool:
+    """判断图片是否包含 alpha 通道。目前仅 PNG 可能为 true；JPEG/WebP 固定 false。
+
+    PNG 的 IHDR 中 color type 字节（偏移 25）决定：
+      · 0 灰度、2 RGB、3 索引 —— 无 alpha
+      · 4 灰度+alpha、6 RGBA —— 有 alpha
+    见 PNG spec §11.2.2 IHDR。
+
+    ⚠️ 与 `probe()` 一样只读头部；被截断的文件只要头部够 26 字节就能判定。
+    """
+    if len(data) < 26 or not data.startswith(_PNG_SIG):
+        return False
+    # 签名 8 + length 4 + "IHDR" 4 + width 4 + height 4 + bit_depth 1 = 25，color type 在 25
+    color_type = data[25]
+    return color_type in (4, 6)

@@ -9,12 +9,16 @@
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.models.enums import TaskStatus
+from app.core.config import Settings, settings
+from app.models.asset import Asset
+from app.models.enums import AssetKind, TaskStatus
 from app.models.task import Task
+from app.models.workflow import Workflow
 
 # --- 契约 §3.4：提示词只有一条通道，顶层优先 -----------------------------------
 
@@ -253,3 +257,181 @@ def test_batch_at_total_limit_succeeds(client, monkeypatch) -> None:  # type: ig
     )
     assert resp.status_code == 202, resp.text
     assert resp.json()["total_count"] == 6
+
+
+# --- 新增：字段级边界与 alpha 校验（2026-09-18）-------------------------------
+
+
+def _make_int_workflow(db: Session) -> Workflow:
+    """创建一个带 min/max 整型字段的测试工作流。"""
+    wf = Workflow(
+        name="size_test_v1",
+        version=1,
+        display_name="尺寸测试",
+        definition={"_meta": {}, "1": {"class_type": "KSampler", "inputs": {}}},
+        param_schema={
+            "schema_version": 1,
+            "fields": [
+                {
+                    "key": "width",
+                    "label": "宽度",
+                    "type": "int",
+                    "default": 1024,
+                    "min": 512,
+                    "max": 2048,
+                    "step": 64,
+                    "targets": [{"node_id": "1", "input": "width"}],
+                },
+            ],
+        },
+        is_active=True,
+    )
+    db.add(wf)
+    db.commit()
+    return wf
+
+
+def test_int_field_out_of_range_returns_size_code(client, db: Session) -> None:
+    """工作流 Schema 里的 min/max 越界 → 422 + SIZE_OUT_OF_RANGE。"""
+    _make_int_workflow(db)
+
+    resp = client.post(
+        "/api/v1/tasks",
+        json={"workflow_name": "size_test_v1", "params": {"width": 100}},
+    )
+    assert resp.status_code == 422, resp.text
+    body = resp.json()
+    assert body["detail"]["code"] == "SIZE_OUT_OF_RANGE"
+    assert "width" in body["detail"]["message"]
+
+
+def test_int_field_at_boundary_succeeds(client, db: Session) -> None:
+    """闭区间：边界值本身放行。"""
+    _make_int_workflow(db)
+
+    resp = client.post(
+        "/api/v1/tasks",
+        json={"workflow_name": "size_test_v1", "params": {"width": 512}},
+    )
+    assert resp.status_code == 202, resp.text
+
+
+def _make_image_workflow(db: Session) -> Workflow:
+    """创建一个带 requires_alpha 图片字段的测试工作流。"""
+    wf = Workflow(
+        name="inpaint_test_v1",
+        version=1,
+        display_name="局部重绘测试",
+        definition={"_meta": {}, "1": {"class_type": "LoadImage", "inputs": {}}},
+        param_schema={
+            "schema_version": 1,
+            "fields": [
+                {
+                    "key": "reference_image",
+                    "label": "原图",
+                    "type": "image",
+                    "default": 0,
+                    "requires_alpha": True,
+                    "targets": [{"node_id": "1", "input": "image"}],
+                },
+            ],
+        },
+        is_active=True,
+    )
+    db.add(wf)
+    db.commit()
+    return wf
+
+
+def _upload_directly(db: Session, user_id: int, data: bytes, *, has_alpha: bool) -> Asset:
+    """直接创建 Asset 行，返回 object_key；调用方负责把字节写入自己 patch 的内存存储。"""
+    key = f"uploads/{user_id}/{'rgba' if has_alpha else 'rgb'}.png"
+    asset = Asset(
+        user_id=user_id,
+        kind=AssetKind.UPLOAD.value,
+        object_key=key,
+        mime_type="image/png",
+        size_bytes=len(data),
+        width=1024,
+        height=1024,
+    )
+    db.add(asset)
+    db.commit()
+    return asset
+
+
+def test_requires_alpha_rejects_rgb_png(client, db: Session, user, monkeypatch) -> None:
+    """RGB PNG 作为 requires_alpha 字段 → 422 + REQUIRES_ALPHA。"""
+    from app.api.v1 import tasks as tasks_router
+    from app.services.storage import InMemoryAssetStorage
+
+    store = InMemoryAssetStorage()
+    monkeypatch.setattr(
+        tasks_router, "MinioAssetStorage", lambda *a, **kw: store, raising=True
+    )
+
+    _make_image_workflow(db)
+
+    # RGB PNG：color type = 2
+    rgb_png = (
+        b"\x89PNG\r\n\x1a\n"
+        + b"\x00\x00\x00\x0dIHDR"
+        + b"\x00\x00\x04\x00"  # width = 1024
+        + b"\x00\x00\x04\x00"  # height = 1024
+        + b"\x08\x02\x00\x00\x00"  # 8-bit RGB
+        + b"\x00\x00\x00\x00"  # CRC placeholder
+    )
+    asset = _upload_directly(db, user.id, rgb_png, has_alpha=False)
+    store.put(asset.object_key, rgb_png, "image/png")
+
+    resp = client.post(
+        "/api/v1/tasks",
+        json={
+            "workflow_name": "inpaint_test_v1",
+            "params": {"reference_image": asset.id},
+        },
+    )
+    assert resp.status_code == 422, resp.text
+    body = resp.json()
+    assert body["detail"]["code"] == "REQUIRES_ALPHA"
+    assert "alpha" in body["detail"]["message"]
+
+
+def test_requires_alpha_accepts_rgba_png(client, db: Session, user, monkeypatch) -> None:
+    """RGBA PNG 作为 requires_alpha 字段 → 202。"""
+    from app.api.v1 import tasks as tasks_router
+    from app.services.storage import InMemoryAssetStorage
+
+    store = InMemoryAssetStorage()
+    monkeypatch.setattr(
+        tasks_router, "MinioAssetStorage", lambda *a, **kw: store, raising=True
+    )
+
+    _make_image_workflow(db)
+
+    # RGBA PNG：color type = 6
+    rgba_png = (
+        b"\x89PNG\r\n\x1a\n"
+        + b"\x00\x00\x00\x0dIHDR"
+        + b"\x00\x00\x04\x00"  # width = 1024
+        + b"\x00\x00\x04\x00"  # height = 1024
+        + b"\x08\x06\x00\x00\x00"  # 8-bit RGBA
+        + b"\x00\x00\x00\x00"  # CRC placeholder
+    )
+    asset = _upload_directly(db, user.id, rgba_png, has_alpha=True)
+    store.put(asset.object_key, rgba_png, "image/png")
+
+    resp = client.post(
+        "/api/v1/tasks",
+        json={
+            "workflow_name": "inpaint_test_v1",
+            "params": {"reference_image": asset.id},
+        },
+    )
+    assert resp.status_code == 202, resp.text
+
+
+def test_task_max_retries_cannot_exceed_hard_limit() -> None:
+    """配置层强制 task_max_retries ≤ task_max_retries_hard_limit。"""
+    with pytest.raises(ValidationError):
+        Settings(task_max_retries=10, task_max_retries_hard_limit=5)

@@ -912,7 +912,13 @@ def validate_registry(
         if definition is None:
             continue
         rep.extend(render_smoke(entry, definition, info))
-        if entry.verification != "gpu_verified":
+        if entry.verification == "render_path_l4_passed":
+            rep.hint(
+                entry.id,
+                "verification=render_path_l4_passed —— 渲染路径 L4 已真实出图，"
+                "但缺少本工作流口径的 baseline 或核心语义未验证，暂不放行。",
+            )
+        elif entry.verification != "gpu_verified":
             rep.hint(
                 entry.id,
                 f"verification={entry.verification} —— 仅通过离线校验（L1/L2/L3），"

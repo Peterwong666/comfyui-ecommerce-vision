@@ -241,9 +241,8 @@ def test_disabled_workflows_become_inactive(db) -> None:  # type: ignore[no-unty
     db.commit()
 
     active = {r.name for r in db.execute(select(Workflow)).scalars().all() if r.is_active}
+    # 与注册表真实 enabled() 集合比较，不 hardcode 数量，避免改 verification 状态导致测试崩。
     assert active == {e.id for e in REAL_REGISTRY.enabled()}
-    # 真实数据里正是 2 条（t2i_v1 / flux2_klein_t2i_v1）
-    assert len(active) == 2
 
 
 def test_include_disabled_activates_them(db) -> None:  # type: ignore[no-untyped-def]

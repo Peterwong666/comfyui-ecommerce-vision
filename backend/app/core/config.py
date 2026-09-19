@@ -13,7 +13,7 @@ from __future__ import annotations
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -190,6 +190,21 @@ class Settings(BaseSettings):
         if "0.0.0.0" in v:
             raise ValueError("comfyui_base_url 不允许使用 0.0.0.0（ComfyUI 无鉴权）")
         return v
+
+    @model_validator(mode="after")
+    def _guard_retry_bounds(self) -> Settings:
+        """task_max_retries 不得超过 task_max_retries_hard_limit。
+
+        `task_max_retries_hard_limit` 是**全局硬上限**（运维/安全角度），
+        `task_max_retries` 是**当前生效值**（业务角度）。前者必须 ≥ 后者，
+        否则会出现「业务配置想重试 5 次，但全局硬上限只允许 3 次」的悖论。
+        """
+        if self.task_max_retries > self.task_max_retries_hard_limit:
+            raise ValueError(
+                f"task_max_retries ({self.task_max_retries}) 不能大于 "
+                f"task_max_retries_hard_limit ({self.task_max_retries_hard_limit})"
+            )
+        return self
 
     @property
     def is_prod(self) -> bool:

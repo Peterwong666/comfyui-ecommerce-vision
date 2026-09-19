@@ -28,7 +28,8 @@ VALID_STATUS: frozenset[str] = frozenset({"enabled", "gray", "disabled"})
 #: 验证状态取值 —— 本项目最看重「过程可证明」，所以验证等级必须显式声明
 VALID_VERIFICATION: frozenset[str] = frozenset(
     {
-        "gpu_verified",  # 已在本机 GPU 上真实出图并核对产物
+        "gpu_verified",  # 已在本机 GPU 上真实出图，并带有本工作流口径的 baseline
+        "render_path_l4_passed",  # 渲染路径 L4 已真实出图，但缺少 baseline 或核心语义待验
         "static_only",  # 仅通过离线静态校验（L1~L3），从未真实出图
         "pending_gpu",  # 定义已写、参数已声明，但连静态校验都还没过
     }
