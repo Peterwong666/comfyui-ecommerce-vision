@@ -1,0 +1,65 @@
+[引擎] http://127.0.0.1:8188 可达
+[用例] /root/autodl-tmp/l4_repo/tests/golden_set/cases · [资产] 16 项
+  [asset] 1 → ref_product.png（本地 /root/autodl-tmp/l4_assets/ref_product.png，1110864 bytes）
+✅ gs-i2i-001 (i2i_v1) 10.85s · 1071142B · gs-i2i-001.png
+  [asset] 2 → ref_product.png（本地 /root/autodl-tmp/l4_assets/ref_product.png，1110864 bytes）
+✅ gs-i2i-002 (i2i_v1) 5.32s · 1332998B · gs-i2i-002.png
+  [asset] 3 → ref_product.png（本地 /root/autodl-tmp/l4_assets/ref_product.png，1110864 bytes）
+✅ gs-i2i-003 (i2i_v1) 5.18s · 1066368B · gs-i2i-003.png
+  [asset] 4 → ref_product.png（本地 /root/autodl-tmp/l4_assets/ref_product.png，1110864 bytes）
+✅ gs-i2i-004 (i2i_v1) 8.93s · 2374942B · gs-i2i-004.png
+  [asset] 5 → ref_product.png（本地 /root/autodl-tmp/l4_assets/ref_product.png，1110864 bytes）
+✅ gs-i2i-005 (i2i_v1) 4.52s · 1090012B · gs-i2i-005.png
+  [asset] 6 → ref_product.png（本地 /root/autodl-tmp/l4_assets/ref_product.png，1110864 bytes）
+✅ gs-i2i-006 (i2i_v1) 4.06s · 1081016B · gs-i2i-006.png
+  [asset] 11 → gs_inpaint_mask_11.png（本地 /root/autodl-tmp/gs_assets/gs_inpaint_mask_11.png，1253258 bytes）
+✅ gs-inpaint-001 (inpaint_v1) 4.46s · 1091083B · gs-inpaint-001.png
+  [asset] 12 → gs_inpaint_mask_12.png（本地 /root/autodl-tmp/gs_assets/gs_inpaint_mask_12.png，1253138 bytes）
+✅ gs-inpaint-002 (inpaint_v1) 4.70s · 1160162B · gs-inpaint-002.png
+  [asset] 13 → gs_inpaint_mask_13.png（本地 /root/autodl-tmp/gs_assets/gs_inpaint_mask_13.png，1253178 bytes）
+✅ gs-inpaint-003 (inpaint_v1) 4.85s · 1145636B · gs-inpaint-003.png
+  [asset] 14 → gs_inpaint_mask_14.png（本地 /root/autodl-tmp/gs_assets/gs_inpaint_mask_14.png，1253283 bytes）
+✅ gs-inpaint-004 (inpaint_v1) 7.29s · 1619582B · gs-inpaint-004.png
+  [asset] 15 → gs_inpaint_mask_15.png（本地 /root/autodl-tmp/gs_assets/gs_inpaint_mask_15.png，1253299 bytes）
+✅ gs-inpaint-005 (inpaint_v1) 4.50s · 1187944B · gs-inpaint-005.png
+✅ gs-klein-001 (flux2_klein_t2i_v1) 16.30s · 928513B · gs-klein-001.png
+✅ gs-klein-002 (flux2_klein_t2i_v1) 2.83s · 1156008B · gs-klein-002.png
+✅ gs-klein-003 (flux2_klein_t2i_v1) 4.04s · 1265533B · gs-klein-003.png
+✅ gs-klein-004 (flux2_klein_t2i_v1) 3.18s · 1690792B · gs-klein-004.png
+✅ gs-klein-005 (flux2_klein_t2i_v1) 2.03s · 1407745B · gs-klein-005.png
+✅ gs-klein-006 (flux2_klein_t2i_v1) 4.90s · 3440977B · gs-klein-006.png
+✅ gs-klein-007 (flux2_klein_t2i_v1) 2.46s · 904147B · gs-klein-007.png
+✅ gs-klein-008 (flux2_klein_t2i_v1) 3.86s · 1782746B · gs-klein-008.png
+✅ gs-t2i-001 (t2i_v1) 13.10s · 992529B · gs-t2i-001.png
+✅ gs-t2i-002 (t2i_v1) 4.44s · 905045B · gs-t2i-002.png
+✅ gs-t2i-003 (t2i_v1) 10.78s · 3749338B · gs-t2i-003.png
+✅ gs-t2i-004 (t2i_v1) 4.44s · 965576B · gs-t2i-004.png
+✅ gs-t2i-005 (t2i_v1) 6.76s · 1815007B · gs-t2i-005.png
+✅ gs-t2i-006 (t2i_v1) 4.50s · 1135131B · gs-t2i-006.png
+✅ gs-t2i-007 (t2i_v1) 5.68s · 1392511B · gs-t2i-007.png
+✅ gs-t2i-008 (t2i_v1) 6.90s · 2390308B · gs-t2i-008.png
+✅ gs-t2i-009 (t2i_v1) 10.43s · 2394923B · gs-t2i-009.png
+✅ gs-t2i-010 (t2i_v1) 4.44s · 524358B · gs-t2i-010.png
+✅ gs-t2i-011 (t2i_v1) 4.10s · 1176977B · gs-t2i-011.png
+✅ gs-t2i-012 (t2i_v1) 4.52s · 930301B · gs-t2i-012.png
+✅ gs-t2i-013 (t2i_v1) 10.22s · 3785362B · gs-t2i-013.png
+✅ gs-t2i-014 (t2i_v1) 5.25s · 1647829B · gs-t2i-014.png
+✅ gs-t2i-015 (t2i_v1) 4.09s · 1101427B · gs-t2i-015.png
+✅ gs-t2i-016 (t2i_v1) 5.23s · 1352058B · gs-t2i-016.png
+✅ gs-t2i-017 (t2i_v1) 4.06s · 1126362B · gs-t2i-017.png
+✅ gs-t2i-018 (t2i_v1) 6.67s · 1311018B · gs-t2i-018.png
+  [asset] 21 → ref_product.png（本地 /root/autodl-tmp/l4_assets/ref_product.png，1110864 bytes）
+✅ gs-upscale-001 (upscale_v1) 11.86s · 1914535B · gs-upscale-001.png
+  [asset] 22 → ref_product.png（本地 /root/autodl-tmp/l4_assets/ref_product.png，1110864 bytes）
+✅ gs-upscale-002 (upscale_v1) 19.60s · 3298261B · gs-upscale-002.png
+  [asset] 23 → ref_product.png（本地 /root/autodl-tmp/l4_assets/ref_product.png，1110864 bytes）
+✅ gs-upscale-003 (upscale_v1) 8.52s · 1909430B · gs-upscale-003.png
+  [asset] 24 → ref_product.png（本地 /root/autodl-tmp/l4_assets/ref_product.png，1110864 bytes）
+✅ gs-upscale-004 (upscale_v1) 20.52s · 1428107B · gs-upscale-004.png
+  [asset] 25 → ref_product.png（本地 /root/autodl-tmp/l4_assets/ref_product.png，1110864 bytes）
+✅ gs-upscale-005 (upscale_v1) 2.45s · 1078735B · gs-upscale-005.png
+
+=== 汇总 === ok=42 failed=0 skipped=0 / 42
+开始 2026-09-18T11:12:34+08:00 · 结束 2026-09-18T11:17:17+08:00 · 总耗时 283s
+结果 → /root/autodl-tmp/l4_evidence/39_golden_set_results.json
+⚠️ 本脚本只产出「跑批结果」；评分与 expected 回填属后续评审（quality_rubric.md）。
