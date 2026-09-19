@@ -1,0 +1,59 @@
+{
+  "verified_at": "2026-09-19T11:20:00+08:00",
+  "method": "同 seed 连续出图两次，比较 PNG IDAT 逐字节摘要",
+  "tool": "deploy/autodl/40_repro_workflow.py",
+  "environment": {
+    "comfyui_version": "0.36.0",
+    "pytorch_version": "2.13.0+cu130",
+    "device": "NVIDIA GeForce RTX 4090",
+    "vram_total_gib": 24
+  },
+  "results": [
+    {
+      "workflow": "t2i_v1",
+      "case_id": "gs-t2i-001",
+      "seed": 20260916,
+      "consistent": true,
+      "idat": "31b059fe9b0f5ff8",
+      "evidence": "deploy/comfyui/evidence/golden_set_20260918/39_golden_set_results.json"
+    },
+    {
+      "workflow": "flux2_klein_t2i_v1",
+      "case_id": "gs-klein-001",
+      "seed": 20260916,
+      "consistent": true,
+      "idat": "3aa83e3afc42414d",
+      "evidence": "deploy/comfyui/evidence/golden_set_20260918/39_golden_set_results.json"
+    },
+    {
+      "workflow": "i2i_v1",
+      "case_id": "gs-i2i-001",
+      "seed": 20260916,
+      "consistent": true,
+      "idat": "d634fffa1a4bcd2c",
+      "evidence": "deploy/comfyui/evidence/repro_20260919/gs-i2i-001_run1.png"
+    },
+    {
+      "workflow": "inpaint_v1",
+      "case_id": "gs-inpaint-001",
+      "seed": 20260916,
+      "consistent": true,
+      "idat": "83bb35cab1744897",
+      "evidence": "deploy/comfyui/evidence/repro_20260919/gs-inpaint-001_run1.png"
+    },
+    {
+      "workflow": "upscale_v1",
+      "case_id": "gs-upscale-001",
+      "seed": 20260916,
+      "consistent": true,
+      "idat": "83e7a530424c5866",
+      "evidence": "deploy/comfyui/evidence/repro_20260919/gs-upscale-001_run1.png"
+    }
+  ],
+  "summary": {
+    "total": 5,
+    "consistent": 5,
+    "failed": 0
+  },
+  "note": "t2i_v1 / flux2_klein_t2i_v1 的结果来自 2026-09-18 golden set 跑批（同 seed 两次），i2i_v1 / inpaint_v1 / upscale_v1 由 40_repro_workflow.py 本轮补测。"
+}

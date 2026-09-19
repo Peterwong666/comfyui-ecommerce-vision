@@ -22,9 +22,15 @@
 #   ✗ 真实存储：需要 MinIO / S3
 #   ✗ 真实数据库：需要 PostgreSQL（后端单测用 SQLite/夹具替代）
 #   ✗ 真实队列：需要 Redis + Celery worker
-#   ✗ golden set 回归（P8-08）：需要 GPU，且耗时长
+#   ✗ golden set 真实出图回归（P8-08b）：需要 GPU，且耗时长
 #   ✗ 部署脚本（deploy/**）：只在目标机（autoDL 4090）上有意义
 #   ✗ 模型权重与商用许可：CI 只能证明"权重没被误提交"，不能证明许可合规
+#
+# 新增离线质量门禁（P8-08a）
+# ---------------------------
+# `engine/tools/check_defect_kb.py` 与 `check_golden_set.py` 已在本地验证通过，
+# 作为 CI job 运行，防止工作流 Schema / 缺陷知识库 / golden set 用例漂移。
+# 它们零 GPU 依赖，但 golden set 全量跑 L3 需要约 1~3 分钟。
 #
 #   换句话说：CI 绿 = "代码级契约没漂移"，≠ "产品可交付"。
 #   出图链路是否真的通，只有 `deploy/autodl/` 下的实机脚本 + `项目进展.md`
@@ -189,3 +195,33 @@ jobs:
 
       - name: build（tsc -b && vite build）
         run: corepack pnpm build
+
+  # ------------------------------------------------------------------
+  # 离线质量门禁（P8-08a）：工作流 / 缺陷库 / golden set 机械校验
+  # ------------------------------------------------------------------
+  quality-gates:
+    name: quality-gates（defect_kb + golden_set）
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            pyproject.toml
+            backend/pyproject.toml
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e "./backend[dev]" -e ".[yaml]"
+
+      - name: 缺陷知识库机械校验
+        run: python -m engine.tools.check_defect_kb
+
+      - name: golden set 可执行性校验
+        run: python -m engine.tools.check_golden_set
