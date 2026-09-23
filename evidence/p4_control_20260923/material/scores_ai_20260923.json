@@ -1,0 +1,396 @@
+{
+  "provenance": {
+    "scorer": "AI（CodeBuddy 模型读图打分）",
+    "is_human_scoring": false,
+    "warning": "**这不是人工评分**。P4 阶段 DoD 写的是「同一商品 10 次生成结构一致性**人工**评分 ≥4/5」，本文件是**模型单次读图**的预评分，**不能直接充当 DoD 判据**；它可作为人工评分的草稿/对照，或由项目方显式裁定接受。",
+    "rubric": "docs/sop/quality_rubric.md",
+    "scored_at": "2026-09-23",
+    "rater_count": 1,
+    "inter_rater_agreement": "未做（无 κ 等指标，单评分者）",
+    "scope": "evidence/p4_control_20260923/material 两组各 10 张，共 20 张"
+  },
+  "rubric_application_notes": [
+    "§1 一票否决：本批 20 张**无一**命中 severity=hit（无伪造标识/画面文字/水印/NSFW/暴力/儿童商业化；无部件增减、无结构变形、无比例失调）⇒ 无判废。",
+    "**材质替换的归类裁定**：整件变金（canny_only/32）、把手变金（canny_only/31）、器身裂纹浮雕（canny_only/27）判为 **D3 一致性差异**而非 D1 技术缺陷或 D4 合规问题 —— 渲染本身干净，问题是「不再是同一件商品」。依据：`quality_rubric.md` §3.3 的比对项③颜色④材质微表面。",
+    "**平顶液面/硬环高光**（canny_only 24/25/28/29）判为 `soft` 级轻微瑕疵 ⇒ D1=4（rubric §4：soft 至多降到 4）。",
+    "**锯齿/织纹伪影**（canny_only 26/28）判为 `warn` 级 ⇒ D1=3；两处在同一区域（杯口）叠加，本可判 2，本次按保守取 3 并标注。",
+    "⚠️ **D2 的占比阈值是按白底主图标定的**（rubric §3.2 明确要求评其它场景时写明场景 id）。本批是**灰底无缝背景的商品图**，主体占比约 60–75%，本次全给 5 分属于**近似套用**，需人工复核。",
+    "⚠️ D1 的「4 分＝仅命中 soft」在本批无法严格区分 soft 与 warn 的边界（无自动质检支撑，P8-03 未实现）⇒ D1 的 4/3 分界带主观性。"
+  ],
+  "arms": {
+    "canny_only": {
+      "cases": [
+        {
+          "seed": 20260923,
+          "file": "material/canny_only/seed20260923.png",
+          "D1": 5,
+          "D2": 5,
+          "D3": 4,
+          "D4": 4,
+          "neg_hits": [],
+          "note": "白瓷偏米、内壁整片金釉（无咖啡）；结构/比例贴合参考；表面偏缎面而非亮釉"
+        },
+        {
+          "seed": 20260924,
+          "file": "material/canny_only/seed20260924.png",
+          "D1": 4,
+          "D2": 5,
+          "D3": 3,
+          "D4": 4,
+          "neg_hits": [],
+          "note": "内壁呈**平顶奶白圆盘**（液面过于平板、高光成硬环）；器身偏米"
+        },
+        {
+          "seed": 20260925,
+          "file": "material/canny_only/seed20260925.png",
+          "D1": 4,
+          "D2": 5,
+          "D3": 3,
+          "D4": 4,
+          "neg_hits": [],
+          "note": "内壁平顶圆盘 + 杯口左侧一道细暗线；器身偏米、有一道浅棱"
+        },
+        {
+          "seed": 20260926,
+          "file": "material/canny_only/seed20260926.png",
+          "D1": 3,
+          "D2": 5,
+          "D3": 3,
+          "D4": 3,
+          "neg_hits": [],
+          "note": "杯口出现**锯齿/织纹伪影**、内壁金釉带网格纹（同区域叠加）"
+        },
+        {
+          "seed": 20260927,
+          "file": "material/canny_only/seed20260927.png",
+          "D1": 3,
+          "D2": 5,
+          "D3": 2,
+          "D4": 3,
+          "neg_hits": [],
+          "note": "器身满布**竖向裂纹浮雕**（材质突变），内壁琥珀金 ⇒ 多处差异"
+        },
+        {
+          "seed": 20260928,
+          "file": "material/canny_only/seed20260928.png",
+          "D1": 3,
+          "D2": 5,
+          "D3": 3,
+          "D4": 3,
+          "neg_hits": [],
+          "note": "杯口织纹/锯齿伪影 + 内壁平顶奶盘；器身偏黄"
+        },
+        {
+          "seed": 20260929,
+          "file": "material/canny_only/seed20260929.png",
+          "D1": 4,
+          "D2": 5,
+          "D3": 3,
+          "D4": 4,
+          "neg_hits": [],
+          "note": "白身 + 平顶奶色液面；底部右侧一道暗弧线"
+        },
+        {
+          "seed": 20260930,
+          "file": "material/canny_only/seed20260930.png",
+          "D1": 4,
+          "D2": 5,
+          "D3": 4,
+          "D4": 4,
+          "neg_hits": [],
+          "note": "白身 + 内壁金釉池；底部有轻微多边形分面"
+        },
+        {
+          "seed": 20260931,
+          "file": "material/canny_only/seed20260931.png",
+          "D1": 3,
+          "D2": 5,
+          "D3": 2,
+          "D4": 3,
+          "neg_hits": [],
+          "note": "**把手整体变为金属金**（部件材质突变）+ 器身竖向棱缝"
+        },
+        {
+          "seed": 20260932,
+          "file": "material/canny_only/seed20260932.png",
+          "D1": 5,
+          "D2": 5,
+          "D3": 2,
+          "D4": 3,
+          "neg_hits": [],
+          "note": "**整只变为拉丝金属金**（整件材质替换）；渲染本身干净"
+        }
+      ],
+      "summary": {
+        "n": 10,
+        "D1": {
+          "mean": 3.8,
+          "min": 3,
+          "max": 5,
+          "values": [
+            5,
+            4,
+            4,
+            3,
+            3,
+            3,
+            4,
+            4,
+            3,
+            5
+          ],
+          "ge4": 6
+        },
+        "D2": {
+          "mean": 5.0,
+          "min": 5,
+          "max": 5,
+          "values": [
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5
+          ],
+          "ge4": 10
+        },
+        "D3": {
+          "mean": 2.9,
+          "min": 2,
+          "max": 4,
+          "values": [
+            4,
+            3,
+            3,
+            3,
+            2,
+            3,
+            3,
+            4,
+            2,
+            2
+          ],
+          "ge4": 2
+        },
+        "D4": {
+          "mean": 3.5,
+          "min": 3,
+          "max": 4,
+          "values": [
+            4,
+            4,
+            4,
+            3,
+            3,
+            3,
+            4,
+            4,
+            3,
+            3
+          ],
+          "ge4": 5
+        }
+      },
+      "dod_structure_consistency": {
+        "dimension": "D3 一致性（结构/比例/颜色/材质 与参考图 + 同批次）",
+        "mean": 2.9,
+        "min": 2,
+        "images_ge4": 2,
+        "n": 10,
+        "meets_ge_4_of_5": false
+      }
+    },
+    "canny_ipa": {
+      "cases": [
+        {
+          "seed": 20260923,
+          "file": "material/canny_ipa/seed20260923.png",
+          "D1": 5,
+          "D2": 5,
+          "D3": 5,
+          "D4": 5,
+          "neg_hits": [],
+          "note": "亮釉白瓷 + 深色咖啡 + 金口沿；与参考图最接近"
+        },
+        {
+          "seed": 20260924,
+          "file": "material/canny_ipa/seed20260924.png",
+          "D1": 5,
+          "D2": 5,
+          "D3": 4,
+          "D4": 5,
+          "neg_hits": [],
+          "note": "亮釉白瓷 + 咖啡奶沫（浅棕）+ 金口沿"
+        },
+        {
+          "seed": 20260925,
+          "file": "material/canny_ipa/seed20260925.png",
+          "D1": 5,
+          "D2": 5,
+          "D3": 4,
+          "D4": 5,
+          "neg_hits": [],
+          "note": "亮釉白瓷 + 咖啡 + 细金口沿线"
+        },
+        {
+          "seed": 20260926,
+          "file": "material/canny_ipa/seed20260926.png",
+          "D1": 5,
+          "D2": 5,
+          "D3": 4,
+          "D4": 5,
+          "neg_hits": [],
+          "note": "亮釉白瓷 + 整片金釉内壁 + 暗部反射"
+        },
+        {
+          "seed": 20260927,
+          "file": "material/canny_ipa/seed20260927.png",
+          "D1": 4,
+          "D2": 5,
+          "D3": 4,
+          "D4": 5,
+          "neg_hits": [],
+          "note": "亮釉白瓷 + 咖啡；左上口沿有**轻微高光溢出**"
+        },
+        {
+          "seed": 20260928,
+          "file": "material/canny_ipa/seed20260928.png",
+          "D1": 4,
+          "D2": 5,
+          "D3": 4,
+          "D4": 5,
+          "neg_hits": [],
+          "note": "亮釉白瓷 + 咖啡带金泽；顶部高光略溢"
+        },
+        {
+          "seed": 20260929,
+          "file": "material/canny_ipa/seed20260929.png",
+          "D1": 5,
+          "D2": 5,
+          "D3": 4,
+          "D4": 5,
+          "neg_hits": [],
+          "note": "亮釉白瓷 + 深色咖啡 + 金口沿"
+        },
+        {
+          "seed": 20260930,
+          "file": "material/canny_ipa/seed20260930.png",
+          "D1": 5,
+          "D2": 5,
+          "D3": 4,
+          "D4": 5,
+          "neg_hits": [],
+          "note": "亮釉白瓷 + 咖啡 + 金口沿"
+        },
+        {
+          "seed": 20260931,
+          "file": "material/canny_ipa/seed20260931.png",
+          "D1": 4,
+          "D2": 5,
+          "D3": 4,
+          "D4": 5,
+          "neg_hits": [],
+          "note": "器身**偏冷灰**（色温略偏）+ 左上口沿轻微光晕"
+        },
+        {
+          "seed": 20260932,
+          "file": "material/canny_ipa/seed20260932.png",
+          "D1": 5,
+          "D2": 5,
+          "D3": 4,
+          "D4": 5,
+          "neg_hits": [],
+          "note": "亮釉白瓷 + **铜金内壁（偏暖）** + 咖啡"
+        }
+      ],
+      "summary": {
+        "n": 10,
+        "D1": {
+          "mean": 4.7,
+          "min": 4,
+          "max": 5,
+          "values": [
+            5,
+            5,
+            5,
+            5,
+            4,
+            4,
+            5,
+            5,
+            4,
+            5
+          ],
+          "ge4": 10
+        },
+        "D2": {
+          "mean": 5.0,
+          "min": 5,
+          "max": 5,
+          "values": [
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5
+          ],
+          "ge4": 10
+        },
+        "D3": {
+          "mean": 4.1,
+          "min": 4,
+          "max": 5,
+          "values": [
+            5,
+            4,
+            4,
+            4,
+            4,
+            4,
+            4,
+            4,
+            4,
+            4
+          ],
+          "ge4": 10
+        },
+        "D4": {
+          "mean": 5.0,
+          "min": 5,
+          "max": 5,
+          "values": [
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5,
+            5
+          ],
+          "ge4": 10
+        }
+      },
+      "dod_structure_consistency": {
+        "dimension": "D3 一致性（结构/比例/颜色/材质 与参考图 + 同批次）",
+        "mean": 4.1,
+        "min": 4,
+        "images_ge4": 10,
+        "n": 10,
+        "meets_ge_4_of_5": true
+      }
+    }
+  }
+}
