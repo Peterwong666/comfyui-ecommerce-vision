@@ -21,9 +21,9 @@ status: 完成
 | 指标 | 数值 |
 |---|---|
 | **总用例数** | 576 |
-| **通过** | **571** |
-| **失败** | 5（全部 pre-existing） |
-| **通过率** | **99.1%** |
+| **通过** | **571** ⚠️ 见下方勘误二：该数字受不合理放行影响，**当前真值 576/576** |
+| **失败** | 5 —— 🔴 **均非 pre-existing**：4 条由本批 `enabled` 改动引入、1 条为 `.gitignore` 真 bug（均已修） |
+| **通过率** | **99.1%**（订正后 **100%**） |
 | **执行时间** | 59.87s |
 | **警告** | 306（deprecation，非功能问题） |
 
@@ -31,20 +31,24 @@ status: 完成
 
 | 用例 | 原因 | 分类 |
 |---|---|---|
-| `test_every_enabled_workflow_renders` | 需要 `asset_resolver` 回调 | pre-existing |
-| `test_definition_survives_database_json_roundtrip` | 同上 | pre-existing |
-| `test_rendering_with_schema_defaults_is_warning_free` | 同上 | pre-existing |
-| `test_seed_typed_workflows_resolve_seed` | 同上 | pre-existing |
-| `test_no_tracked_file_is_ignored_by_gitignore` | `.gitignore` 例外规则问题 | pre-existing |
+| `test_every_enabled_workflow_renders` | 需要 `asset_resolver` 回调 | 🔴 **由本批 `enabled` 改动引入**（2026-09-23 订正，非 pre-existing） |
+| `test_definition_survives_database_json_roundtrip` | 同上 | 🔴 同上 |
+| `test_rendering_with_schema_defaults_is_warning_free` | 同上 | 🔴 同上 |
+| `test_seed_typed_workflows_resolve_seed` | 同上 | 🔴 同上 |
+| `test_no_tracked_file_is_ignored_by_gitignore` | `.gitignore` 例外规则 glob 深度不够 | 🔴 **真 bug**（2026-09-23 已修） |
 
-> **注**：4 个 render integration 测试失败是因为需要 `asset_resolver` 回调（素材存储管线），在无完整渲染管线的测试环境中是预期行为。
->
-> ⚠️ **勘误（2026-09-23 修正）**：第 5 条失败的**原因判断是错的**。原文写「`.gitignore` 的 `!deploy/**/evidence/*.log` 例外规则未被 `git check-ignore --stdin` 正确处理」——
+> ⚠️ **勘误一（2026-09-23）**：第 5 条失败的原因判断是错的。原文写「`.gitignore` 的 `!deploy/**/evidence/*.log` 例外规则未被 `git check-ignore --stdin` 正确处理」——
 > 实为**规则本身的 glob 深度不够**：`!deploy/**/evidence/*.log` 匹配不到
 > `deploy/comfyui/evidence/golden_set_20260918/39_golden_set_run.log`（`evidence/` 之下还有一层目录），
-> 于是该文件既被追踪、又被 `*.log` 命中。已把例外改为 `!deploy/**/evidence/**/*.log` 并给仓库根 `evidence/` 开同类例外，
-> **该用例现为通过**（`test_repo_hygiene.py` 12 passed）。⇒ 修完后后端失败数由 **5 降为 4**，通过数 **571 → 572**。
-> 教训：测试报红时，「gate 工具不生效」与「gate 规则写错」是两种完全不同的根因，**先核对规则本身，再怀疑工具**。
+> 于是该文件既被追踪、又被 `*.log` 命中。已改为 `!deploy/**/evidence/**/*.log` 并给仓库根 `evidence/` 开同类例外 ⇒ **该用例现为通过**。
+> 教训：测试报红时，「gate 工具不生效」与「gate 规则写错」是两种不同根因，**先核对规则本身，再怀疑工具**。
+>
+> 🔴 **勘误二（2026-09-23，更重）**：前 4 条**不是 pre-existing**，而是**本批把三条工作流改为 `status: enabled` 直接造成的**。
+> 依据：把这 3 条回退为 `disabled` 后复跑，**576 passed / 0 failed**（原为 571/5）。
+> 机理：这些用例遍历**所有 enabled 工作流**去渲染，而 `i2i_v1` / `inpaint_v1` / `upscale_v1` 声明了
+> `reference_image`（`transform=ref_to_filename`），未提供 `asset_resolver` 时必抛 `RenderError`。
+> ⇒ 这个"红"其实是**放行不合理的早期信号**，本报告当时把它读成了环境噪声（"无完整渲染管线的测试环境中是预期行为"），**方向判反了**。
+> ⇒ **原「571/576」这个通过数本身就是那次不合理放行的产物**；当前真值为 **576/576**（口径：SQLite；真实 PG 口径待复跑）。
 
 ### 新增测试（本轮）
 

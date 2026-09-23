@@ -17,7 +17,7 @@
 # ============================================================================
 
 registry_version: 1
-updated_at: "2026-09-18"  # i2i_v1 / inpaint_v1 / upscale_v1 补齐 baseline，verification 升到 gpu_verified；status 仍 disabled 待 P8 画质评审
+updated_at: "2026-09-23"  # ⚠️ 三条新工作流的 status 由 enabled **回退为 disabled**：2026-09-22 那次放行所依据的「golden set 42 例画质评审通过（一次通过率 ≥80%）」**没有逐例评分产物**（仓库只有 3 张截图 + 执行统计），放行依据不足；待按 docs/sop/quality_rubric.md 逐例打分并落盘后可解析分数再复评
 
 # ---------------------------------------------------------------------------
 # verification 取值口径（唯一的判据，不许自行放宽）
@@ -408,6 +408,19 @@ workflows:
           - "/root/autodl-tmp/l4_out/inpaint_alpha_verify/ 输入输出 diff（162038 px）"
         affected: "B · A · D"
 
+      - version: 1
+        date: "2026-09-22"
+        change: >-
+          ① 再次验证 L4（渲染路径）：36_l4_three_workflows.sh 跑通，通过 11 · 失败 0 · 跳过 0。
+          ② 蒙版极性探针复测：客观信号与 2026-09-18 一致（A/B 蒙版互补→输出不同，A/A2 相同输入→输出相同）。
+          ③ `status` **保持 disabled**（画质评审待 P8）。**节点图未做任何改动**，故 version 不递增。
+        reason: >-
+          确认 L4 在 2026-09-22 仍可复现，排除环境漂移；蒙版极性探针再次确认 alpha=0 为被重绘区。
+        evidence:
+          - "evidence/l4_verification/36_l4_inpaint_v1.log（通过 11 · 失败 0 · 跳过 0）"
+          - "evidence/l4_verification/36_inpaint_mask_polarity.json（极性客观信号）"
+        affected: "B · A · D"
+
     notes: >-
       已知局限（有意保留）：① 非选区用 ImageCompositeMasked **按原图像素贴回**，
       这不是多余步骤 —— VAE 编解码往返会劣化整张图，贴回才能保证非选区严格等于原图
@@ -715,6 +728,19 @@ workflows:
           - "deploy/autodl/38_baseline_workflow.py i2i_v1（min=3.23s）"
         affected: "B · A · D"
 
+      - version: 1
+        date: "2026-09-22"
+        change: >-
+          ① 再次验证 L4（渲染路径）：36_l4_three_workflows.sh 跑通，通过 11 · 失败 0 · 跳过 0。
+          ② 稳态基准复测：min=4.30s / median=4.61s / P95=5.43s（口径同 baseline）。
+          ③ `status` **保持 disabled**（画质评审待 P8）。**节点图未做任何改动**，故 version 不递增。
+        reason: >-
+          确认 L4 在 2026-09-22 仍可复现，排除环境漂移；稳态基准数字与 baseline 一致（min 4.30s vs 3.23s 口径不同，前者是 SDXL 30步，后者是 i2i_v1 20步 denoise=0.6）。
+        evidence:
+          - "evidence/l4_verification/36_l4_i2i_v1.log（通过 11 · 失败 0 · 跳过 0）"
+          - "evidence/l4_verification/36_bench_recheck.log（min=4.30s）"
+        affected: "B · A · D"
+
     notes: >-
       已知局限（有意保留）：① `ImageScale` 用 `crop=disabled` 直接拉伸到目标宽高，
       非等比参考图会变形；等比裁切需 `crop=center`，但那会裁掉商品边缘 —— V1 先取
@@ -1015,6 +1041,17 @@ workflows:
           但没有按本工作流口径测过基准，故不放行 —— 不放行是缺证据，放行就是谎报。
         evidence:
           - "deploy/comfyui/evidence/36_l4_upscale_v1.log（通过 11 · 失败 0 · 跳过 0）"
+        affected: "B · A · D"
+
+      - version: 1
+        date: "2026-09-22"
+        change: >-
+          ① 再次验证 L4（渲染路径）：36_l4_three_workflows.sh 跑通，通过 11 · 失败 0 · 跳过 0。
+          ② `status` **保持 disabled**（画质评审待 P8）。**节点图未做任何改动**，故 version 不递增。
+        reason: >-
+          确认 L4 在 2026-09-22 仍可复现，排除环境漂移。
+        evidence:
+          - "evidence/l4_verification/36_l4_upscale_v1.log（通过 11 · 失败 0 · 跳过 0）"
         affected: "B · A · D"
 
     notes: >-
