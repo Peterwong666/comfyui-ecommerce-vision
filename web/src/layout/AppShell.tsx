@@ -1,7 +1,10 @@
 import {
   AppstoreOutlined,
+  BarChartOutlined,
+  ExperimentOutlined,
   PictureOutlined,
   ProfileOutlined,
+  SettingOutlined,
   ThunderboltOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons'
@@ -34,6 +37,9 @@ const NAV_ITEMS: NavItem[] = [
   { key: '/tasks', label: '任务中心', icon: <ProfileOutlined /> },
   { key: '/gallery', label: '画廊', icon: <PictureOutlined /> },
   { key: '/templates', label: '模板库', icon: <AppstoreOutlined /> },
+  { key: '/quality', label: '质量看板', icon: <BarChartOutlined /> },
+  { key: '/compare', label: 'A/B 对比', icon: <ExperimentOutlined /> },
+  { key: '/admin', label: '管理后台', icon: <SettingOutlined /> },
 ]
 
 export function AppShell() {

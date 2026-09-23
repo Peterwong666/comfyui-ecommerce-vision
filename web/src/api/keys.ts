@@ -39,4 +39,11 @@ export const queryKeys = {
   assets: (query?: AssetListQuery) => ['assets', 'list', query ?? null] as const,
   asset: (assetId: number) => ['assets', 'detail', assetId] as const,
   assetContent: (assetId: number) => ['assets', 'content', assetId] as const,
+
+  // 质量看板
+  qualityDashboard: () => ['stats', 'quality'] as const,
+
+  // A/B 对比
+  compareGroups: () => ['compare'] as const,
+  compareGroup: (id: string) => ['compare', id] as const,
 } as const

@@ -2,9 +2,14 @@ import { Navigate, createBrowserRouter, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 
 import { AppShell } from './layout/AppShell'
+import { AdminPage } from './pages/AdminPage'
+import { BatchPage } from './pages/BatchPage'
+import { ComparePage } from './pages/ComparePage'
 import { GalleryPage } from './pages/GalleryPage'
 import { LoginPage } from './pages/LoginPage'
-import { PlaceholderPage } from './pages/PlaceholderPage'
+import { QualityDashboardPage } from './pages/QualityDashboardPage'
+import { TaskCenterPage } from './pages/TaskCenterPage'
+import { TemplatesPage } from './pages/TemplatesPage'
 import { WorkbenchPage } from './pages/WorkbenchPage'
 import { useAuthStore } from './stores/authStore'
 
@@ -43,23 +48,11 @@ export const router: ReturnType<typeof createBrowserRouter> = createBrowserRoute
       { index: true, element: <WorkbenchPage /> },
       {
         path: 'batch',
-        element: (
-          <PlaceholderPage
-            title="批量生成"
-            taskId="P7-06"
-            note="批量向导：CSV 导入、参数矩阵预览、提交前预估时长与成本。"
-          />
-        ),
+        element: <BatchPage />,
       },
       {
         path: 'tasks',
-        element: (
-          <PlaceholderPage
-            title="任务中心"
-            taskId="P7-04"
-            note="队列与实时进度、失败原因、一键重试、断点续跑。"
-          />
-        ),
+        element: <TaskCenterPage />,
       },
       {
         path: 'gallery',
@@ -67,13 +60,19 @@ export const router: ReturnType<typeof createBrowserRouter> = createBrowserRoute
       },
       {
         path: 'templates',
-        element: (
-          <PlaceholderPage
-            title="模板库"
-            taskId="P7-08"
-            note="模板浏览、搜索、一键套用。模板数据由 P3-10 提供。"
-          />
-        ),
+        element: <TemplatesPage />,
+      },
+      {
+        path: 'quality',
+        element: <QualityDashboardPage />,
+      },
+      {
+        path: 'compare',
+        element: <ComparePage />,
+      },
+      {
+        path: 'admin',
+        element: <AdminPage />,
       },
     ],
   },

@@ -15,8 +15,11 @@ import type {
   BatchOut,
   BatchSubmitIn,
   CancelOut,
+  CompareGroup,
+  CompareSubmitIn,
   ModelListQuery,
   ModelRegistryOut,
+  QualityDashboard,
   TaskEstimateOut,
   TaskListQuery,
   TaskOut,
@@ -159,6 +162,20 @@ export const api = {
 
     /** 软删除（标记而物理保留）。重复删除是 409。 */
     remove: (assetId: number) => http.del<AssetOut>(`/api/v1/assets/${assetId}`),
+  },
+
+  stats: {
+    /** 质量看板（P8-05）。聚合产物采纳、任务执行、缺陷知识库数据。 */
+    quality: () => http.get<QualityDashboard>('/api/v1/stats/quality'),
+  },
+
+  compare: {
+    /** 提交 A/B 对比（P8-07）。同 seed 下多变体参数对比。 */
+    submit: (body: CompareSubmitIn) => http.post<CompareGroup>('/api/v1/compare', body),
+    /** 获取对比组详情。 */
+    get: (groupId: string) => http.get<CompareGroup>(`/api/v1/compare/${encodeURIComponent(groupId)}`),
+    /** 列出所有对比组。 */
+    list: () => http.get<CompareGroup[]>('/api/v1/compare'),
   },
 }
 

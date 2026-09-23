@@ -4,7 +4,18 @@ import { api } from './client'
 import { withAssetContentSlot } from './concurrency'
 import { TASK_STATUS_TERMINAL } from './enums'
 import { queryKeys } from './keys'
-import type { AssetListQuery, AssetPackIn, AssetUpdateIn, TaskListQuery } from './types'
+import type { AssetListQuery, AssetPackIn, AssetUpdateIn, CompareSubmitIn, TaskListQuery } from './types'
+
+// ---------------------------------------------------------------- 质量看板（P8-05）
+
+/** 质量看板数据。5 分钟 staleTime：聚合查询成本高，不宜频繁重查。 */
+export function useQualityDashboard() {
+  return useQuery({
+    queryKey: queryKeys.qualityDashboard(),
+    queryFn: () => api.stats.quality(),
+    staleTime: 5 * 60 * 1000,
+  })
+}
 
 /**
  * 与服务端状态相关的查询 hook。
@@ -28,6 +39,24 @@ export function useWorkflows() {
   return useQuery({
     queryKey: queryKeys.workflows(),
     queryFn: () => api.workflows.list(),
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/** 模板列表。 */
+export function useTemplates(query?: { category?: string }) {
+  return useQuery({
+    queryKey: queryKeys.templates(query),
+    queryFn: () => api.templates.list(query),
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+/** 模板品类列表。 */
+export function useTemplateCategories() {
+  return useQuery({
+    queryKey: queryKeys.templateCategories(),
+    queryFn: () => api.templates.categories(),
     staleTime: 5 * 60 * 1000,
   })
 }
@@ -152,5 +181,35 @@ export function useDeleteAssets() {
 export function usePackAssets() {
   return useMutation({
     mutationFn: (body: AssetPackIn) => api.assets.pack(body),
+  })
+}
+
+// ---------------------------------------------------------------- A/B 对比（P8-07）
+
+/** 列出所有对比组。 */
+export function useCompareGroups() {
+  return useQuery({
+    queryKey: queryKeys.compareGroups(),
+    queryFn: () => api.compare.list(),
+  })
+}
+
+/** 单个对比组详情。 */
+export function useCompareGroup(groupId: string | null) {
+  return useQuery({
+    queryKey: queryKeys.compareGroup(groupId ?? ''),
+    queryFn: () => api.compare.get(groupId as string),
+    enabled: groupId !== null,
+  })
+}
+
+/** 提交 A/B 对比。 */
+export function useSubmitCompare() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (body: CompareSubmitIn) => api.compare.submit(body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.compareGroups() })
+    },
   })
 }

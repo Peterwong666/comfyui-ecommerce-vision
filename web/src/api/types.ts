@@ -269,6 +269,93 @@ export interface AssetPackIn {
   batch_id?: number
 }
 
+// ---------------------------------------------------------------- 质量看板（P8-05）
+
+export interface WorkflowQuality {
+  workflow_id: number
+  workflow_name: string
+  display_name: string
+  total_outputs: number
+  adopted_count: number
+  yield_rate: number | null
+  eval_score: number | null
+  avg_duration_ms: number | null
+  avg_gpu_seconds: number | null
+  success_rate: number | null
+}
+
+export interface TaskStats {
+  total: number
+  succeeded: number
+  failed: number
+  canceled: number
+  queued: number
+  running: number
+  success_rate: number | null
+  avg_duration_ms: number | null
+  avg_gpu_seconds: number | null
+  total_gpu_seconds: number
+}
+
+export interface DefectStats {
+  defect_type: string
+  count: number
+  hit_count: number
+}
+
+export interface QualityOverview {
+  total_outputs: number
+  total_adopted: number
+  yield_rate: number | null
+  total_tasks: number
+  total_events: number
+  adopted_events: number
+  downloaded_events: number
+}
+
+export interface QualityDashboard {
+  overview: QualityOverview
+  by_workflow: WorkflowQuality[]
+  task_stats: TaskStats
+  top_defects: DefectStats[]
+}
+
+// ---------------------------------------------------------------- A/B 对比（P8-07）
+
+export interface CompareVariant {
+  label: string
+  params: Record<string, unknown>
+  prompt?: string | null
+  negative_prompt?: string | null
+}
+
+export interface CompareSubmitIn {
+  workflow_name: string
+  seed: number
+  base_params?: Record<string, unknown>
+  base_prompt?: string | null
+  base_negative_prompt?: string | null
+  variants: CompareVariant[]
+}
+
+export interface CompareVariantResult {
+  label: string
+  params: Record<string, unknown>
+  task_id: number | null
+  asset_id: number | null
+  status: string
+  duration_ms: number | null
+  gpu_seconds: number | null
+}
+
+export interface CompareGroup {
+  id: string
+  workflow_name: string
+  seed: number
+  created_at: string
+  variants: CompareVariantResult[]
+}
+
 // ---------------------------------------------------------------- 查询参数
 
 /**
