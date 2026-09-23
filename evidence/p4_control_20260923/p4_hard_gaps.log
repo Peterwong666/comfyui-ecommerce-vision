@@ -1,0 +1,45 @@
+引擎 0.36.0 · cuda:0 NVIDIA GeForce RTX 4090 : cudaMallocAsync · vram 23.5GiB
+参考图已上传为 ComfyUI 输入：ref_product.png
+
+=== 合成人物参考图（4 候选，取骨架占比最高者）===
+  [ OK ] seed=20260923 skeleton_ratio=0.02227 (6.21s)
+  [ OK ] seed=20260924 skeleton_ratio=0.02282 (12.204s)
+  [ OK ] seed=20260925 skeleton_ratio=0.02223 (10.101s)
+  [ OK ] seed=20260926 skeleton_ratio=0.02232 (8.657s)
+  → 人物参考图 = /root/autodl-tmp/l4_assets/ref_person.png（来自 cand_20260924.png，骨架占比 0.02282）
+
+=== P4-01 姿态预处理器重评（人物图 vs 商品图）===
+  [ OK ] OpenposePreprocessor/person nonblack=0.03303 (检出骨架)
+  [ OK ] OpenposePreprocessor/product nonblack=0.0 (空图)
+  [ OK ] DWPreprocessor/person nonblack=0.02282 (检出骨架)
+  [ OK ] DWPreprocessor/product nonblack=0.0 (空图)
+
+=== P4-09/10 材质一致性（canny@0.7 vs canny@0.7+IPA@0.6, N=10）===
+  --- arm=canny_only ---
+  [ OK ] canny_only seed=20260923 (16.539s)
+  [ OK ] canny_only seed=20260924 (6.013s)
+  [ OK ] canny_only seed=20260925 (6.016s)
+  [ OK ] canny_only seed=20260926 (6.014s)
+  [ OK ] canny_only seed=20260927 (6.014s)
+  [ OK ] canny_only seed=20260928 (6.018s)
+  [ OK ] canny_only seed=20260929 (6.02s)
+  [ OK ] canny_only seed=20260930 (6.016s)
+  [ OK ] canny_only seed=20260931 (6.014s)
+  [ OK ] canny_only seed=20260932 (6.043s)
+    SSIM mean=0.8335 · 颜色漂移 ΔE=6.36 · 色调距离=0.121
+  --- arm=canny_ipa ---
+  [ OK ] canny_ipa seed=20260923 (14.033s)
+  [ OK ] canny_ipa seed=20260924 (6.016s)
+  [ OK ] canny_ipa seed=20260925 (8.019s)
+  [ OK ] canny_ipa seed=20260926 (6.016s)
+  [ OK ] canny_ipa seed=20260927 (6.221s)
+  [ OK ] canny_ipa seed=20260928 (6.015s)
+  [ OK ] canny_ipa seed=20260929 (6.014s)
+  [ OK ] canny_ipa seed=20260930 (6.016s)
+  [ OK ] canny_ipa seed=20260931 (6.016s)
+  [ OK ] canny_ipa seed=20260932 (6.015s)
+    SSIM mean=0.8556 · 颜色漂移 ΔE=3.77 · 色调距离=0.0284
+  → 人工评分表：/root/autodl-tmp/p4_out/material/_score_sheet.html（分数为空，须人填）
+  [merge] 合并旧 metrics.json：8 项 → 8 项
+
+=== 指标写入 /root/autodl-tmp/p4_out/metrics.json · 失败单元 0 ===
