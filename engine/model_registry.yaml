@@ -276,23 +276,54 @@ planned:
     kind: controlnet
     for_workflow: [WF-IMG2IMG, WF-UPSCALE]
     requirement: "FR-8.4（ControlNet 线稿/景深/法线/姿态）"
-    license: {name: 待核实, commercial_ok: unknown}
-    note: "SDXL 系 ControlNet 权重多标 OpenRAIL 系，需逐模型核对；预处理器由 comfyui_controlnet_aux 提供"
+    license: {name: openrail++, commercial_ok: true, verified: true, verified_at: 2026-09-23, note: "diffusers/controlnet-canny-sdxl-1.0 的 README front-matter 原文 = `license: openrail++`，正文无 NC 条款（见 docs/sop/license_matrix.md §3.1）"}
+    status: in_use_unregistered
+    blocker: |
+      🔴 **该权重已在用，但违反铁律 1「下载即登记」**：全仓库**没有**记录它的来源 URL / 下载渠道 /
+      sha256 / LICENSE 原文路径 —— `grep` 实证：仅 deploy/autodl/42_p4_control_experiments.py:1012
+      作为**默认文件名**出现。**许可结论已核为可商用，但凭证链缺失**。
+      ⇒ 下次上机必须补 sha256 + 来源追溯；在此之前**不得**把它当作「已按流程登记」的模型。
+      与台账 #24（非商用许可「已装在环境里」）同一形态：**缺口是「已存在」而非「将来可能」**。
   - name: controlnet_sdxl_depth
     kind: controlnet
     for_workflow: [WF-IMG2IMG]
     requirement: "FR-8.4"
-    license: {name: 待核实, commercial_ok: unknown}
+    license: {name: openrail++, commercial_ok: true, verified: true, verified_at: 2026-09-23, note: "diffusers/controlnet-depth-sdxl-1.0 的 README front-matter 原文 = `license: openrail++`，正文无 NC 条款（见 license_matrix.md §3.1）"}
+    status: in_use_unregistered
+    blocker: "同上（`controlnet_sdxl_canny`）—— **已在用但未登记来源/sha256/LICENSE 原文**，下次上机补登记"
   - name: controlnet_sdxl_lineart
     kind: controlnet
     for_workflow: [WF-IMG2IMG]
     requirement: "FR-8.4"
-    license: {name: 待核实, commercial_ok: unknown}
+    superseded_by: controlnet_sdxl_union
+    license: {name: apache-2.0（由 union 覆盖）, commercial_ok: true, verified: true, verified_at: 2026-09-23}
+    note: "**不再单独下载** —— 由 `controlnet_sdxl_union` 覆盖（lineart 为其支持的 10+ 条件之一）"
   - name: controlnet_sdxl_openpose
     kind: controlnet
-    for_workflow: [WF-STYLE]
-    requirement: "FR-8.7（DWPose，Could 级）"
-    license: {name: 待核实, commercial_ok: unknown}
+    for_workflow: [WF-IMG2IMG, WF-STYLE]
+    requirement: "FR-8.7（姿态控制）"
+    superseded_by: controlnet_sdxl_union
+    license: {name: apache-2.0（由 union 覆盖）, commercial_ok: true, verified: true, verified_at: 2026-09-23}
+    rejected_alternatives:
+      - repo: thibaud/controlnet-openpose-sdxl-1.0
+        license: other
+        commercial_ok: false
+        reason: "front-matter 为 `license: other`，正文写明 “License: refers to the OpenPose's one.” —— 而 CMU OpenPose LICENSE 原文为 **NONCOMMERCIAL RESEARCH USE ONLY**（逐字引用见 license_matrix.md §3.1）⇒ **不用**"
+      - repo: xinsir/controlnet-openpose-sdxl-1.0
+        license: 未取到原文
+        commercial_ok: unknown
+        reason: "检索摘要称 Apache-2.0，但**未取到 front-matter 原文**，按铁律不采信；仅作 union 不可用时的备份"
+    note: "姿态预处理器须用 `DWPreprocessor`（见 forbidden 段的 `body_pose_model.pth`）"
+  - name: controlnet_sdxl_union
+    kind: controlnet
+    for_workflow: [WF-IMG2IMG, WF-UPSCALE, WF-STYLE]
+    requirement: "FR-8.4 + FR-8.7 —— 一次覆盖 openpose / lineart / softedge / normal / canny / depth 等 10+ 条件（P4-06 / P4-07 的关键缺口）"
+    source: {repo: xinsir/controlnet-union-sdxl-1.0, channel: hf-mirror}
+    license: {name: apache-2.0, commercial_ok: true, verified: true, verified_at: 2026-09-23, note: "README front-matter 原文 = `license: apache-2.0`，正文无 NC / 商用限制条款（见 license_matrix.md §3.1）"}
+    files_hint: ["diffusion_pytorch_model.safetensors（基础版，10+ 条件）", "diffusion_pytorch_model_promax.safetensors（ProMax：12 控制 + 5 高级编辑）"]
+    status: pending_download
+    blocker: "⚠️ **尚未下载** ⇒ sha256 / file_size / LICENSE 原文归档均待补。下载后按 license_matrix.md §8 登记流程转为正式 `models:` 条目"
+    note: "选择理由：① **许可最干净**（Apache-2.0，非 OpenRAIL 系）② **一次下载即覆盖姿态/线稿/softedge/normal 四个缺口**，省机时；③ 官方名为 ControlNet++，代码见 github.com/xinsir6/ControlNetPlus"
   - name: ipadapter_sdxl
     kind: ipadapter
     for_workflow: [WF-STYLE, WF-IMG2IMG]
@@ -384,3 +415,17 @@ forbidden:
     reason: "CC BY-NC-SA 4.0（非商用）—— **该节点当前装在环境里**，已由 P2-05 白名单判定禁用"
     basis: "deploy/comfyui/node_whitelist.yaml §G / evidence/custom_nodes_licenses.txt"
     note: "⚠️ 这不是模型而是**节点**，但归属同一条红线纪律 —— 它的许可问题比大多数模型更严重（NC 且 ShareAlike）"
+
+  - name: 预处理器辅助权重 `body_pose_model.pth`（CMU OpenPose BODY_25）
+    reason: |
+      CMU OpenPose LICENSE 原文：“OPENPOSE: MULTIPERSON KEYPOINT DETECTION SOFTWARE LICENSE AGREEMENT
+      **ACADEMIC OR NON-PROFIT ORGANIZATION NONCOMMERCIAL RESEARCH USE ONLY**”，且 “You may not sell,
+      rent, lease, sublicense, lend, time-share or transfer, in whole or in part…” ⇒ **非商用**。
+    basis: license_matrix.md §3.1（含逐字引用）
+    acquired_by: "comfyui_controlnet_aux 的 `OpenposePreprocessor` 自动下载（lllyasviel 转存）"
+    present_on_disk: true
+    note: |
+      🔴 **P4 第一轮已在真实出图里用过它**（见 项目进展.md 2026-09-23 上午节）。
+      ⇒ **任何交付链路不得引用**；姿态控制改走 **`DWPreprocessor`**（DWPose 系，候选 Apache-2.0；
+      ⚠️ 其 `yolox_l.onnx` / `dw-ll_ucoco_384.onnx` 的**发布方许可仍待核**，见 license_matrix.md §7 #16）。
+      ⚠️ 本项是同类「**红线已存在**」的第三例（前两例：`models/insightface/`、`ComfyUI-Upscaler-Tensorrt`）。
