@@ -8,7 +8,7 @@
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
 [![ComfyUI](https://img.shields.io/badge/Engine-ComfyUI-orange)](https://github.com/comfyanonymous/ComfyUI)
 
-**当前状态**：🚧 V1 开发中（2026-09-14 启动，目标 2026-11-22 发布）
+**当前状态**：🚧 V1 W2 开发中（2026-09-14 启动，目标 2026-11-22 发布）
 
 ---
 
@@ -32,16 +32,20 @@
 
 | 能力 | 状态 | 说明 |
 |---|---|---|
-| 文生图 | 🚧 | 底模 + 采样器 + 高清分支 |
-| 图生图 | 🚧 | 重绘幅度策略 |
-| 高清修复 | 🚧 | 放大 + tile 分块 + 细节重绘 |
-| 局部重绘 | 🚧 | mask 输入 → inpaint / BrushNet |
-| 风格迁移 | 🚧 | IP-Adapter + LoRA + 风格模板 |
-| 批量出图 | 🚧 | 参数矩阵 / CSV 驱动 / 断点续跑 |
+| 文生图（SDXL / FLUX.2 klein） | ✅ | 底模 + 采样器 + 高清分支（**已上线**） |
+| 图生图 | 🔒 | 重绘幅度策略（**GPU 技术验证通过，待 P8 画质评审放行**） |
+| 高清修复 | 🔒 | 放大 + tile 分块 + 细节重绘（**GPU 技术验证通过，待 P8 画质评审放行**） |
+| 局部重绘 | 🔒 | mask 输入 → inpaint / BrushNet（**GPU 技术验证通过，待 P8 画质评审放行**） |
+| 风格迁移 | 🔒 | IP-Adapter + LoRA + 风格模板（**按 [ADR-008](./docs/adr/0008-v1-scope-reduction.md) 顺延 V2**） |
+| 批量出图 | ✅ | 参数矩阵 / CSV 驱动 / 断点续跑 |
+
+> 当前 2 条上线（`t2i_v1`、`flux2_klein_t2i_v1`），3 条 GPU 实测已通但暂不上线（`i2i_v1`、`inpaint_v1`、`upscale_v1`）。详见 [`workflows/registry.yaml`](./workflows/registry.yaml)。
 
 ### 控制体系
 
 ControlNet（canny / depth / lineart / softedge / normal / openpose）· IP-Adapter · LoRA（多权重叠加）· SAM/SAM2 自动分割遮罩 · DWPose 姿态 · 景深/法线/线稿联合控制
+
+**实测可叠加**：canny+IPA 双锚锁材质、union CN 多条件联合。细节见 [`docs/sop/control_matrix.md`](./docs/sop/control_matrix.md)。
 
 ### 平台层
 
