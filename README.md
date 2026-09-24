@@ -1,6 +1,8 @@
 # ComfyUI E-Commerce Vision Platform
 
 > 基于 ComfyUI 的**商用级** AIGC 视觉生产平台 —— 把「能跑通的节点工具」封装成「可量产、可观测、可核算、可迭代」的商品视觉生产线。
+>
+> A **commercial-grade** AIGC visual production platform built on ComfyUI — wrapping node-based tools into a mass-production, observable, accountable, and iterative product visual pipeline.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
@@ -49,6 +51,46 @@ ControlNet（canny / depth / lineart / softedge / normal / openpose）· IP-Adap
 - **可观测**：全链路 trace（task → 工作流 → 参数 → 耗时/显存）+ 系统监控 + 告警
 - **可复现**：工作流版本 + 模型 hash + seed + 全参数写入产物元数据
 - **用户与权限**：鉴权、配额限流、素材隔离、审计日志
+
+---
+
+## 产品截图 / Product Screenshots
+
+### 登录页 / Login Page
+![登录页](./evidence/screenshots/01_login.png)
+*用户注册与登录，JWT 鉴权，配额显示 / User registration and login, JWT authentication, quota display*
+
+### 工作台 / Workbench
+![工作台](./evidence/screenshots/02_workbench.png)
+*单次生成：选择工作流 → 动态参数表单 → 一键出图 / Single generation: select workflow → dynamic parameter form → one-click generation*
+
+### 批量生成 / Batch Generation
+![批量生成](./evidence/screenshots/03_batch.png)
+*批量出图：SKU 素材绑定 + 参数矩阵 + 断点续跑 / Batch generation: SKU asset binding + parameter matrix + retry failed only*
+
+### 任务中心 / Task Center
+![任务中心](./evidence/screenshots/04_tasks.png)
+*任务列表：状态筛选、耗时、GPU 占用、重试次数、错误信息 / Task list: status filter, duration, GPU usage, retry count, error details*
+
+### 画廊 / Gallery
+![画廊](./evidence/screenshots/05_gallery.png)
+*产物画廊：缩略图懒加载、筛选、批量操作（采纳/收藏/下载/删除）/ Asset gallery: lazy-loaded thumbnails, filters, bulk actions (adopt/favorite/download/delete)*
+
+### 模板库 / Template Library
+![模板库](./evidence/screenshots/06_templates.png)
+*场景模板：按品类筛选、搜索、一键复用参数 / Scene templates: filter by category, search, one-click parameter reuse*
+
+### 质量看板 / Quality Dashboard
+![质量看板](./evidence/screenshots/07_quality.png)
+*质量度量：产物统计、任务成功率、平均耗时、按工作流质量分析 / Quality metrics: asset stats, task success rate, avg duration, per-workflow quality analysis*
+
+### A/B 对比 / A/B Comparison
+![A/B 对比](./evidence/screenshots/08_compare.png)
+*A/B 对比：同 Seed 不同参数并排出图，支持多变体 / A/B comparison: same seed different params side-by-side, multi-variant support*
+
+### 管理后台 / Admin Dashboard
+![管理后台](./evidence/screenshots/09_admin.png)
+*管理后台：系统健康检查、数据概览、工作流管理、模型注册表 / Admin: system health checks, data overview, workflow management, model registry*
 
 ---
 
@@ -133,6 +175,127 @@ sshpass -e ssh -N -L 127.0.0.1:8188:127.0.0.1:8188 -p 22910 root@connect.westc.s
 当前环境基线见 [`deploy/versions.lock`](./deploy/versions.lock)：
 ComfyUI v0.36.0 + torch 2.13.0+cu130，生产启动参数 `--highvram`。
 实测稳态：SDXL 1024²/30 步 **4.59s**（地板）/ FLUX.2 klein 4 步 **1.52s**（地板）。
+
+---
+
+## API 接口文档 / API Reference
+
+后端基于 **FastAPI**，启动后自动生成交互式文档：
+
+| 文档 | 地址 | 说明 |
+|---|---|---|
+| **Swagger UI** | `http://{host}:8011/docs` | 交互式，可直接在页面上测试所有接口 |
+| **OpenAPI JSON** | `http://{host}:8011/openapi.json` | 机器可读规范，可导入 Postman / Insomnia |
+
+### 接口一览 / Endpoint Summary
+
+<details>
+<summary>点击展开全部 33 个接口（Click to expand all 33 endpoints）</summary>
+
+#### 认证 / Authentication
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/api/v1/auth/register` | 注册新用户（Register） |
+| `POST` | `/api/v1/auth/login` | 登录，返回 JWT（Login, returns JWT） |
+| `GET` | `/api/v1/auth/me` | 当前用户信息与配额（Current user & quota） |
+
+#### 工作流 / Workflows
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/api/v1/workflows` | 工作流列表（List workflows） |
+| `GET` | `/api/v1/workflows/{name}/schema` | 获取参数 Schema，前端渲染动态表单（Get param schema for dynamic form） |
+
+#### 任务 / Tasks
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/api/v1/tasks` | 提交单次生成任务（Submit a generation task） |
+| `GET` | `/api/v1/tasks` | 任务列表，支持分页（List tasks, paginated） |
+| `GET` | `/api/v1/tasks/{task_id}` | 任务详情（Task detail） |
+| `POST` | `/api/v1/tasks/{task_id}/cancel` | 取消任务（Cancel task） |
+| `POST` | `/api/v1/tasks/{task_id}/retry` | 重试任务（Retry task） |
+| `POST` | `/api/v1/tasks/estimate` | 提交前预估耗时与成本（Estimate before submit） |
+
+#### 批量任务 / Batch Tasks
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/api/v1/batches` | 提交批量任务（Submit batch） |
+| `GET` | `/api/v1/batches` | 批量列表（List batches） |
+| `GET` | `/api/v1/batches/{batch_id}` | 批量详情（Batch detail） |
+| `POST` | `/api/v1/batches/{batch_id}/retry-failed` | 断点续跑：只重跑失败项（Retry failed only） |
+
+#### 素材与产物 / Assets
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/api/v1/assets` | 上传素材（Upload asset） |
+| `GET` | `/api/v1/assets` | 素材列表（List assets） |
+| `GET` | `/api/v1/assets/{asset_id}` | 素材详情（Asset detail） |
+| `GET` | `/api/v1/assets/{asset_id}/content` | 取图，返回图片二进制（Get image binary） |
+| `PATCH` | `/api/v1/assets/{asset_id}` | 标记采纳 / 收藏（Mark adopted / favorite） |
+| `DELETE` | `/api/v1/assets/{asset_id}` | 删除素材（软删除 / Soft delete） |
+| `POST` | `/api/v1/assets/pack` | 打包下载（Pack & download） |
+
+#### 模板 / Templates
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/api/v1/templates` | 模板库（List templates） |
+| `POST` | `/api/v1/templates` | 新增模板，需管理员权限（Create template, admin only） |
+| `GET` | `/api/v1/templates/categories` | 模板品类列表（List template categories） |
+
+#### 模型与质量 / Models & Quality
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/api/v1/models` | 模型清单，含商用许可状态（Model list with license info） |
+| `GET` | `/api/v1/stats/quality` | 质量看板数据（Quality dashboard stats） |
+
+#### A/B 对比 / Comparison
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/api/v1/compare` | 列出所有对比组（List comparison groups） |
+| `POST` | `/api/v1/compare` | 提交 A/B 对比（Submit comparison） |
+| `GET` | `/api/v1/compare/{group_id}` | 对比组详情（Comparison detail） |
+
+#### 健康检查 / Health
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `GET` | `/health` | 存活探针（Liveness probe） |
+| `GET` | `/health/ready` | 就绪探针，检查下游依赖（Readiness probe） |
+
+</details>
+
+### 快速测试 / Quick Test
+
+```bash
+# 注册 / Register
+curl -X POST http://localhost:8011/api/v1/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"yourpassword"}'
+
+# 登录 / Login
+TOKEN=$(curl -s -X POST http://localhost:8011/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"test@example.com","password":"yourpassword"}' | jq -r '.access_token')
+
+# 提交生图任务 / Submit generation task
+curl -X POST http://localhost:8011/api/v1/tasks \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"workflow_name":"t2i_v1","params":{"prompt":"a red ceramic cup, product photo","width":1024,"height":1024}}'
+
+# 查看任务状态 / Check task status
+curl http://localhost:8011/api/v1/tasks/1 -H "Authorization: Bearer $TOKEN"
+
+# 获取产物图片 / Get output image
+curl http://localhost:8011/api/v1/assets/1/content -H "Authorization: Bearer $TOKEN" -o output.png
+```
 
 ---
 
