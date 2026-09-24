@@ -1,0 +1,81 @@
+== 目标 ==================================================
+repo        : xinsir/controlnet-union-sdxl-1.0
+mirror      : https://hf-mirror.com
+controlnet/ : /root/autodl-tmp/comfyui-data/models/controlnet
+evidence/   : /root/autodl-tmp/evidence/43_fetch_cn_weights
+promax      : 0
+== 1. 许可原文证据 ==
+-- 下载 README.md
+-- 下载 LICENSE
+   ⚠️  失败（可能不存在）：https://hf-mirror.com/xinsir/controlnet-union-sdxl-1.0/resolve/main/LICENSE
+---- README front-matter（许可声明，逐字留证）----
+---
+license: apache-2.0
+tags:
+- Text-to-Image
+- ControlNet
+- Diffusers
+- Stable Diffusion
+pipeline_tag: text-to-image
+---
+# **ControlNet++: All-in-one ControlNet for image generations and editing!**
+## **ProMax Model has released!! 12 control + 5 advanced editing, just try it!!!**
+![images_display](./images/masonry.webp)
+## Network Arichitecture
+![images](./images/ControlNet++.png)
+## Advantages about the model
+- Use bucket training like novelai, can generate high resolutions images of any aspect ratio
+- Use large amount of high quality data(over 10000000 images), the dataset covers a diversity of situation
+-----------------------------------------------------
+== 2. 权重 ==
+-- 下载 diffusion_pytorch_model.safetensors
+== 3. sha256 与体积（回写 model_registry.yaml 用）==
+a9e13fd61f3193887791c8a0dd07a07202174dc47d5ddaea94ea1344f07c7467  2512030408  controlnet-union-sdxl-1.0.safetensors
+== 4. 清点现场（用于补登记 / 查红线）==
+---- controlnet/ 现有文件 ----
+total 12226952
+drwxr-xr-x  2 root root       4096 Sep 24 09:19 .
+drwxr-xr-x 37 root root       4096 Nov 30  2025 ..
+-rw-r--r--  1 root root 5004167864 Sep 23 11:05 controlnet-canny-sdxl-1.0.safetensors
+-rw-r--r--  1 root root 5004167860 Sep 23 11:21 controlnet-depth-sdxl-1.0.safetensors
+-rw-r--r--  1 root root 2512030408 Sep 24 09:19 controlnet-union-sdxl-1.0.safetensors
+-rw-r--r--  1 root root          0 Oct 19  2025 put_controlnets_and_t2i_here
+---- comfyui_controlnet_aux 的辅助权重 ckpts/ ----
+[/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts]
+1341395338	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/depth-anything/Depth-Anything-V2-Large/depth_anything_v2_vitl.pth
+29444406	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/ControlNetHED.pth
+204597536	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/ControlNetLama.pth
+209267595	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/body_pose_model.pth
+492757791	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/dpt_hybrid-midas-501f0c75.pt
+172789563	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/erika.pth
+153718792	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/facenet.pth
+147341049	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/hand_pose_model.pth
+318268048	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/latest_net_G.pth
+6341481	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/mlsd_large_512_fp32.pth
+217631959	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/netG.pth
+58871680	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/network-bsds500.pth
+530760553	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/res101.pth
+290767728	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/scannet.pt
+17173511	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/sk_model.pth
+17173511	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/sk_model2.pth
+2871148	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/table5_pidinet.pth
+206313115	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/lllyasviel/Annotators/upernet_global_small.pth
+134399116	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/yzd-v/DWPose/dw-ll_ucoco_384.onnx
+216746733	/root/ComfyUI/custom_nodes/comfyui_controlnet_aux/ckpts/yzd-v/DWPose/yolox_l.onnx
+[/root/ComfyUI/custom_nodes/ComfyUI-Frame-Interpolation/ckpts]
+21344827	/root/ComfyUI/custom_nodes/ComfyUI-Frame-Interpolation/ckpts/rife/rife47.pth
+⚠️ 其中 body_pose_model.pth = CMU OpenPose 权重（**非商用**），见 license_matrix.md §3.1
+   姿态控制须改用 DWPreprocessor；本清单用于按 §8 登记流程逐条补登记。
+== 5. JSON 摘要 ==
+{
+  "fetched_at": "2026-09-24T09:20:11+08:00",
+  "repo": "xinsir/controlnet-union-sdxl-1.0",
+  "mirror": "https://hf-mirror.com",
+  "files": [
+    {"name": "controlnet-union-sdxl-1.0.safetensors", "size": 2512030408, "sha256": "a9e13fd61f3193887791c8a0dd07a07202174dc47d5ddaea94ea1344f07c7467"}
+  ]
+}
+✅ 完成。回本机后请：
+   ① 用上面第 3 节的 sha256/size 回写 engine/model_registry.yaml（planned → models）
+   ② 把 README 的 front-matter 原文记进 docs/sop/license_matrix.md §9
+   ③ 用第 4 节的清单补登记已在用但未登记的权重（§7 #17）

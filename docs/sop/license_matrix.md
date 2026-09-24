@@ -18,37 +18,37 @@
 
 ---
 
-## 0. 当前模型合规总览（2026-09-16）
+## 0. 当前模型合规总览（2026-09-24 更新）
 
 > 与 [`../../engine/model_registry.yaml`](../../engine/model_registry.yaml) 的 `license_summary` 段保持一致。改一边必须改另一边。
+> **2026-09-24 上机清账批次**：新增 3 个 ControlNet 条目 + 两个旧 unknown 全部转正 + LICENSE 原文全量入库（归档于 `deploy/comfyui/evidence/model_licenses/` 与 `deploy/comfyui/evidence/43_fetch_cn_weights/`）。
 
 | 模型 | 类型 | 许可证 | 可商用 | LICENSE 原文已入库 | 状态 | 阻塞 V1 |
 |---|---|---|---|---|---|---|
-| `sd_xl_base_1.0` | checkpoint | CreativeML OpenRAIL++-M | ✅ | ❌ **待入库** | active | 否 |
-| `flux-2-klein-4b` | unet | Apache-2.0 | ✅ | ❌ **待入库** | active | 否 |
-| `flux2-vae` | vae | Apache-2.0 | ✅ | ❌ **待入库** | active | 否 |
-| `qwen_3_4b` | text_encoder | Apache-2.0（上游 Qwen3-4B） | ✅ | ❌ **待入库**（两层） | active | 否 |
-| `sdxl_vae_fp16fix` | vae | **待核实**（社区发布） | ⚠️ unknown | ❌ | standby | 否（未进链路） |
-| `qwen_3_4b_fp4_flux2` | text_encoder | **待核实**（量化派生作品） | ⚠️ unknown | ❌ | disabled | 否 |
+| `sd_xl_base_1.0` | checkpoint | CreativeML OpenRAIL++-M | ✅ | ✅ `model_licenses/stabilityai__…/LICENSE.md` | active | 否 |
+| `flux-2-klein-4b` | unet | Apache-2.0（两层一致） | ✅ | ✅ `model_licenses/Comfy-Org__…/README.md` + `black-forest-labs__…/README.md` | active | 否 |
+| `flux2-vae` | vae | Apache-2.0 | ✅ | ✅ `model_licenses/Comfy-Org__…/README.md` | active | 否 |
+| `qwen_3_4b` | text_encoder | Apache-2.0（两层齐） | ✅ | ✅ `model_licenses/Qwen__Qwen3-4B/LICENSE`（上游）+ Comfy-Org README | active | 否 |
+| `sdxl_vae_fp16fix` | vae | **MIT（✅ 2026-09-24 转正，原 unknown）** | ✅ | ✅ `model_licenses/madebyollin__…/README.md` | standby | 否（未进链路；**许可障碍已消除**） |
+| `qwen_3_4b_fp4_flux2` | text_encoder | **Apache-2.0（仓库级，✅ 2026-09-24 转正）** | ✅ | ✅ Comfy-Org README | disabled | 否（**技术上不可用**，非许可原因） |
+| `controlnet_sdxl_union` | controlnet | **Apache-2.0** | ✅ | ✅ `43_fetch_cn_weights/README_xinsir_….md`（front-matter） | standby（待 P4-06/07 接线） | 否 |
+| `controlnet_sdxl_canny` | controlnet | CreativeML OpenRAIL++ | ✅ | ✅ `model_licenses/diffusers__controlnet-canny-…/README.md` | active（P4 在用） | 否 |
+| `controlnet_sdxl_depth` | controlnet | CreativeML OpenRAIL++ | ✅ | ✅ `model_licenses/diffusers__controlnet-depth-…/README.md` | active（P4 在用） | 否 |
 
 | 指标 | 值 |
 |---|---|
-| 模型总数 | 6 |
-| 结论可商用 | 4 |
-| 许可未知 | 2（**均已 standby/disabled，不进交付链路**） |
-| **LICENSE 原文已入库** | **0 / 6** ⚠️ |
+| 模型总数 | **9** |
+| 结论可商用 | **9** |
+| 许可未知 | **0**（✅ 2026-09-24 清零） |
+| **LICENSE 原文已入库** | **9 / 9** ✅ |
 | 当前阻塞 V1 的项 | **无** |
 
-> ⚠️ **最大的合规缺口是「原文未入库」而不是「结论不清」**：
-> 4 个 active 模型的许可结论有 ADR-005 与上游仓库页面支撑，但**没有任何一份 LICENSE 原文进了归档**。
-> 这违反了铁律 1，且 P11-11 无法在此基础上复查。**列为 V1 发布前的必修项。**
+> ✅ **「原文未入库」缺口已于 2026-09-24 结清**（原 0/6 → 9/9）：两个旧 unknown 同时转正
+> （`sdxl_vae_fp16fix` = **MIT**；`qwen_3_4b_fp4_flux2` = 仓库级 **Apache-2.0**，仍因技术原因 disabled）。
 >
-> 🚩 **P11-11 门禁**：**`§7` 第 1 条（6 个模型的 LICENSE 原文入库，当前 0/6）不结清，P11-11 不得判定通过。**
-> 它是本文件唯一一条「已知不阻塞 V1、但**必须在上线前结清**」的项 —— 放在此处是为了**防止它因为"不阻塞"而被遗忘**。
->
-> 🚩 **P11-11 必修标记（team-lead 2026-09-16 指定）**：本项**不阻塞 V1**（4 个 active 模型无 unknown 许可），
-> 但它**必须出现在 P11-11 的验收清单里，且不得被遗忘**。验收方式：6 条逐一给出 LICENSE 原文的归档路径。
-> **本行未结清 → P11-11 不得判定通过。**
+> 🚩 **P11-11 门禁（原第 1 条）**：~~「6 个模型的 LICENSE 原文入库，当前 0/6」~~ →
+> **✅ 2026-09-24 已结清（9/9）**。P11-11 验收时逐条给出的归档路径即上表右列。
+> ⚠️ P11-11 的**其余**检查项（全仓库脱敏扫描等）不受本条影响，仍需届时执行。
 
 ---
 
@@ -217,7 +217,12 @@
 
 `controlnet-canny-sdxl-1.0.safetensors` / `controlnet-depth-sdxl-1.0.safetensors` **两个已在用的权重**，全仓库**没有任何地方**记录它们来源 URL、下载渠道、sha256 或 LICENSE 原文路径 —— 已 `grep` 确认：**只在** `deploy/autodl/42_p4_control_experiments.py:1012-1013` 作为**默认文件名**出现。
 ⇒ 与台账 **#24**（`ComfyUI-Upscaler-Tensorrt` 非商用许可**已装在环境里**）**同一形态：红线/缺口是「已存在」而非「将来可能」**。
-⇒ **下次上机必须当场补登记**（含 sha256 与来源追溯），见 §7 #17。
+
+> ✅ **2026-09-24 落地注记（上机清账批次收口）**：
+> ① **union 已下载**：`controlnet-union-sdxl-1.0.safetensors`（2.34 GiB，fp16，sha256 `a9e13fd6…c7467`），README 许可原文（front-matter `license: apache-2.0`）已入库 `43_fetch_cn_weights/`；登记为 `model_registry.yaml` **#7**（standby，待 P4-06/07 接线）。
+> ② **canny/depth 已补登记**（上文「已用未登记」就此结清，§7 #17 ✅）：sha256/size 已计算，**来源锁定为 `diffusers/` 官方仓库**（按字节级大小比对推断，已如实标注），README 原文入库，登记为 **#8/#9**（active）。
+> ③ **6 个旧模型的 LICENSE 原文全量入库**（§7 #1–#5 全部闭环）：两个旧 unknown 同时转正（`sdxl_vae_fp16fix` = **MIT**；`qwen_3_4b_fp4_flux2` = 仓库级 Apache-2.0，仍因技术原因 disabled）。
+> ④ **顺带清点**：`ckpts/` 全量清单与 `models/` 未登记目录已落盘（§7 #16 更新 + 新增 **#18**）。
 
 ---
 
@@ -288,13 +293,13 @@
 
 | # | 待核实项 | 现状 | 风险 | 归属 | 何时 |
 |---|---|---|---|---|---|
-| 1 | 🔴 **6 个 active/standby 模型的 LICENSE 原文入库** | **0/6 已入库** | 中（结论有支撑但无原始凭证）；**不阻塞 V1** | C 流 | 🚩 **P11-11 必修项 —— 本行不结清，P11-11 不得判定通过**。日常跟进：V1 发布前复查时**逐条打勾**（6 条：sd_xl_base_1.0 / flux-2-klein-4b / flux2-vae / qwen_3_4b / sdxl_vae_fp16fix / qwen_3_4b_fp4_flux2） |
-| 2 | `sdxl_vae_fp16fix` 的来源仓库与许可 | unknown | 中（当前 standby，未进链路） | C 流 | 下次服务器可达时回查下载记录 |
-| 3 | `qwen_3_4b_fp4_flux2` 量化派生作品的独立许可 | unknown | 低（同时技术上不可用，已 disabled） | C 流 | P11-11 |
-| 4 | `Comfy-Org/flux2-klein-4B` 打包仓库与上游 BFL 许可的一致性 | 待核 | 中（**klein 是核心底模**） | C 流 | **P5-02 评测前（W3）** |
-| 5 | `qwen_3_4b` 的两层许可（上游 Qwen3-4B + 打包仓库） | 待核 | 中（klein 链路唯一可用 TE） | C 流 | P5-02 评测前 |
+| 1 | ~~🔴 **6 个 active/standby 模型的 LICENSE 原文入库**~~ | ✅ **2026-09-24 已结清（9/9，含新增 3 个 ControlNet）** —— 归档路径见 §0 表右列（`deploy/comfyui/evidence/model_licenses/` + `43_fetch_cn_weights/`） | — | — | ✅ P11-11 必修项**第一条完成**（其余检查项届时照常执行） |
+| 2 | ~~`sdxl_vae_fp16fix` 的来源仓库与许可~~ | ✅ **已解决（2026-09-24）：MIT** —— README front-matter 原文 = `license: mit`，已入库 `model_licenses/madebyollin__sdxl-vae-fp16-fix/README.md` | — | — | ✅ 闭环（status 仍 standby，属技术接入决策） |
+| 3 | ~~`qwen_3_4b_fp4_flux2` 量化派生作品的独立许可~~ | ✅ **已核（2026-09-24）：Comfy-Org 打包仓库 front-matter = `license: apache-2.0`**（原文入库）；status **仍 disabled**（技术原因：hidden 1280 ≠ 2560） | — | — | ✅ 闭环 |
+| 4 | ~~`Comfy-Org/flux2-klein-4B` 打包仓库与上游 BFL 许可的一致性~~ | ✅ **已核（2026-09-24）：两层一致，均 apache-2.0** —— Comfy-Org README（`license: apache-2.0`，base_model 指向 BFL）+ `black-forest-labs/FLUX.2-klein-4B` README（`license: apache-2.0`），两份原文均已入库 | — | — | ✅ 闭环 |
+| 5 | ~~`qwen_3_4b` 的两层许可（上游 Qwen3-4B + 打包仓库）~~ | ✅ **已核（2026-09-24）：两层齐** —— 上游 `Qwen/Qwen3-4B`（front-matter `apache-2.0` + **LICENSE 原文** 11343 B 已入库）+ Comfy-Org README | — | — | ✅ 闭环 |
 | 6 | `sd_xl_base_1.0` 的实际下载渠道 | 未留痕 | 低 | C 流 | 下次服务器可达时 |
-| 7 | **ControlNet SDXL 各权重**的许可（P5-04 逐条） | 🔶 **部分解决（2026-09-23）**：canny / depth / union / softedge / openpose(thibaud) 已核，结论见 **§3.1** —— ✅ 首选 **`xinsir/controlnet-union-sdxl-1.0`（apache-2.0）**；🔴 **`thibaud/controlnet-openpose-sdxl-1.0` 不用**（`license: other` → 指向非商用的 OpenPose）；⚠️ 余项：`xinsir/controlnet-openpose-sdxl-1.0` 原文未取到 | **高**（P4 控制体系的基础） | C 流 | 剩余项随权重下载时收口 |
+| 7 | **ControlNet SDXL 各权重**的许可（P5-04 逐条） | ✅ **2026-09-24 基本收口**：canny / depth / union **已下载（或补登记）+ 原文入库 + 转正式条目**（`model_registry.yaml` #7/#8/#9）；🔴 `thibaud/controlnet-openpose-sdxl-1.0` 判不用（§3.1）；⚠️ 唯一余项：`xinsir/controlnet-openpose-sdxl-1.0` 原文未取到（仅作备份，用到再核） | 原**高**（P4 基础） | C 流 | ✅ 主体闭环 |
 | 8 | **IP-Adapter 权重 + CLIP Vision 编码器**许可 | 未开始 | **高**（FR-8.3 保真主力） | C 流 | P4-03 之前 |
 | 9 | **放大器模型集**（含社区 4x 权重）许可 | 未开始 | 中高（顺手引入的重灾区） | C 流 | P5-05 |
 | 10 | **PuLID 的商用可行性（路径已定位，细节待核）** | 🔶 **部分解决**：已明确 **FaceNet 路径可用 / InsightFace 路径禁止** | 中（决定 V2 一致性方案） | C 流 | ① 待核 `facenet-pytorch` + VGGFace2 权重许可 → **V2 启动前（W11）**；② 若采用需新引入节点并重过 P2-05 白名单 |
@@ -303,8 +308,9 @@
 | 13 | `hf-mirror.com` 取到的文件与上游 hash 是否一致 | 部分未比对 | 中（完整性不等于许可，但影响可复现） | C 流 | P11-11 |
 | 14 | **`ultralytics`（AGPL-3.0）的传染性评估** | 未评估 | 中高（由 Impact-Pack 引入，V1 关键路径） | C 流 | **P4-05（自动遮罩）之前** |
 | 15 | **`models/ultralytics/face_yolov8n.pt` 的权重许可** | 未登记 | 中（已在磁盘上） | C 流 | P4-05 之前 |
-| 16 | **各 ControlNet 预处理器下载的辅助权重**（DWPose 等） | 🔶 **部分解决（2026-09-23）**：**已定位 `OpenposePreprocessor` → `body_pose_model.pth` = CMU OpenPose 权重 ⇒ 非商用**（§3.1）；⚠️ `DWPreprocessor` 的 `yolox_l.onnx` / `dw-ll_ucoco_384.onnx` **发布方许可仍待核**；⚠️ **仍未上机清点 `ckpts/` 全量文件** | 中高 | C 流 | **下次上机时一次性清点 + 登记** |
-| 17 | 🔴 **已被使用但完全未登记的权重**：`controlnet-canny-sdxl-1.0.safetensors` / `controlnet-depth-sdxl-1.0.safetensors` | **未登记**（全仓库仅有文件名，无来源 URL / 渠道 / sha256 / LICENSE 原文路径；`grep` 实证见 §3.1） | **中高**（违反铁律 1；与台账 #24 同形态 —— 缺口「已存在」） | C 流 | **下次上机当场补登记**（含 sha256 + 来源追溯） |
+| 16 | **各 ControlNet 预处理器下载的辅助权重**（DWPose 等） | 🔶 **清点已落盘（2026-09-24）**：全量清单在 `deploy/comfyui/evidence/43_fetch_cn_weights/fetch.log` §4 —— `comfyui_controlnet_aux/ckpts/` 下 **20 个文件**（DepthAnything-V2-Large 1.34G、`body_pose_model.pth` **209MB＝CMU OpenPose 非商用**、dpt_hybrid-midas 493MB、res101 531MB、DWPose onnx×2 351MB 等）+ Frame-Interpolation/rife47；⚠️ `DWPreprocessor` 的 ONNX 发布方（yzd-v）许可**仍待核**；⚠️ **逐条登记未做** | 中高 | C 流 | 按清单逐条判定「登记 / 禁用 / 删除」，与 #18 同批 |
+| 17 | ~~🔴 **已被使用但完全未登记的权重**：`controlnet-canny-sdxl-1.0.safetensors` / `controlnet-depth-sdxl-1.0.safetensors`~~ | ✅ **2026-09-24 已结清**：sha256 + size 已计算；**来源锁定为 `diffusers/` 官方仓库（按字节级大小比对推断：canny 5004167864 B / depth 5004167860 B 均与仓库 HEAD 完全一致，xinsir 同名仓库 2502139104 B 被排除）**；README 许可原文已入库；已转 `model_registry.yaml` 正式条目 #8/#9 | — | — | ✅ 闭环（⚠️ 来源属**大小比对推断**而非下载日志实证，已如实标注） |
+| 18 | 🆕 **磁盘上另一批未登记的模型目录**（2026-09-24 清点发现） | `models/` 下另有：`liveportrait`（497M）、`bert-base-uncased`（421M）、`ultralytics`（130M，含 face_yolov8n.pt＝#15）、`onnx`（34M）、`tensorrt`（19M，**与已禁用的 NC 节点 `ComfyUI-Upscaler-Tensorrt` 相关**）、`grounding-dino`（4K，空壳） | 中高（与 #24 同形态：红线「已存在」） | C 流 | 与 #16 同批逐条判定（登记 / 禁用 / 删除）；`tensorrt/` 目录建议随节点禁用一并清理（由你拍板，**不自行删除**） |
 
 **明确禁用清单（不得出现在任何交付链路）**
 
@@ -352,3 +358,4 @@ sha256sum model.safetensors && stat -c %s model.safetensors
 | 2026-09-16 | 模型与磁盘的实测核对（`engine/model_registry.yaml` 配套） | ✅ 6 个已登记模型的 `file_size` 与 `versions.lock [models]` **逐条完全一致**；模型实际路径确认在 `/root/autodl-tmp/comfyui-data/models/` | 在 registry 头部登记实测结果；补登两类此前未登记的磁盘文件（`ultralytics/face_yolov8n.pt`、`insightface/buffalo_l/*.onnx`） |
 | **2026-09-16** | **节点许可的第二来源交叉验证 + 人脸链路红线细化（C 流）** | ① **交叉验证通过**：GitHub License API 独立跑 32 节点，结果与服务器读原文**逐条吻合**（GPL-3.0 13、无 LICENSE 3 指名一致）；② **新增人脸链路红线**：IP-Adapter **FaceID** 系列因强制 `insightface` → **FR-8.3 只允许 base/plus 变体**；③ **PuLID 结论修正**：找到商用路径（`PulidFluxFaceNetLoader`），InsightFace 路径明确禁止；④ 逐字引用了 `insightface` PyPI 的许可原文 | ① 新增 §1.1.1（交叉验证 + 方法论：**API 适合筛查，原文才行判定**；`NOASSERTION` 会藏 NC 条款）② §3 新增 IP-Adapter FaceID 禁用行、PuLID 双路径行、结论修正行 ③ §1 `insightface` 行补逐字引用 ④ §7 #10 更新为「部分解决」 ⑤ 产出 28/32 节点的「目录名→仓库 slug→SPDX」映射，供 §8 的 `source.repo` 字段直接使用 |
 | **2026-09-23** | **ControlNet SDXL 权重的逐条许可核实（P4-06 / P4-07 前置，触发项 §7 #7）** | ① `diffusers/controlnet-canny-sdxl-1.0` 与 `-depth-`：front-matter **`openrail++`**，正文无 NC ⇒ ✅ 可商用（**两者已在用**）② **`xinsir/controlnet-union-sdxl-1.0`：`apache-2.0`**，正文无 NC，覆盖 openpose/lineart/softedge/normal 等 10+ 条件 ⇒ ✅ **首选，一次下载覆盖四个缺口** ③ `SargeZT/...softedge-dexined`：`creativeml-openrail-m` ⇒ 可用（不必单独下）④ 🔴 **`thibaud/controlnet-openpose-sdxl-1.0`：`license: other` + 正文“refers to the OpenPose's one” ⇒ 不用**（CMU OpenPose 原文为 **NONCOMMERCIAL**，已逐字引用）| ① 新增 **§3.1**（逐条核实表 + OpenPose 原文引用 + `body_pose_model.pth` 红线 + 「已用未登记」实证）② §7 **#7 转为「部分解决」**、**#16 给出具体文件名与许可归属**、**新增 #17（已用但未登记）** ③ 🟠 **新查出红线**：`OpenposePreprocessor` 的 `body_pose_model.pth` 继承 OpenPose 非商用 ⇒ **姿态控制改走 `DWPreprocessor`** ④ ⚠️ **仍未上机**：`ckpts/` 全量清点、canny/depth 来源追溯、union 下载与 sha256 登记 |
+| **2026-09-24** | **上机清账批次（无卡模式，零 GPU 机时）**：union 下载 + canny/depth 补登记 + LICENSE 原文全量入库 + 磁盘清点 | **许可 unknown 清零（2 → 0）**：`sdxl_vae_fp16fix` = **MIT**、`qwen_3_4b_fp4_flux2` = 仓库级 Apache-2.0（仍 disabled，技术原因）；**klein 两层一致**（Comfy-Org + BFL 上游均 apache-2.0）；**qwen 两层齐**（Qwen3-4B LICENSE 原文入库）；canny/depth 来源锁定为 **diffusers 官方仓库**（字节级大小比对） | ① §0 总览重写（6 → 9 模型，原文入库 9/9，P11-11 必修第一条结清）② §7 #1–#5、#7、#17 闭环，#16 清点落盘，**新增 #18（未登记目录）** ③ `model_registry.yaml`：models 6 → 9（union #7 / canny #8 / depth #9），license_summary unknown 清零 ④ 证据入库 `deploy/comfyui/evidence/{model_licenses,43_fetch_cn_weights}/` ⑤ ⚠️ 仍开放：sd_xl 下载渠道留痕（#6）、ckpts 与未登记目录逐条判定（#16/#18）、`body_pose_model.pth` 红线处置 |

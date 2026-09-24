@@ -170,11 +170,11 @@ models:
       channel: ⚠️ 未记录
       note: "**待核实**：仓库归属与下载渠道均未在 deploy/ 脚本中留痕，需回查下载记录。文件名 `sdxl_vae_fp16fix` 与社区常用命名一致"
     license:
-      name: MIT（待核实）
+      name: MIT
       url: https://huggingface.co/madebyollin/sdxl-vae-fp16-fix
-      commercial_ok: unknown
-      verified: false
-      note: "⚠️ **待核实** —— 该仓库为社区发布，许可需以仓库 LICENSE 原文为准。**在核实前不得作为 V1 交付链路的一部分**（未知即不用）"
+      commercial_ok: true
+      verified: true
+      note: "✅ 2026-09-24 已核实（收 license_matrix.md §7 #2）：README front-matter 原文 = `license: mit`，原文已入库 deploy/comfyui/evidence/model_licenses/madebyollin__sdxl-vae-fp16-fix/README.md。**许可障碍已消除**；status 仍 standby（是否接入链路属技术决策，与本许可结论无关）"
     eval: {score: null, good_rate: null, notes: null}
     status: standby
     is_default: false
@@ -231,11 +231,11 @@ models:
       channel: hf-mirror.com（HF 镜像）
       note: "依据 deploy/autodl/05_download_flux2_klein.sh:31"
     license:
-      name: Apache-2.0（上游派生）
+      name: Apache-2.0（Comfy-Org 打包仓库 front-matter）
       url: https://huggingface.co/Comfy-Org/flux2-klein-4B
-      commercial_ok: unknown
-      verified: false
-      note: "⚠️ 量化版属**派生作品**，其许可需单独核实（量化方的许可声明可能与上游不同）。在核实前按 unknown 处理 → 不得启用"
+      commercial_ok: true
+      verified: true
+      note: "✅ 2026-09-24 已核（收 license_matrix.md §7 #3）：Comfy-Org/flux2-klein-4B 仓库 README front-matter = `license: apache-2.0`（原文已入库 deploy/comfyui/evidence/model_licenses/Comfy-Org__flux2-klein-4B/README.md）。⚠️ status **仍 disabled** —— 技术上不可用（见 extra.disabled_reason），与本许可结论无关"
     eval: {score: null, good_rate: null, notes: null}
     status: disabled
     is_default: false
@@ -249,48 +249,127 @@ models:
       disk_advice: "⚠️ 当前它是**纯粹的 3.58GB 磁盘占用**（技术上不可用 + 许可 unknown）→ **建议删除以释放数据盘**。数据集大小由 team-lead 决定，C 流不自行删除远端文件"
       keep_on_disk: false           # ⚠️ 这是 C 流的**建议值**：C 流不自行删除远端文件，最终由 team-lead 决定
 
+  # ==========================================================
+  # 7. ControlNet Union SDXL 1.0（ControlNet++，xinsir）——
+  #    一次覆盖 openpose / lineart / softedge / normal / canny / depth 等 10+ 条件
+  #    （P4-06 / P4-07 的关键缺口；2026-09-24 无卡模式下载）
+  # ==========================================================
+  - name: controlnet_sdxl_union
+    kind: controlnet
+    version: "1.0"
+    file_path: /root/autodl-tmp/comfyui-data/models/controlnet/controlnet-union-sdxl-1.0.safetensors
+    file_size: 2512030408          # 2.34 GiB（fp16）
+    sha256: a9e13fd61f3193887791c8a0dd07a07202174dc47d5ddaea94ea1344f07c7467
+    source:
+      repo: xinsir/controlnet-union-sdxl-1.0
+      url: https://hf-mirror.com/xinsir/controlnet-union-sdxl-1.0/resolve/main/diffusion_pytorch_model.safetensors
+      channel: hf-mirror（deploy/autodl/43_fetch_controlnet_weights.sh，2026-09-24）
+      note: "许可原文已入库：deploy/comfyui/evidence/43_fetch_cn_weights/README_xinsir_controlnet-union-sdxl-1.0.md（front-matter `license: apache-2.0`）。该仓库无独立 LICENSE 文件，HF 以 front-matter 为准"
+    license:
+      name: Apache-2.0
+      url: https://huggingface.co/xinsir/controlnet-union-sdxl-1.0
+      commercial_ok: true
+      verified: true
+      note: "2026-09-23 离线核实（license_matrix.md §3.1）+ 2026-09-24 原文入库；正文无 NC / 商用限制条款"
+    eval:
+      score: null
+      good_rate: null
+      notes: "尚未接入任何工作流（待 P4-06/07 用它补姿态/线稿/softedge 实测后评分）"
+    status: standby                 # 已下载、许可已核；尚未被任何工作流引用，接线验证后转 active
+    vram:
+      gb: 2.5
+      basis: estimated              # fp16 权重本体 2.34 GiB
+    sort_order: 21
+    extra:
+      control_types: "openpose / depth / canny / lineart / animelineart / mlsd / scribble / hed / pidi(softedge) / teed / segment / normal / tile（ProMax 版另有 12 控制 + 5 编辑，未下载）"
+      rejected_alternatives: "thibaud/controlnet-openpose-sdxl-1.0（`license: other` → 正文指向 CMU OpenPose 非商用，禁用）；xinsir/controlnet-openpose-sdxl-1.0（原文未取到，仅作备份）"
+      why_union: "① 许可最干净（Apache-2.0，非 OpenRAIL 系）② 一次下载覆盖姿态/线稿/softedge/normal 四个缺口 ③ 官方名 ControlNet++，代码 github.com/xinsir6/ControlNetPlus"
+
+  # ==========================================================
+  # 8. ControlNet Canny SDXL 1.0（diffusers）—— P4-02 已实测在用
+  #    🔴 2026-09-24 补登记（此前零登记，收 license_matrix.md §7 #17）
+  # ==========================================================
+  - name: controlnet_sdxl_canny
+    kind: controlnet
+    version: "1.0"
+    file_path: /root/autodl-tmp/comfyui-data/models/controlnet/controlnet-canny-sdxl-1.0.safetensors
+    file_size: 5004167864          # 4.66 GiB（fp32，diffusers 格式；ComfyUI comfy/controlnet.py 自动转换）
+    sha256: ea99040544a999f814fd854575a3aee069a005d026864c8d321b82576706a221
+    source:
+      repo: diffusers/controlnet-canny-sdxl-1.0
+      url: https://hf-mirror.com/diffusers/controlnet-canny-sdxl-1.0/resolve/main/diffusion_pytorch_model.safetensors
+      channel: "前一轮会话的遗留 wget（未留命令记录）；**来源按字节级大小比对推断** —— 本地 5004167864 B 与该仓库 HEAD 完全一致，xinsir 同名仓库为 2502139104 B（排除）。⚠️ 属强证据而非下载日志实证"
+      note: "README 许可原文已入库：deploy/comfyui/evidence/model_licenses/diffusers__controlnet-canny-sdxl-1.0/README.md（front-matter `license: openrail++`）"
+    license:
+      name: CreativeML OpenRAIL++（front-matter `openrail++`）
+      url: https://huggingface.co/diffusers/controlnet-canny-sdxl-1.0
+      commercial_ok: true
+      verified: true
+      note: "2026-09-23 离线核实（license_matrix.md §3.1）+ 2026-09-24 原文入库；正文无 NC 条款"
+    eval:
+      score: null
+      good_rate: null
+      notes: "P4-02 权重扫描已实测（edge_f1 随权重 0.011→0.232 单调，推荐 0.6–1.0，见 docs/sop/control_matrix.md）"
+    status: active                  # P4 实验链路在用（42_p4_control_experiments.py）
+    vram:
+      gb: 5.0
+      basis: estimated              # fp32 权重本体 4.66 GiB
+    sort_order: 22
+
+  # ==========================================================
+  # 9. ControlNet Depth SDXL 1.0（diffusers）—— P4-02 已实测在用
+  #    🔴 2026-09-24 补登记（此前零登记，收 license_matrix.md §7 #17）
+  # ==========================================================
+  - name: controlnet_sdxl_depth
+    kind: controlnet
+    version: "1.0"
+    file_path: /root/autodl-tmp/comfyui-data/models/controlnet/controlnet-depth-sdxl-1.0.safetensors
+    file_size: 5004167860          # 4.66 GiB（fp32，diffusers 格式）
+    sha256: b760b1ed26970c7c60abbcef08e7238bb9428bee510a405aff239e06a1471945
+    source:
+      repo: diffusers/controlnet-depth-sdxl-1.0
+      url: https://hf-mirror.com/diffusers/controlnet-depth-sdxl-1.0/resolve/main/diffusion_pytorch_model.safetensors
+      channel: "同 controlnet_sdxl_canny：遗留 wget，**来源按字节级大小比对推断**（本地 5004167860 B 与该仓库 HEAD 完全一致）"
+      note: "README 许可原文已入库：deploy/comfyui/evidence/model_licenses/diffusers__controlnet-depth-sdxl-1.0/README.md（front-matter `license: openrail++`）"
+    license:
+      name: CreativeML OpenRAIL++（front-matter `openrail++`）
+      url: https://huggingface.co/diffusers/controlnet-depth-sdxl-1.0
+      commercial_ok: true
+      verified: true
+      note: "2026-09-23 离线核实（license_matrix.md §3.1）+ 2026-09-24 原文入库；正文无 NC 条款"
+    eval:
+      score: null
+      good_rate: null
+      notes: "P4-02 权重扫描已实测（0.6 达峰 0.159、1.0 过约束回落 0.047，推荐 0.4–0.6，见 docs/sop/control_matrix.md）"
+    status: active                  # P4 实验链路在用（42_p4_control_experiments.py）
+    vram:
+      gb: 5.0
+      basis: estimated
+    sort_order: 23
+
 # ============================================================
 # 许可合规状态汇总（供 P11-11 发布前复查直接使用）
 # ============================================================
 license_summary:
-  total: 6
-  commercial_ok: 4                  # sd_xl_base_1.0 / flux-2-klein-4b / flux2-vae / qwen_3_4b
-  commercial_unknown: 2             # sdxl_vae_fp16fix / qwen_3_4b_fp4_flux2
-  verified_license_text: 0          # ⚠️ 6 个模型**没有一个**的 LICENSE 原文已入库
-  # active 的 4 项许可结论均为可商用（其中 1 项原文未核，见 action_required）
+  total: 9
+  commercial_ok: 9                  # 全部 9 个：sd_xl / klein / flux2-vae / qwen / fp16fix / qwen_fp4 / cn_union / cn_canny / cn_depth
+  commercial_unknown: 0             # ✅ 2026-09-24 清零（原 2 个 unknown 均已核：fp16fix=MIT、qwen_fp4=apache-2.0 仓库级）
+  verified_license_text: 9          # ✅ 2026-09-24 全部原文入库（deploy/comfyui/evidence/model_licenses/ + 43_fetch_cn_weights/）—— P11-11 必修项 6/6 → 9/9
   active_with_unknown_license: []
-  blocking_v1: []                   # 当前无 unknown 许可处于 active → 不阻塞 V1
+  blocking_v1: []                   # 无 unknown 许可 → 不阻塞 V1
   action_required:
-    - "P11-11 发布前：6 个模型的 LICENSE 原文全部下载入库（不放仓库，放归档目录并登记路径）"
-    - "待核实项 1：sdxl_vae_fp16fix 的仓库归属与许可（当前 unknown → 保持 standby，不进交付链路）"
-    - "待核实项 2：qwen_3_4b 的两层许可原文（上游 Qwen/Qwen3-4B + Comfy-Org 打包仓库）—— 结论为可商用但原文未入库"
-    - "待核实项 3：qwen_3_4b_fp4_flux2 作为**量化派生作品**的独立许可声明（保持 disabled）"
-    - "待核实项 4：sd_xl_base_1.0 的实际下载渠道未在 deploy/ 脚本中留痕"
+    - "⚠️ 仍开放：sd_xl_base_1.0 的实际下载渠道未留痕（§7 #6，旧账，仅影响溯源不影响许可结论）"
+    - "⚠️ 仍开放：ckpts/ 预处理器辅助权重逐条登记（§7 #16，清单已落盘 deploy/comfyui/evidence/43_fetch_cn_weights/fetch.log；其中 body_pose_model.pth 已列 forbidden）"
+    - "⚠️ 仍开放（2026-09-24 新发现）：models/ 下另有一批未登记目录（liveportrait / bert-base-uncased / ultralytics / onnx / tensorrt / grounding-dino），需逐条判定去留（license_matrix.md §7 #18）"
 
 # ============================================================
 # V1 计划引入的模型（尚未下载，占位登记 —— 下载即转为正式条目）
 # ⚠️ 这些条目的 commercial_ok 一律为 unknown，**在核实许可前不得下载/启用**
 # ============================================================
 planned:
-  - name: controlnet_sdxl_canny
-    kind: controlnet
-    for_workflow: [WF-IMG2IMG, WF-UPSCALE]
-    requirement: "FR-8.4（ControlNet 线稿/景深/法线/姿态）"
-    license: {name: openrail++, commercial_ok: true, verified: true, verified_at: 2026-09-23, note: "diffusers/controlnet-canny-sdxl-1.0 的 README front-matter 原文 = `license: openrail++`，正文无 NC 条款（见 docs/sop/license_matrix.md §3.1）"}
-    status: in_use_unregistered
-    blocker: |
-      🔴 **该权重已在用，但违反铁律 1「下载即登记」**：全仓库**没有**记录它的来源 URL / 下载渠道 /
-      sha256 / LICENSE 原文路径 —— `grep` 实证：仅 deploy/autodl/42_p4_control_experiments.py:1012
-      作为**默认文件名**出现。**许可结论已核为可商用，但凭证链缺失**。
-      ⇒ 下次上机必须补 sha256 + 来源追溯；在此之前**不得**把它当作「已按流程登记」的模型。
-      与台账 #24（非商用许可「已装在环境里」）同一形态：**缺口是「已存在」而非「将来可能」**。
-  - name: controlnet_sdxl_depth
-    kind: controlnet
-    for_workflow: [WF-IMG2IMG]
-    requirement: "FR-8.4"
-    license: {name: openrail++, commercial_ok: true, verified: true, verified_at: 2026-09-23, note: "diffusers/controlnet-depth-sdxl-1.0 的 README front-matter 原文 = `license: openrail++`，正文无 NC 条款（见 license_matrix.md §3.1）"}
-    status: in_use_unregistered
-    blocker: "同上（`controlnet_sdxl_canny`）—— **已在用但未登记来源/sha256/LICENSE 原文**，下次上机补登记"
+  # ✅ 2026-09-24：controlnet_sdxl_canny / controlnet_sdxl_depth / controlnet_sdxl_union
+  #    已完成「许可核实 → 下载（或补登记）→ 原文入库」全流程，**转为上方 models: 正式条目**（#7/#8/#9）。
+  #    下方保留 lineart / openpose 两个占位（均已 superseded_by union，含 thibaud 拒用理由）。
   - name: controlnet_sdxl_lineart
     kind: controlnet
     for_workflow: [WF-IMG2IMG]
@@ -314,16 +393,7 @@ planned:
         commercial_ok: unknown
         reason: "检索摘要称 Apache-2.0，但**未取到 front-matter 原文**，按铁律不采信；仅作 union 不可用时的备份"
     note: "姿态预处理器须用 `DWPreprocessor`（见 forbidden 段的 `body_pose_model.pth`）"
-  - name: controlnet_sdxl_union
-    kind: controlnet
-    for_workflow: [WF-IMG2IMG, WF-UPSCALE, WF-STYLE]
-    requirement: "FR-8.4 + FR-8.7 —— 一次覆盖 openpose / lineart / softedge / normal / canny / depth 等 10+ 条件（P4-06 / P4-07 的关键缺口）"
-    source: {repo: xinsir/controlnet-union-sdxl-1.0, channel: hf-mirror}
-    license: {name: apache-2.0, commercial_ok: true, verified: true, verified_at: 2026-09-23, note: "README front-matter 原文 = `license: apache-2.0`，正文无 NC / 商用限制条款（见 license_matrix.md §3.1）"}
-    files_hint: ["diffusion_pytorch_model.safetensors（基础版，10+ 条件）", "diffusion_pytorch_model_promax.safetensors（ProMax：12 控制 + 5 高级编辑）"]
-    status: pending_download
-    blocker: "⚠️ **尚未下载** ⇒ sha256 / file_size / LICENSE 原文归档均待补。下载后按 license_matrix.md §8 登记流程转为正式 `models:` 条目"
-    note: "选择理由：① **许可最干净**（Apache-2.0，非 OpenRAIL 系）② **一次下载即覆盖姿态/线稿/softedge/normal 四个缺口**，省机时；③ 官方名为 ControlNet++，代码见 github.com/xinsir6/ControlNetPlus"
+  # ✅ controlnet_sdxl_union 已于 2026-09-24 下载并登记为 models: #7（Apache-2.0，standby 待接线）
   - name: ipadapter_sdxl
     kind: ipadapter
     for_workflow: [WF-STYLE, WF-IMG2IMG]
