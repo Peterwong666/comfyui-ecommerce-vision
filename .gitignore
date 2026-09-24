@@ -115,6 +115,15 @@ tests/golden_set/reference/*
 /bench_out/
 /verify_out/
 
+# ---------- GPU 生成的大型证据图片（本地保留，不入 GitHub）----------
+deploy/comfyui/evidence/**/*.png
+deploy/comfyui/evidence/**/*.jpg
+evidence/p4_control_*/
+evidence/p4_union_cn_*/
+evidence/gpu_test_*/
+# 保留 README 截图（< 1MB）
+!evidence/screenshots/
+
 # ---------- 洗稿/编辑临时备份（防误提交）----------
 *.pre-clean.bak
 *.docx.bak
