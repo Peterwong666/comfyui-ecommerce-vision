@@ -26,7 +26,7 @@ import { useState } from 'react'
 
 import { useTasks, useTask } from '../api/hooks'
 import type { TaskOut } from '../api/types'
-import { TASK_STATUS } from '../api/enums'
+import { TASK_STATUS, type TaskStatus } from '../api/enums'
 import { api } from '../api/client'
 import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '../api/keys'
@@ -68,12 +68,12 @@ function fmtDuration(ms: number | null): string {
 export function TaskCenterPage() {
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
-  const [statusFilter, setStatusFilter] = useState<string | undefined>()
+  const [statusFilter, setStatusFilter] = useState<TaskStatus | undefined>()
   const [selectedTask, setSelectedTask] = useState<number | null>(null)
 
   const pageSize = 20
   const tasks = useTasks({
-    status: statusFilter as any,
+    status: statusFilter,
     limit: pageSize,
     offset: (page - 1) * pageSize,
   })

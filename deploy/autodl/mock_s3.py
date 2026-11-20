@@ -4,13 +4,12 @@
 Handles: PUT/GET/HEAD object, ListBuckets, CreateBucket,
          multipart upload (Initiate/UploadPart/Complete).
 """
+import hashlib
 import os
 import sys
 import uuid
-import hashlib
-from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
-from xml.etree import ElementTree as ET
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs, urlparse
 
 DATA_DIR = "/root/minio-data"
 UPLOADS_DIR = "/root/minio-data/.multipart"
@@ -36,16 +35,15 @@ class S3Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed, qs, parts = self._parse_path()
 
-        if path := parsed.path:
-            if path == "/" or path == "":
-                buckets = [d for d in os.listdir(DATA_DIR)
-                           if os.path.isdir(os.path.join(DATA_DIR, d)) and not d.startswith(".")]
-                xml = '<?xml version="1.0"?><ListAllMyBucketsResult><Buckets>'
-                for b in buckets:
-                    xml += f'<Bucket><Name>{b}</Name></Bucket>'
-                xml += '</Buckets></ListAllMyBucketsResult>'
-                self._respond(200, xml.encode(), {"Content-Type": "application/xml"})
-                return
+        if parsed.path in {"/", ""}:
+            buckets = [d for d in os.listdir(DATA_DIR)
+                       if os.path.isdir(os.path.join(DATA_DIR, d)) and not d.startswith(".")]
+            xml = '<?xml version="1.0"?><ListAllMyBucketsResult><Buckets>'
+            for b in buckets:
+                xml += f'<Bucket><Name>{b}</Name></Bucket>'
+            xml += '</Buckets></ListAllMyBucketsResult>'
+            self._respond(200, xml.encode(), {"Content-Type": "application/xml"})
+            return
 
         if len(parts) == 1:
             bucket = parts[0]
@@ -115,7 +113,8 @@ class S3Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         parsed, qs, parts = self._parse_path()
         content_length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(content_length) if content_length > 0 else b""
+        if content_length > 0:
+            self.rfile.read(content_length)
 
         # Complete multipart upload
         upload_id = qs.get("uploadId", [None])[0]
@@ -135,7 +134,8 @@ class S3Handler(BaseHTTPRequestHandler):
                 import shutil
                 shutil.rmtree(part_dir, ignore_errors=True)
 
-            etag = hashlib.md5(open(filepath, "rb").read()).hexdigest()
+            with open(filepath, "rb") as stream:
+                etag = hashlib.md5(stream.read()).hexdigest()
             xml = f'<?xml version="1.0"?><CompleteMultipartUploadResult><ETag>"{etag}"</ETag></CompleteMultipartUploadResult>'
             self._respond(200, xml.encode(), {"Content-Type": "application/xml"})
             return

@@ -5,11 +5,10 @@
 2. 姿态控制（DWPose + union CN）
 3. 多CN叠加（canny + depth + union）
 """
-import json
 import sys
 import time
+
 import requests
-from pathlib import Path
 
 COMFYUI_URL = "http://127.0.0.1:8188"
 
@@ -26,7 +25,7 @@ def check_union_cn_loaded():
     data = resp.json()
     
     # 检查ControlNet相关节点
-    cn_nodes = [k for k in data.keys() if 'controlnet' in k.lower() or 'ControlNet' in k]
+    cn_nodes = [k for k in data if 'controlnet' in k.lower() or 'ControlNet' in k]
     print(f"找到 {len(cn_nodes)} 个ControlNet相关节点")
     
     # 检查union CN是否在可用模型中
@@ -310,7 +309,7 @@ def main():
     
     # 总结
     print("\n=== 测试总结 ===")
-    print(f"union CN 权重加载: ✅")
+    print("union CN 权重加载: ✅")
     print(f"姿态控制测试: {'✅' if pose_ok else '❌'}")
     print(f"多CN叠加测试: {'✅' if multi_ok else '❌'}")
     

@@ -91,8 +91,8 @@ export function BatchPage() {
         images_per_sku: imagesPerSku,
       })
       message.success(`批量任务已提交，ID: ${result.id}，共 ${result.total_count} 张`)
-    } catch (err: any) {
-      message.error(err?.message ?? '提交失败')
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '提交失败')
     } finally {
       setSubmitting(false)
     }
@@ -171,7 +171,7 @@ export function BatchPage() {
                   columns={[
                     { title: 'ID', dataIndex: 'id', width: 60 },
                     { title: '文件名', dataIndex: 'original_name', ellipsis: true },
-                    { title: '尺寸', key: 'size', render: (_: any, r: any) => r.width && r.height ? `${r.width}×${r.height}` : '—' },
+                    { title: '尺寸', key: 'size', render: (_: unknown, r) => r.width && r.height ? `${r.width}×${r.height}` : '—' },
                   ]}
                 />
               )}
@@ -207,7 +207,7 @@ export function BatchPage() {
                       title: '',
                       key: 'remove',
                       width: 60,
-                      render: (_: any, r: any) => (
+                      render: (_: unknown, r) => (
                         <Button size="small" type="text" danger onClick={() => removeSku(r.sku)}>
                           删除
                         </Button>

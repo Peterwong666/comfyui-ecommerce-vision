@@ -137,6 +137,14 @@ jobs:
       - name: pytest（engine）
         run: python -m pytest engine/tests -q
 
+      - name: Export both product-photo samples without a GPU
+        run: |
+          python -m engine.tools.first_run --output /tmp/product-photo-sdxl.json
+          python -m engine.tools.first_run --workflow flux2_klein_t2i_v1 --output /tmp/product-photo-flux.json
+          for request in /tmp/product-photo-*.json; do
+            jq -e '.prompt | (has("_meta") | not) and any(.[]; .class_type == "SaveImage")' "$request"
+          done
+
   # ------------------------------------------------------------------
   # 前端：typecheck / lint / test / build
   # ------------------------------------------------------------------

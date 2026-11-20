@@ -1,14 +1,16 @@
 # ComfyUI E-Commerce Vision Platform
 
-> 基于 ComfyUI 的**商用级** AIGC 视觉生产平台 —— 把「能跑通的节点工具」封装成「可量产、可观测、可核算、可迭代」的商品视觉生产线。
+> 使用 ComfyUI 生成电商商品图，提供可复用的文生图工作流、任务队列、批量生成和质量评测。
 >
-> A **commercial-grade** AIGC visual production platform built on ComfyUI — wrapping node-based tools into a mass-production, observable, accountable, and iterative product visual pipeline.
+> Generate e-commerce product photos with reusable ComfyUI workflows, a job queue, batch generation, and quality evaluation.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
 [![ComfyUI](https://img.shields.io/badge/Engine-ComfyUI-orange)](https://github.com/comfyanonymous/ComfyUI)
 
-**当前状态**：🚧 V1 W2 开发中（2026-09-14 启动，目标 2026-11-22 发布）
+**第一次使用 / First run** · [生成一条商品摄影任务](#快速开始) · [下载示例 / Releases](https://github.com/Peterwong666/comfyui-ecommerce-vision/releases)
+
+先离线生成一份商品图任务 JSON，再提交到自己的 ComfyUI。示例使用已验证的 SDXL 或 FLUX.2 klein 文生图工作流。批量生产平台仍在开发中。
 
 ---
 
@@ -22,7 +24,7 @@
 | Midjourney 等在线工具 | 出图不可控、风格漂移、无法批量、商品主体会被改形 |
 | 直接用 ComfyUI | 参数多、门槛高、批量易崩、没有任务管理与成本概念 |
 
-**本项目做的事**：把经过验证的 ComfyUI 工作流封装成场景模板，配上一层生产平台（任务队列、批量、良品率度量、成本核算、用户与素材管理），让非技术同学 10 分钟出 100 张可用图。
+**本项目做的事**：把经过验证的 ComfyUI 工作流封装成场景模板，配上一层生产平台（任务队列、批量、良品率度量、成本核算、用户与素材管理），便于复用同一组参数并追踪生成结果。
 
 ---
 
@@ -147,38 +149,29 @@ ControlNet（canny / depth / lineart / softedge / normal / openpose）· IP-Adap
 
 ## 快速开始
 
-> 当前处于开发阶段（V1 进行中），**产品形态的平台尚未封装完成**，还没有面向最终用户的一键部署。
-> 开发环境可以手动跑通端到端出图。
+### 1. 离线生成或下载任务 / Export or download
 
-| 我想… | 看这里 |
-|---|---|
-| **15 分钟从零到出一张图** | [`docs/sop/quickstart.md`](./docs/sop/quickstart.md) |
-| 深入了解环境、排错、加模型、跑基准 | [`docs/sop/runbook.md`](./docs/sop/runbook.md) |
-| 了解产品要做什么 | [`docs/prd/PRD_v1.md`](./docs/prd/PRD_v1.md) · [`docs/mrd/MRD_v1.md`](./docs/mrd/MRD_v1.md) |
-
-### 最短路径（概要）
+安装 Python 3.10+，从仓库根目录运行。导出阶段只生成 JSON，使用固定 seed，无需显卡或云账号。
 
 ```bash
-# 0) 前置：本机装 sshpass，并从 autoDL 控制台取得实例密码（不要写进仓库）
-export SSHPASS='<实例密码>'
-
-# 1) autoDL 控制台：先看 GPU 空闲数，再开机（出图必须有卡模式）
-
-# 2) 启动 ComfyUI（生产配置，幂等）
-sshpass -e ssh -p 22910 root@connect.westc.seetacloud.com \
-  'bash /root/autodl-tmp/03_start_comfyui.sh'
-
-# 3) 本机建隧道（保持前台运行），然后浏览器打开 http://127.0.0.1:8188
-sshpass -e ssh -N -L 127.0.0.1:8188:127.0.0.1:8188 -p 22910 root@connect.westc.seetacloud.com
-
-# 4) 把 workflows/flux2_klein_t2i_v1.json 拖进画布 → Run
+python -m pip install -e ".[yaml]"
+python -m engine.tools.first_run --output product-photo.json
 ```
 
-前置条件：autoDL 实例（RTX 4090 24G / CUDA 13 / Python 3.12）、本机 `sshpass`、Python 3.10+。
+也可以从 [GitHub Releases](https://github.com/Peterwong666/comfyui-ecommerce-vision/releases) 下载现成的 `product-photo-sdxl.json`。用 `--prompt` 替换样例主体，或指定 `--workflow flux2_klein_t2i_v1` 生成 FLUX.2 klein 任务。
 
-当前环境基线见 [`deploy/versions.lock`](./deploy/versions.lock)：
-ComfyUI v0.36.0 + torch 2.13.0+cu130，生产启动参数 `--highvram`。
-实测稳态：SDXL 1024²/30 步 **4.59s**（地板）/ FLUX.2 klein 4 步 **1.52s**（地板）。
+### 2. 提交到自己的 ComfyUI / Queue locally
+
+SDXL 示例要求本地运行 [ComfyUI](https://github.com/Comfy-Org/ComfyUI) 并安装 `models/checkpoints/sd_xl_base_1.0.safetensors`。下载好的请求文件也可以直接用于下列命令。
+
+```bash
+curl --fail-with-body http://127.0.0.1:8188/prompt \
+  -H 'Content-Type: application/json' --data-binary @product-photo.json
+```
+
+响应中的 `prompt_id` 表示任务已进入队列。使用 `GET /history/<prompt_id>` 确认执行完成，再在 ComfyUI 的 `output/smoke/t2i/` 找到默认 SDXL 图片。FLUX.2 klein 所需模型与安装位置见[模型清单](docs/sop/runbook.md)。实际出图需要一套可运行相应模型的 ComfyUI 环境。
+
+[云 GPU 上手指南](docs/sop/quickstart.md) · [排障与模型说明](docs/sop/runbook.md)
 
 ---
 
